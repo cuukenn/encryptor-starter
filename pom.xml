@@ -10,14 +10,14 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>org.github.cuukenn.demo</groupId>
-    <artifactId>encrypt-lectotype</artifactId>
+    <artifactId>encryptor-lectotype</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <description>encrypt and decrypt data</description>
     <modules>
-        <module>bom</module>
-        <module>encrypt-base</module>
-        <module>encrypt-core</module>
+        <module>encryptor-bom</module>
+        <module>encryptor-base</module>
+        <module>encryptor-core</module>
     </modules>
 
     <properties>
@@ -55,8 +55,8 @@
             </dependency>
             <!--project bom依赖控制-->
             <dependency>
-                <groupId>org.github.cuukenn.demo.encrypt-lectotype</groupId>
-                <artifactId>bom</artifactId>
+                <groupId>org.github.cuukenn.demo</groupId>
+                <artifactId>encryptor-bom</artifactId>
                 <version>${project.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
