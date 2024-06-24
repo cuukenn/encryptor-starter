@@ -18,6 +18,8 @@
         <module>encryptor-bom</module>
         <module>encryptor-base</module>
         <module>encryptor-core</module>
+        <module>encryptor-starter</module>
+        <module>encryptor-starter-reactive</module>
     </modules>
 
     <properties>

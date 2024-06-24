@@ -1,6 +1,7 @@
 package com.github.cuukenn.demo.encrypt.lectotype.core.encryptor;
 
 import cn.hutool.core.util.StrUtil;
+import com.github.cuukenn.demo.encrypt.lectotype.EncryptorException;
 import com.github.cuukenn.demo.encrypt.lectotype.core.IEncryptorStrategy;
 import com.github.cuukenn.demo.encrypt.lectotype.core.encoder.EncryptorEncoder;
 import com.github.cuukenn.demo.encrypt.lectotype.exception.BizException;
@@ -22,7 +23,7 @@ public class GroupEncryptor implements IEncryptorStrategy<String, String> {
         this.groupSplit = ".";
         this.delegate = delegate;
         if (groupSize <= 0) {
-            throw new BizException("groupSize cannot less then 0");
+            throw new EncryptorException("groupSize cannot less then 0");
         }
         this.groupSize = groupSize;
     }
