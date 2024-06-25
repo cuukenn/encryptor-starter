@@ -9,14 +9,14 @@
         <version>2.4.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>org.github.cuukenn.demo</groupId>
-    <artifactId>encryptor-lectotype</artifactId>
+    <groupId>io.github.cuukenn.encryptor</groupId>
+    <artifactId>encryptor-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
+    <name>encryptor</name>
     <description>encrypt and decrypt data</description>
     <modules>
         <module>encryptor-bom</module>
-        <module>encryptor-base</module>
         <module>encryptor-core</module>
         <module>encryptor-starter</module>
         <module>encryptor-starter-reactive</module>
@@ -57,7 +57,7 @@
             </dependency>
             <!--project bom依赖控制-->
             <dependency>
-                <groupId>org.github.cuukenn.demo</groupId>
+                <groupId>io.github.cuukenn.encryptor</groupId>
                 <artifactId>encryptor-bom</artifactId>
                 <version>${project.version}</version>
                 <type>pom</type>
@@ -95,6 +95,12 @@
             <id>test</id>
             <properties>
                 <project.env>test</project.env>
+            </properties>
+        </profile>
+        <profile>
+            <id>sit</id>
+            <properties>
+                <project.env>sit</project.env>
             </properties>
         </profile>
         <profile>

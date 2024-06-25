@@ -1,2 +1,2 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.github.cuukenn.demo.encrypt.lectotype.configuration.EncryptorAutoConfiguration
+io.github.cuukenn.encryptor.configuration.EncryptorAutoConfiguration
