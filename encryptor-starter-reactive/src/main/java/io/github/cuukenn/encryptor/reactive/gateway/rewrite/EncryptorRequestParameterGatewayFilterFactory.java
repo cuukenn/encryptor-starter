@@ -54,9 +54,9 @@ public class EncryptorRequestParameterGatewayFilterFactory extends AbstractGatew
 
                 exchange.getAttributes().put(EncryptorConstant.KEY, dataWrapper.getKey());
 
-                String decryptData = encryptorEncoder.decrypt(dataWrapper);
+                byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
 
-                Map<String, String> newParameters = JSONUtil.toBean(decryptData, new TypeReference<Map<String, String>>() {
+                Map<String, String> newParameters = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
                 }, true);
 
                 MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();

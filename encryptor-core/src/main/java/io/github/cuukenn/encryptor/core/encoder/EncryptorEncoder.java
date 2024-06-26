@@ -4,12 +4,10 @@ import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
 import io.github.cuukenn.encryptor.core.IEncryptorStrategy;
 
-import java.nio.charset.StandardCharsets;
-
 /**
  * @author changgg
  */
-public class EncryptorEncoder implements IEncryptorStrategy<String, String> {
+public class EncryptorEncoder implements IEncryptorStrategy<byte[], String> {
     private final EncryptorStrategy delegate;
     private final EncoderStrategy encoderStrategy;
 
@@ -19,12 +17,12 @@ public class EncryptorEncoder implements IEncryptorStrategy<String, String> {
     }
 
     @Override
-    public String encrypt(String data) {
-        return encoderStrategy.encode(delegate.encrypt(data.getBytes(StandardCharsets.UTF_8)));
+    public String encrypt(byte[] data) {
+        return encoderStrategy.encode(delegate.encrypt(data));
     }
 
     @Override
-    public String decrypt(String data) {
-        return new String(delegate.decrypt(encoderStrategy.decode(data)), StandardCharsets.UTF_8);
+    public byte[] decrypt(String data) {
+        return delegate.decrypt(encoderStrategy.decode(data));
     }
 }

@@ -1,7 +1,7 @@
 package io.github.cuukenn.encryptor.web;
 
-import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
+import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -12,7 +12,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 /**
  * @author changgg
@@ -41,6 +40,6 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
     }
 
     private EncryptorDataWrapper getEncrypt(byte[] content, String key) {
-        return encryptorEncoder.encrypt(new String(content, StandardCharsets.UTF_8), key);
+        return encryptorEncoder.encrypt(content, key);
     }
 }

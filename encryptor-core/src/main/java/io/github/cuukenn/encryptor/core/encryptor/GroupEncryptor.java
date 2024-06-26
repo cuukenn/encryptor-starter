@@ -1,19 +1,15 @@
 package io.github.cuukenn.encryptor.core.encryptor;
 
-import cn.hutool.core.util.StrUtil;
-import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.core.IEncryptorStrategy;
 import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
-
-import java.util.Arrays;
-import java.util.stream.Collectors;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 
 /**
  * 分组加解密
  *
  * @author changgg
  */
-public class GroupEncryptor implements IEncryptorStrategy<String, String> {
+public class GroupEncryptor implements IEncryptorStrategy<byte[], String> {
     private final EncryptorEncoder delegate;
     private final String groupSplit;
     private final int groupSize;
@@ -34,12 +30,12 @@ public class GroupEncryptor implements IEncryptorStrategy<String, String> {
     }
 
     @Override
-    public String encrypt(String data) {
-        return Arrays.stream(StrUtil.cut(data, groupSize)).map(delegate::encrypt).collect(Collectors.joining(groupSplit));
+    public String encrypt(byte[] data) {
+        return null;
     }
 
     @Override
-    public String decrypt(String data) {
-        return StrUtil.split(data, groupSplit).stream().map(delegate::decrypt).collect(Collectors.joining());
+    public byte[] decrypt(String data) {
+        return null;
     }
 }

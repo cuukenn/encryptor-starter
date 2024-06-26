@@ -25,17 +25,17 @@ public class EncryptorFacade {
         this.checkerStrategies = checkerStrategies;
     }
 
-    public EncryptorDataWrapper encrypt(String data, String key) {
-        final String params = negotiateEncoder.decrypt(key);
-        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(params);
-        SignerEncoder signerEncoderL = signerEncoder.apply(params);
+    public EncryptorDataWrapper encrypt(byte[] data, String key) {
+        final byte[] params = negotiateEncoder.decrypt(key);
+        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params));
+        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params));
         return EncryptorKit.encrypt(encryptorEncoderL, signerEncoderL, data, key);
     }
 
-    public String decrypt(EncryptorDataWrapper data) {
-        final String params = negotiateEncoder.decrypt(data.getKey());
-        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(params);
-        SignerEncoder signerEncoderL = signerEncoder.apply(params);
+    public byte[] decrypt(EncryptorDataWrapper data) {
+        final byte[] params = negotiateEncoder.decrypt(data.getKey());
+        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params));
+        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params));
         return EncryptorKit.decrypt(encryptorEncoderL, signerEncoderL, checkerStrategies, data);
     }
 }

@@ -25,7 +25,7 @@ import java.util.Set;
  * @author changgg
  */
 public class EncryptorResponseGatewayFilterFactory extends ModifyResponseBodyGatewayFilterFactory {
-    private static final Logger logger = LoggerFactory.getLogger(EncryptorRequestGatewayFilterFactory.class);
+    private static final Logger logger = LoggerFactory.getLogger(EncryptorResponseGatewayFilterFactory.class);
     private final EncryptorFacade encryptorEncoder;
     private final DataConverter dataConverter;
 
@@ -54,7 +54,7 @@ public class EncryptorResponseGatewayFilterFactory extends ModifyResponseBodyGat
     /**
      * @author changgg
      */
-    public static class EncryptorEncoderFunction implements RewriteFunction<String, String> {
+    public static class EncryptorEncoderFunction implements RewriteFunction<byte[], String> {
         private final EncryptorFacade encryptorEncoder;
         private final DataConverter dataConverter;
 
@@ -64,7 +64,7 @@ public class EncryptorResponseGatewayFilterFactory extends ModifyResponseBodyGat
         }
 
         @Override
-        public Publisher<String> apply(ServerWebExchange serverWebExchange, String data) {
+        public Publisher<String> apply(ServerWebExchange serverWebExchange, byte[] data) {
             if (data == null) {
                 return Mono.empty();
             }

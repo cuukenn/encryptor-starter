@@ -69,10 +69,10 @@ public class EncryptorStrategyTest {
         EncoderStrategy encoderStrategy = new Base64Encoder();
         for (SymmetricCrypto crypto : cryptos) {
             EncryptorEncoder encryptorEncoder = new EncryptorEncoder(new HtlSymmetricCryptoEncryptor(crypto), encoderStrategy);
-            String encrypt = encryptorEncoder.encrypt(data);
-            String decrypt = encryptorEncoder.decrypt(encrypt);
+            String encrypt = encryptorEncoder.encrypt(data.getBytes());
+            byte[] decrypt = encryptorEncoder.decrypt(encrypt);
             logger.info(encrypt);
-            Assertions.assertEquals(data, decrypt);
+            Assertions.assertArrayEquals(data.getBytes(), decrypt);
         }
     }
 
@@ -87,9 +87,9 @@ public class EncryptorStrategyTest {
         for (SymmetricCrypto crypto : cryptos) {
             EncryptorEncoder encryptorEncoder = new EncryptorEncoder(new HtlSymmetricCryptoEncryptor(crypto), encoderStrategy);
             GroupEncryptor groupEncryptor = new GroupEncryptor(encryptorEncoder, 4);
-            String encrypt = groupEncryptor.encrypt(data);
-            String decrypt = groupEncryptor.decrypt(encrypt);
-            Assertions.assertEquals(data, decrypt);
+            String encrypt = groupEncryptor.encrypt(data.getBytes());
+            byte[] decrypt = groupEncryptor.decrypt(encrypt);
+            Assertions.assertArrayEquals(data.getBytes(), decrypt);
         }
     }
 }

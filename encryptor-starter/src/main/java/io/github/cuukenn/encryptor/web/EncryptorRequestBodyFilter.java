@@ -1,7 +1,7 @@
 package io.github.cuukenn.encryptor.web;
 
-import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
+import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -17,7 +17,6 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 
 /**
  * 解密request body
@@ -41,9 +40,9 @@ public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
             @Override
             public ServletInputStream getInputStream() throws IOException {
                 if (newInputstream == null) {
-                    EncryptorDataWrapper dataWrapper = dataConverter.load(request, new String(getContentAsByteArray(), StandardCharsets.UTF_8));
-                    String decryptData = encryptorEncoder.decrypt(dataWrapper);
-                    newInputstream = new BufferedInputStream(new ByteArrayInputStream(decryptData.getBytes(StandardCharsets.UTF_8)));
+                    EncryptorDataWrapper dataWrapper = dataConverter.load(request, new String(getContentAsByteArray()));
+                    byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
+                    newInputstream = new BufferedInputStream(new ByteArrayInputStream(decryptData));
                     request.setAttribute(EncryptorConstant.KEY, dataWrapper.getKey());
                 }
                 return new ServletInputStream() {

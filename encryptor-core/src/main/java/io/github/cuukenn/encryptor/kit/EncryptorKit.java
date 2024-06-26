@@ -14,7 +14,7 @@ import java.util.List;
  * @author changgg
  */
 public class EncryptorKit {
-    public static EncryptorDataWrapper encrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, String data, String key) {
+    public static EncryptorDataWrapper encrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, byte[] data, String key) {
         final String encryptData = encryptorEncoder.encrypt(data);
         final String nonce = IdUtil.fastSimpleUUID();
         final long timestamp = System.currentTimeMillis();
@@ -26,11 +26,11 @@ public class EncryptorKit {
         );
     }
 
-    public static String decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, EncryptorDataWrapper data) {
+    public static byte[] decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, EncryptorDataWrapper data) {
         return decrypt(encryptorEncoder, signerEncoder, Collections.emptyList(), data);
     }
 
-    public static String decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, List<CheckerStrategy> checkStrategies, EncryptorDataWrapper data) {
+    public static byte[] decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, List<CheckerStrategy> checkStrategies, EncryptorDataWrapper data) {
         final String encryptData = data.getData();
         final String nonce = IdUtil.fastSimpleUUID();
         final long timestamp = System.currentTimeMillis();

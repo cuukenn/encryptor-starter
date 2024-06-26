@@ -2,8 +2,8 @@ package io.github.cuukenn.encryptor.web;
 
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
+import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -60,8 +60,8 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
                     return Collections.emptyMap();
                 }
                 EncryptorDataWrapper dataWrapper = dataConverter.load(request, JSONUtil.toJsonStr(parameters));
-                String decryptData = encryptorEncoder.decrypt(dataWrapper);
-                Map<String, String> map = JSONUtil.toBean(decryptData, new TypeReference<Map<String, String>>() {
+                byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
+                Map<String, String> map = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
                 }, true);
                 request.setAttribute(EncryptorConstant.KEY, dataWrapper.getKey());
                 return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));

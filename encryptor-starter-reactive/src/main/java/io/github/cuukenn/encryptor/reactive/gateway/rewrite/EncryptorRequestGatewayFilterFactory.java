@@ -34,7 +34,7 @@ public class EncryptorRequestGatewayFilterFactory extends ModifyRequestBodyGatew
     protected Config getConfig() {
         Config config = new Config();
         config.setInClass(String.class);
-        config.setOutClass(String.class);
+        config.setOutClass(byte[].class);
         config.setRewriteFunction(new EncryptorDecoderFunction(encryptorEncoder, dataConverter));
         return config;
     }
@@ -42,7 +42,7 @@ public class EncryptorRequestGatewayFilterFactory extends ModifyRequestBodyGatew
     /**
      * @author changgg
      */
-    public static class EncryptorDecoderFunction implements RewriteFunction<String, String> {
+    public static class EncryptorDecoderFunction implements RewriteFunction<String, byte[]> {
         private final EncryptorFacade encryptorEncoder;
         private final DataConverter dataConverter;
 
@@ -52,7 +52,7 @@ public class EncryptorRequestGatewayFilterFactory extends ModifyRequestBodyGatew
         }
 
         @Override
-        public Publisher<String> apply(ServerWebExchange serverWebExchange, String data) {
+        public Publisher<byte[]> apply(ServerWebExchange serverWebExchange, String data) {
             if (data == null) {
                 return null;
             }
