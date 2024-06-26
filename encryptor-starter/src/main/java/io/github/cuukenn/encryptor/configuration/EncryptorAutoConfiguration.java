@@ -5,22 +5,27 @@ import cn.hutool.crypto.digest.MD5;
 import cn.hutool.crypto.symmetric.AES;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.converter.AllInBodyDataConverter;
 import io.github.cuukenn.encryptor.converter.DataConverter;
+import io.github.cuukenn.encryptor.converter.HeaderDataConverter;
 import io.github.cuukenn.encryptor.core.CheckerStrategy;
 import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
 import io.github.cuukenn.encryptor.core.checker.InMemoryNonceChecker;
 import io.github.cuukenn.encryptor.core.checker.InRedisNonceChecker;
 import io.github.cuukenn.encryptor.core.digester.HtlDigester;
-import io.github.cuukenn.encryptor.core.encoder.Base64Encoder;
 import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
+import io.github.cuukenn.encryptor.core.encoder.HexEncoder;
 import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
 import io.github.cuukenn.encryptor.core.encryptor.HtlASymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.signer.DigestWithEncryptSigner;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
+import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.web.configuration.WebEncryptorConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -60,25 +65,30 @@ public class EncryptorAutoConfiguration {
         return new InMemoryNonceChecker(config.getNonceCheckerConfig().getInMemoryCacheSize(), config.getNonceCheckerConfig().getOffsetTime());
     }
 
-    @ConditionalOnMissingBean(EncryptorFacade.class)
-    @Bean
-    public EncryptorFacade encryptorFacade(EncryptorConfig config, List<CheckerStrategy> checkerStrategies) {
-        Function<String, EncryptorStrategy> strategyFunction = params -> {
-            JSONObject obj = JSONUtil.parseObj(params);
-            return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), obj.getBytes("iv")));
+    @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
+    public EncryptorFacadeFactory<CryptoConfig> encryptorFacade(EncryptorConfig config, List<CheckerStrategy> checkerStrategies) {
+        return ascConfig -> {
+            Function<String, EncryptorStrategy> strategyFunction = params -> {
+                JSONObject obj = JSONUtil.parseObj(params);
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), obj.getBytes("iv")));
+            };
+            EncoderStrategy encoder = new HexEncoder();
+            return new EncryptorFacade(
+                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getCryptoConfig().getAlgorithm(), config.getCryptoConfig().getPrivateKey(), config.getCryptoConfig().getPublicKey())), encoder),
+                    params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
+                    params -> new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), strategyFunction.apply(params)), encoder),
+                    checkerStrategies
+            );
         };
-        EncoderStrategy encoder = new Base64Encoder();
-        return new EncryptorFacade(
-                new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getAscConfig().getAlgorithm(), config.getAscConfig().getPrivateKey(), config.getAscConfig().getPublicKey())), encoder),
-                params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
-                params -> new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), strategyFunction.apply(params)), encoder),
-                checkerStrategies
-        );
     }
 
-    @ConditionalOnMissingBean(DataConverter.class)
     @Bean
-    public DataConverter dataConverter() {
+    public DataConverter allInBodyConverter() {
         return new AllInBodyDataConverter();
+    }
+
+    @Bean
+    public DataConverter headerDataConverter() {
+        return new HeaderDataConverter();
     }
 }

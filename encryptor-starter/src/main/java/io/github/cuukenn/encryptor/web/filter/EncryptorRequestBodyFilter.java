@@ -1,9 +1,8 @@
-package io.github.cuukenn.encryptor.web;
+package io.github.cuukenn.encryptor.web.filter;
 
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.DataConverter;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
+import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
+import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 
@@ -24,26 +23,22 @@ import java.io.InputStream;
  * @author changgg
  */
 public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
-    private final EncryptorFacade encryptorEncoder;
-    private final DataConverter dataConverter;
-
-    public EncryptorRequestBodyFilter(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
-        this.encryptorEncoder = encryptorEncoder;
-        this.dataConverter = dataConverter;
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+        if (!WebContext.current().isReqEncryptor()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         filterChain.doFilter(new ContentCachingRequestWrapper(request) {
             private InputStream newInputstream = null;
 
             @Override
             public ServletInputStream getInputStream() throws IOException {
                 if (newInputstream == null) {
-                    EncryptorDataWrapper dataWrapper = dataConverter.load(request, new String(getContentAsByteArray()));
-                    byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
+                    EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, new String(getContentAsByteArray()));
+                    byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
                     newInputstream = new BufferedInputStream(new ByteArrayInputStream(decryptData));
-                    request.setAttribute(EncryptorConstant.KEY, dataWrapper.getKey());
+                    request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
                 }
                 return new ServletInputStream() {
                     @Override

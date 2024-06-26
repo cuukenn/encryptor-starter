@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.reactive.config;
 
+import io.github.cuukenn.encryptor.config.CryptoConfig;
+import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -12,7 +14,15 @@ public class EncryptorConfig {
     @NestedConfigurationProperty
     private NonceCheckerConfig nonceCheckerConfig;
     @NestedConfigurationProperty
-    private ASymmetricCryptoConfig ascConfig;
+    private CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY);
+
+    public CryptoConfig getCryptoConfig() {
+        return cryptoConfig;
+    }
+
+    public void setCryptoConfig(CryptoConfig cryptoConfig) {
+        this.cryptoConfig = cryptoConfig;
+    }
 
     public NonceCheckerConfig getNonceCheckerConfig() {
         return nonceCheckerConfig;
@@ -20,13 +30,5 @@ public class EncryptorConfig {
 
     public void setNonceCheckerConfig(NonceCheckerConfig nonceCheckerConfig) {
         this.nonceCheckerConfig = nonceCheckerConfig;
-    }
-
-    public ASymmetricCryptoConfig getAscConfig() {
-        return ascConfig;
-    }
-
-    public void setAscConfig(ASymmetricCryptoConfig ascConfig) {
-        this.ascConfig = ascConfig;
     }
 }

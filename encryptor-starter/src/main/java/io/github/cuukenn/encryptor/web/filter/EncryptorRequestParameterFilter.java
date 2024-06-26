@@ -1,11 +1,10 @@
-package io.github.cuukenn.encryptor.web;
+package io.github.cuukenn.encryptor.web.filter;
 
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.DataConverter;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
+import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
+import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.FilterChain;
@@ -25,16 +24,12 @@ import java.util.stream.Collectors;
  * @author changgg
  */
 public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
-    private final EncryptorFacade encryptorEncoder;
-    private final DataConverter dataConverter;
-
-    public EncryptorRequestParameterFilter(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
-        this.encryptorEncoder = encryptorEncoder;
-        this.dataConverter = dataConverter;
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+        if (!WebContext.current().isReqEncryptor()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         filterChain.doFilter(new HttpServletRequestWrapper(request) {
             private Map<String, String[]> newParameters = null;
 
@@ -59,11 +54,11 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
                 if (parameters.isEmpty()) {
                     return Collections.emptyMap();
                 }
-                EncryptorDataWrapper dataWrapper = dataConverter.load(request, JSONUtil.toJsonStr(parameters));
-                byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
+                EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, JSONUtil.toJsonStr(parameters));
+                byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
                 Map<String, String> map = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
                 }, true);
-                request.setAttribute(EncryptorConstant.KEY, dataWrapper.getKey());
+                request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
                 return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
             }
         }, response);

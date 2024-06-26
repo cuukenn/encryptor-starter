@@ -2,13 +2,12 @@ package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
 
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
+import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
-import io.github.cuukenn.encryptor.reactive.converter.DataConverter;
+import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayKit;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
-import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.LinkedMultiValueMap;
@@ -18,28 +17,21 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
-
-import static org.springframework.cloud.gateway.support.GatewayToStringStyler.filterToStringCreator;
 
 /**
  * 对params参数进行处理
  *
  * @author changgg
  */
-public class EncryptorRequestParameterGatewayFilterFactory extends AbstractGatewayFilterFactory<AbstractGatewayFilterFactory.NameConfig> {
-    private final EncryptorFacade encryptorEncoder;
-    private final DataConverter dataConverter;
-
-    public EncryptorRequestParameterGatewayFilterFactory(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
-        this.encryptorEncoder = encryptorEncoder;
-        this.dataConverter = dataConverter;
-    }
+public class EncryptorRequestParameterFilter implements GlobalFilter {
+    public static final int FILTER_ORDER = -11;
 
     @Override
-    public GatewayFilter apply(NameConfig config) {
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        if (!GatewayKit.isReqEncryptorEnable(exchange)) {
+            return chain.filter(exchange);
+        }
         return new GatewayFilter() {
             @Override
             public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -50,11 +42,11 @@ public class EncryptorRequestParameterGatewayFilterFactory extends AbstractGatew
                     return chain.filter(exchange);
                 }
 
-                EncryptorDataWrapper dataWrapper = dataConverter.load(request, JSONUtil.toJsonStr(paramsMap));
+                EncryptorDataWrapper dataWrapper = GatewayKit.getEncryptorDataConverter(exchange).load(request, JSONUtil.toJsonStr(paramsMap));
 
-                exchange.getAttributes().put(EncryptorConstant.KEY, dataWrapper.getKey());
+                exchange.getAttributes().put(CoreEncryptorConstant.KEY, dataWrapper.getKey());
 
-                byte[] decryptData = encryptorEncoder.decrypt(dataWrapper);
+                byte[] decryptData = GatewayKit.getEncryptorFacade(exchange).decrypt(dataWrapper);
 
                 Map<String, String> newParameters = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
                 }, true);
@@ -70,17 +62,6 @@ public class EncryptorRequestParameterGatewayFilterFactory extends AbstractGatew
 
                 return chain.filter(exchange.mutate().request(updatedRequest).build());
             }
-
-            @Override
-            public String toString() {
-                return filterToStringCreator(EncryptorRequestParameterGatewayFilterFactory.this)
-                        .append("name", config.getName()).toString();
-            }
-        };
-    }
-
-    @Override
-    public List<String> shortcutFieldOrder() {
-        return Collections.singletonList(NAME_KEY);
+        }.filter(exchange, chain);
     }
 }

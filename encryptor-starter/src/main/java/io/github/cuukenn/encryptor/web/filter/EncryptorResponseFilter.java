@@ -1,9 +1,8 @@
-package io.github.cuukenn.encryptor.web;
+package io.github.cuukenn.encryptor.web.filter;
 
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.DataConverter;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
+import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
+import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -17,17 +16,14 @@ import java.io.IOException;
  * @author changgg
  */
 public class EncryptorResponseFilter extends OncePerRequestFilter {
-    private final EncryptorFacade encryptorEncoder;
-    private final DataConverter dataConverter;
-
-    public EncryptorResponseFilter(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
-        this.encryptorEncoder = encryptorEncoder;
-        this.dataConverter = dataConverter;
-    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        String key = (String) request.getAttribute(EncryptorConstant.KEY);
+        if (!WebContext.isResEncryptorEnable(response)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        String key = (String) request.getAttribute(CoreEncryptorConstant.KEY);
         if (key == null) {
             filterChain.doFilter(request, response);
             return;
@@ -35,11 +31,11 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
         ContentCachingResponseWrapper cachingResponseWrapper = new ContentCachingResponseWrapper(response);
         filterChain.doFilter(request, cachingResponseWrapper);
         EncryptorDataWrapper encryptData = getEncrypt(cachingResponseWrapper.getContentAsByteArray(), key);
-        dataConverter.post(cachingResponseWrapper, encryptData);
+        WebContext.current().getDataConverter().post(cachingResponseWrapper, encryptData);
         cachingResponseWrapper.copyBodyToResponse();
     }
 
     private EncryptorDataWrapper getEncrypt(byte[] content, String key) {
-        return encryptorEncoder.encrypt(content, key);
+        return WebContext.current().getEncryptorFacade().encrypt(content, key);
     }
 }
