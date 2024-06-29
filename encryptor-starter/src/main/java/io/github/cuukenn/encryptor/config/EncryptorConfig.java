@@ -1,6 +1,5 @@
 package io.github.cuukenn.encryptor.config;
 
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -10,18 +9,11 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 @ConfigurationProperties(prefix = EncryptorConfig.PREFIX)
 public class EncryptorConfig {
     public static final String PREFIX = "encryptor.config";
+    /**
+     * 加密配置
+     */
     @NestedConfigurationProperty
-    private NonceCheckerConfig nonceCheckerConfig;
-    @NestedConfigurationProperty
-    private CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY);
-
-    public NonceCheckerConfig getNonceCheckerConfig() {
-        return nonceCheckerConfig;
-    }
-
-    public void setNonceCheckerConfig(NonceCheckerConfig nonceCheckerConfig) {
-        this.nonceCheckerConfig = nonceCheckerConfig;
-    }
+    private CryptoConfig cryptoConfig = new CryptoConfig();
 
     public CryptoConfig getCryptoConfig() {
         return cryptoConfig;

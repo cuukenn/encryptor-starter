@@ -8,14 +8,12 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.AllInBodyDataConverter;
+import io.github.cuukenn.encryptor.converter.AllInOneDataConverter;
 import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.converter.HeaderDataConverter;
 import io.github.cuukenn.encryptor.core.CheckerStrategy;
 import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
-import io.github.cuukenn.encryptor.core.checker.InMemoryNonceChecker;
-import io.github.cuukenn.encryptor.core.checker.InRedisNonceChecker;
 import io.github.cuukenn.encryptor.core.digester.HtlDigester;
 import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
 import io.github.cuukenn.encryptor.core.encoder.HexEncoder;
@@ -24,20 +22,18 @@ import io.github.cuukenn.encryptor.core.encryptor.HtlASymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.signer.DigestWithEncryptSigner;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.web.configuration.WebEncryptorConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -50,31 +46,17 @@ import java.util.function.Function;
 public class EncryptorAutoConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorAutoConfiguration.class);
 
-    @ConditionalOnBean(RedisTemplate.class)
-    @ConditionalOnMissingBean(name = "defaultNonceChecker")
-    @Bean("defaultNonceChecker")
-    public InRedisNonceChecker redisNonceChecker(RedisTemplate<Object, Object> redisTemplate, EncryptorConfig config) {
-        logger.info("register in redis nonce checker");
-        return new InRedisNonceChecker(redisTemplate, config.getNonceCheckerConfig().getOffsetTime());
-    }
-
-    @ConditionalOnMissingBean(name = "defaultNonceChecker")
-    @Bean("defaultNonceChecker")
-    public InMemoryNonceChecker memoryNonceChecker(EncryptorConfig config) {
-        logger.info("register in memory nonce checker");
-        return new InMemoryNonceChecker(config.getNonceCheckerConfig().getInMemoryCacheSize(), config.getNonceCheckerConfig().getOffsetTime());
-    }
-
     @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
-    public EncryptorFacadeFactory<CryptoConfig> encryptorFacade(EncryptorConfig config, List<CheckerStrategy> checkerStrategies) {
-        return ascConfig -> {
+    public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
+        logger.info("register default encryptor factory, used checker:[{}]", checkerStrategies);
+        return config -> {
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), obj.getBytes("iv")));
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), Optional.ofNullable(obj.getStr("iv")).map(String::getBytes).orElse(null)));
             };
             EncoderStrategy encoder = new HexEncoder();
             return new EncryptorFacade(
-                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getCryptoConfig().getAlgorithm(), config.getCryptoConfig().getPrivateKey(), config.getCryptoConfig().getPublicKey())), encoder),
+                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getAlgorithm(), config.getPrivateKey(), config.getPublicKey())), encoder),
                     params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
                     params -> new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), strategyFunction.apply(params)), encoder),
                     checkerStrategies
@@ -82,12 +64,12 @@ public class EncryptorAutoConfiguration {
         };
     }
 
-    @Bean
-    public DataConverter allInBodyConverter() {
-        return new AllInBodyDataConverter();
+    @Bean(EncryptorConstant.ALL_IN_ONE_CONVERTER)
+    public DataConverter allInOneConverter() {
+        return new AllInOneDataConverter();
     }
 
-    @Bean
+    @Bean(EncryptorConstant.HEADER_CONVERTER)
     public DataConverter headerDataConverter() {
         return new HeaderDataConverter();
     }

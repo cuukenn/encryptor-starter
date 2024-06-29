@@ -6,8 +6,8 @@
         <artifactId>encryptor-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
-    <artifactId>encryptor-starter</artifactId>
-    <name>encryptor-starter</name>
+    <artifactId>encryptor-spring-boot-starter</artifactId>
+    <name>encryptor-spring-boot-starter</name>
     <packaging>jar</packaging>
     <dependencies>
         <dependency>

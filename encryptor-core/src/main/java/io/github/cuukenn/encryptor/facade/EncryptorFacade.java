@@ -38,4 +38,20 @@ public class EncryptorFacade {
         SignerEncoder signerEncoderL = signerEncoder.apply(new String(params));
         return EncryptorKit.decrypt(encryptorEncoderL, signerEncoderL, checkerStrategies, data);
     }
+
+    public EncryptorEncoder getNegotiateEncoder() {
+        return negotiateEncoder;
+    }
+
+    public Function<String, EncryptorEncoder> getEncryptorEncoder() {
+        return encryptorEncoder;
+    }
+
+    public Function<String, SignerEncoder> getSignerEncoder() {
+        return signerEncoder;
+    }
+
+    public List<CheckerStrategy> getCheckerStrategies() {
+        return checkerStrategies;
+    }
 }

@@ -13,6 +13,16 @@
                 <artifactId>encryptor-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn.encryptor</groupId>
+                <artifactId>encryptor-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn.encryptor</groupId>
+                <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

@@ -6,8 +6,8 @@
         <artifactId>encryptor-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
-    <artifactId>encryptor-starter-reactive</artifactId>
-    <name>encryptor-starter-reactive</name>
+    <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
+    <name>encryptor-spring-boot-starter-reactive</name>
     <dependencies>
         <dependency>
             <groupId>io.github.cuukenn.encryptor</groupId>

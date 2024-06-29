@@ -23,13 +23,12 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String key = (String) request.getAttribute(CoreEncryptorConstant.KEY);
-        if (key == null) {
-            filterChain.doFilter(request, response);
-            return;
-        }
         ContentCachingResponseWrapper cachingResponseWrapper = new ContentCachingResponseWrapper(response);
         filterChain.doFilter(request, cachingResponseWrapper);
+        String key = (String) request.getAttribute(CoreEncryptorConstant.KEY);
+        if (key == null) {
+            return;
+        }
         EncryptorDataWrapper encryptData = getEncrypt(cachingResponseWrapper.getContentAsByteArray(), key);
         WebContext.current().getDataConverter().post(cachingResponseWrapper, encryptData);
         cachingResponseWrapper.copyBodyToResponse();

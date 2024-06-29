@@ -12,19 +12,21 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
+import org.springframework.core.Ordered;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 /**
  * @author changgg
  */
-public class EncryptorRequestFilter implements GlobalFilter {
-    public static final int FILTER_ORDER = -10;
+public class EncryptorRequestFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorRequestFilter.class);
     private final ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory;
+    private final int order;
 
-    public EncryptorRequestFilter(ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory) {
+    public EncryptorRequestFilter(ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory, int order) {
         this.gatewayFilterFactory = gatewayFilterFactory;
+        this.order = order;
     }
 
     @Override
@@ -39,24 +41,29 @@ public class EncryptorRequestFilter implements GlobalFilter {
         return this.gatewayFilterFactory.apply(config).filter(exchange, chain);
     }
 
+    @Override
+    public int getOrder() {
+        return order;
+    }
+
     /**
      * @author changgg
      */
     public static class EncryptorDecoderFunction implements RewriteFunction<String, byte[]> {
         private final EncryptorFacade encryptorEncoder;
-        private final DataConverter dataConverter;
+        private final DataConverter reactiveDataConverter;
 
-        public EncryptorDecoderFunction(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
+        public EncryptorDecoderFunction(EncryptorFacade encryptorEncoder, DataConverter reactiveDataConverter) {
             this.encryptorEncoder = encryptorEncoder;
-            this.dataConverter = dataConverter;
+            this.reactiveDataConverter = reactiveDataConverter;
         }
 
         @Override
         public Publisher<byte[]> apply(ServerWebExchange serverWebExchange, String data) {
             if (data == null) {
-                return null;
+                return Mono.empty();
             }
-            EncryptorDataWrapper dataWrapper = dataConverter.load(serverWebExchange.getRequest(), data);
+            EncryptorDataWrapper dataWrapper = reactiveDataConverter.load(serverWebExchange.getRequest(), data);
             serverWebExchange.getAttributes().put(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             return Mono.just(encryptorEncoder.decrypt(dataWrapper));
         }
