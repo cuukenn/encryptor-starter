@@ -1,4 +1,6 @@
-package io.github.cuukenn.encryptor.config;
+package io.github.cuukenn.encryptor.reactive.config;
+
+import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 
 import java.util.Optional;
 
@@ -6,23 +8,31 @@ import java.util.Optional;
  * @author changgg
  */
 public class CryptoConfig {
+    /**
+     * 私钥
+     */
     private String privateKey;
+    /**
+     * 公钥
+     */
     private String publicKey;
-    private String algorithm;
-    private String encryptorFactory;
-    private String encryptorConverter;
+    /**
+     * 密码套件
+     */
+    private String algorithm = "RSA";
+    /**
+     * 加密工厂
+     */
+    private String encryptorFactory = EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY;
+    /**
+     * 数据转化
+     */
+    private String encryptorConverter = EncryptorConstant.ALL_IN_ONE_CONVERTER;
 
-    @SuppressWarnings("unused")
     public CryptoConfig() {
     }
 
-    public CryptoConfig(String algorithm, String encryptorFactory, String encryptorConverter) {
-        this.algorithm = algorithm;
-        this.encryptorFactory = encryptorFactory;
-        this.encryptorConverter = encryptorConverter;
-    }
-
-    public CryptoConfig(String privateKey, String publicKey, String algorithm, String encryptorFactory, String encryptorConverter) {
+    private CryptoConfig(String privateKey, String publicKey, String algorithm, String encryptorFactory, String encryptorConverter) {
         this.privateKey = privateKey;
         this.publicKey = publicKey;
         this.algorithm = algorithm;

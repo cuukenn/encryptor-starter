@@ -15,12 +15,12 @@
             </dependency>
             <dependency>
                 <groupId>io.github.cuukenn.encryptor</groupId>
-                <artifactId>encryptor-starter</artifactId>
+                <artifactId>encryptor-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.cuukenn.encryptor</groupId>
-                <artifactId>encryptor-starter-reactive</artifactId>
+                <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
-import org.springframework.cloud.gateway.filter.NettyWriteResponseFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyResponseBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
 import org.springframework.core.Ordered;
@@ -24,9 +23,11 @@ import reactor.core.publisher.Mono;
 public class EncryptorResponseFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorResponseFilter.class);
     private final ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory;
+    private final int order;
 
-    public EncryptorResponseFilter(ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory) {
+    public EncryptorResponseFilter(ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory, int order) {
         this.gatewayFilterFactory = gatewayFilterFactory;
+        this.order = order;
     }
 
     @Override
@@ -43,7 +44,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
+        return order;
     }
 
     /**
@@ -51,11 +52,11 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
      */
     public static class EncryptorEncoderFunction implements RewriteFunction<byte[], String> {
         private final EncryptorFacade encryptorEncoder;
-        private final DataConverter dataConverter;
+        private final DataConverter reactiveDataConverter;
 
-        public EncryptorEncoderFunction(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
+        public EncryptorEncoderFunction(EncryptorFacade encryptorEncoder, DataConverter reactiveDataConverter) {
             this.encryptorEncoder = encryptorEncoder;
-            this.dataConverter = dataConverter;
+            this.reactiveDataConverter = reactiveDataConverter;
         }
 
         @Override
@@ -64,7 +65,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 return Mono.empty();
             }
             String key = serverWebExchange.getAttribute(CoreEncryptorConstant.KEY);
-            return Mono.just(dataConverter.post(serverWebExchange.getResponse(), encryptorEncoder.encrypt(data, key)));
+            return Mono.just(reactiveDataConverter.post(serverWebExchange.getResponse(), encryptorEncoder.encrypt(data, key)));
         }
     }
 }

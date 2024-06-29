@@ -10,7 +10,7 @@ import java.io.IOException;
 /**
  * @author changgg
  */
-public class AllInBodyDataConverter implements DataConverter {
+public class AllInOneDataConverter implements DataConverter {
     @Override
     public EncryptorDataWrapper load(HttpServletRequest request, String data) {
         return JSONUtil.toBean(data, EncryptorDataWrapper.class);

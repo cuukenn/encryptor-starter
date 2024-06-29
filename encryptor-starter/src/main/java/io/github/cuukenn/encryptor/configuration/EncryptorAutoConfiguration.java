@@ -8,14 +8,12 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.AllInBodyDataConverter;
+import io.github.cuukenn.encryptor.converter.AllInOneDataConverter;
 import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.converter.HeaderDataConverter;
 import io.github.cuukenn.encryptor.core.CheckerStrategy;
 import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
-import io.github.cuukenn.encryptor.core.checker.InMemoryNonceChecker;
-import io.github.cuukenn.encryptor.core.checker.InRedisNonceChecker;
 import io.github.cuukenn.encryptor.core.digester.HtlDigester;
 import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
 import io.github.cuukenn.encryptor.core.encoder.HexEncoder;
@@ -24,18 +22,15 @@ import io.github.cuukenn.encryptor.core.encryptor.HtlASymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.signer.DigestWithEncryptSigner;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.web.configuration.WebEncryptorConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -51,23 +46,9 @@ import java.util.function.Function;
 public class EncryptorAutoConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorAutoConfiguration.class);
 
-    @ConditionalOnBean(RedisTemplate.class)
-    @ConditionalOnMissingBean(name = "defaultNonceChecker")
-    @Bean("defaultNonceChecker")
-    public InRedisNonceChecker redisNonceChecker(RedisTemplate<Object, Object> redisTemplate, EncryptorConfig config) {
-        logger.info("register in redis nonce checker");
-        return new InRedisNonceChecker(redisTemplate, config.getNonceCheckerConfig().getOffsetTime());
-    }
-
-    @ConditionalOnMissingBean(name = "defaultNonceChecker")
-    @Bean("defaultNonceChecker")
-    public InMemoryNonceChecker memoryNonceChecker(EncryptorConfig config) {
-        logger.info("register in memory nonce checker");
-        return new InMemoryNonceChecker(config.getNonceCheckerConfig().getInMemoryCacheSize(), config.getNonceCheckerConfig().getOffsetTime());
-    }
-
     @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
-    public EncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
+    public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
+        logger.info("register default encryptor factory, used checker:[{}]", checkerStrategies);
         return config -> {
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
@@ -83,9 +64,9 @@ public class EncryptorAutoConfiguration {
         };
     }
 
-    @Bean(EncryptorConstant.ALL_IN_BODY_CONVERTER)
-    public DataConverter allInBodyConverter() {
-        return new AllInBodyDataConverter();
+    @Bean(EncryptorConstant.ALL_IN_ONE_CONVERTER)
+    public DataConverter allInOneConverter() {
+        return new AllInOneDataConverter();
     }
 
     @Bean(EncryptorConstant.HEADER_CONVERTER)

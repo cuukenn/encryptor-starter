@@ -19,7 +19,7 @@ public class WebContext {
     private boolean reqEncryptor;
     private boolean resEncryptor;
     private EncryptorFacade encryptorFacade;
-    private DataConverter dataConverter;
+    private DataConverter webDataConverter;
     private WebEncryptorConfig config;
 
     public WebEncryptorConfig getConfig() {
@@ -43,11 +43,11 @@ public class WebContext {
     }
 
     public DataConverter getDataConverter() {
-        return dataConverter;
+        return webDataConverter;
     }
 
-    public void setDataConverter(DataConverter dataConverter) {
-        this.dataConverter = dataConverter;
+    public void setDataConverter(DataConverter webDataConverter) {
+        this.webDataConverter = webDataConverter;
     }
 
     public void setReqEncryptor(boolean reqEncryptor) {

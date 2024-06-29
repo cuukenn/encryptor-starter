@@ -20,12 +20,13 @@ import reactor.core.publisher.Mono;
  * @author changgg
  */
 public class EncryptorRequestFilter implements GlobalFilter, Ordered {
-    public static final int FILTER_ORDER = -10;
     private static final Logger logger = LoggerFactory.getLogger(EncryptorRequestFilter.class);
     private final ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory;
+    private final int order;
 
-    public EncryptorRequestFilter(ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory) {
+    public EncryptorRequestFilter(ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory, int order) {
         this.gatewayFilterFactory = gatewayFilterFactory;
+        this.order = order;
     }
 
     @Override
@@ -42,7 +43,7 @@ public class EncryptorRequestFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return FILTER_ORDER;
+        return order;
     }
 
     /**
@@ -50,11 +51,11 @@ public class EncryptorRequestFilter implements GlobalFilter, Ordered {
      */
     public static class EncryptorDecoderFunction implements RewriteFunction<String, byte[]> {
         private final EncryptorFacade encryptorEncoder;
-        private final DataConverter dataConverter;
+        private final DataConverter reactiveDataConverter;
 
-        public EncryptorDecoderFunction(EncryptorFacade encryptorEncoder, DataConverter dataConverter) {
+        public EncryptorDecoderFunction(EncryptorFacade encryptorEncoder, DataConverter reactiveDataConverter) {
             this.encryptorEncoder = encryptorEncoder;
-            this.dataConverter = dataConverter;
+            this.reactiveDataConverter = reactiveDataConverter;
         }
 
         @Override
@@ -62,7 +63,7 @@ public class EncryptorRequestFilter implements GlobalFilter, Ordered {
             if (data == null) {
                 return Mono.empty();
             }
-            EncryptorDataWrapper dataWrapper = dataConverter.load(serverWebExchange.getRequest(), data);
+            EncryptorDataWrapper dataWrapper = reactiveDataConverter.load(serverWebExchange.getRequest(), data);
             serverWebExchange.getAttributes().put(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             return Mono.just(encryptorEncoder.decrypt(dataWrapper));
         }

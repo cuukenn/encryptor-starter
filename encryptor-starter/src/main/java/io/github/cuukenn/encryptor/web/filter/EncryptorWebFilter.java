@@ -2,7 +2,7 @@ package io.github.cuukenn.encryptor.web.filter;
 
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.converter.DataConverterFactory;
-import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
@@ -20,10 +20,10 @@ import java.io.IOException;
  */
 public class EncryptorWebFilter extends OncePerRequestFilter {
     private final WebEncryptorConfig config;
-    private final EncryptorFacadeFactory<CryptoConfig> facadeFactory;
+    private final IEncryptorFacadeFactory<CryptoConfig> facadeFactory;
     private final DataConverterFactory<CryptoConfig> dataConverterFactory;
 
-    public EncryptorWebFilter(WebEncryptorConfig config, EncryptorFacadeFactory<CryptoConfig> facadeFactory, DataConverterFactory<CryptoConfig> dataConverterFactory) {
+    public EncryptorWebFilter(WebEncryptorConfig config, IEncryptorFacadeFactory<CryptoConfig> facadeFactory, DataConverterFactory<CryptoConfig> dataConverterFactory) {
         this.config = config;
         this.facadeFactory = facadeFactory;
         this.dataConverterFactory = dataConverterFactory;
@@ -32,7 +32,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         final String uri = request.getRequestURI();
-        boolean isBlankUri = StrKit.anyMatch(uri, config.getBlackURIs());
+        boolean isBlankUri = StrKit.anyMatch(uri, config.getBlackUris());
         if (isBlankUri) {
             filterChain.doFilter(request, response);
             return;
@@ -44,7 +44,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         WebContext.current().setEncryptor(true);
         String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackURIs());
+        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackRequestContentType());
         if (!isBlankReqContentType) {
             WebContext.current().setReqEncryptor(true);
         }

@@ -8,7 +8,7 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 /**
  * @author changgg
  */
-public class AllInBodyDataConverter implements DataConverter {
+public class AllInOneDataConverter implements DataConverter {
     @Override
     public EncryptorDataWrapper load(ServerHttpRequest request, String data) {
         return JSONUtil.toBean(data, EncryptorDataWrapper.class);

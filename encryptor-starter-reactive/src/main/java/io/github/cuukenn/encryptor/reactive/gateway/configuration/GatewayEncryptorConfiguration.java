@@ -1,7 +1,7 @@
 package io.github.cuukenn.encryptor.reactive.gateway.configuration;
 
-import io.github.cuukenn.encryptor.config.CryptoConfig;
-import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
 import io.github.cuukenn.encryptor.reactive.converter.DataConverter;
@@ -36,38 +36,39 @@ public class GatewayEncryptorConfiguration {
     @ConditionalOnClass(GlobalFilter.class)
     @ConditionalOnMissingBean(EncryptorRequestParameterFilter.class)
     @Bean
-    public EncryptorRequestParameterFilter encryptorRequestParameterGatewayFilterFactory() {
+    public EncryptorRequestParameterFilter encryptorRequestParameterGatewayFilterFactory(GatewayEncryptorConfig config) {
         logger.info("register request parameter encryptor");
-        return new EncryptorRequestParameterFilter();
+        return new EncryptorRequestParameterFilter(config.getFilterConfig().getEncryptorReqParamsFilterOrder());
     }
 
     @ConditionalOnClass(GlobalFilter.class)
     @Bean
     @ConditionalOnMissingBean(EncryptorRequestFilter.class)
-    public EncryptorRequestFilter encryptorRequestGatewayFilterFactory(ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory) {
+    public EncryptorRequestFilter encryptorRequestGatewayFilterFactory(GatewayEncryptorConfig config, ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory) {
         logger.info("register request body encryptor");
-        return new EncryptorRequestFilter(gatewayFilterFactory);
+        return new EncryptorRequestFilter(gatewayFilterFactory, config.getFilterConfig().getEncryptorReqBodyFilterOrder());
     }
 
     @ConditionalOnClass(GlobalFilter.class)
     @ConditionalOnMissingBean(EncryptorResponseFilter.class)
     @Bean
-    public EncryptorResponseFilter encryptorResponseGatewayFilterFactory(ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory) {
+    public EncryptorResponseFilter encryptorResponseGatewayFilterFactory(GatewayEncryptorConfig config, ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory) {
         logger.info("register response encryptor");
-        return new EncryptorResponseFilter(gatewayFilterFactory);
+        return new EncryptorResponseFilter(gatewayFilterFactory, config.getFilterConfig().getEncryptorResFilterOrder());
     }
 
     @ConditionalOnClass(GlobalFilter.class)
     @ConditionalOnMissingBean(EncryptorGatewayFilter.class)
     @Bean
-    public EncryptorGatewayFilter encryptorGatewayFilterFactory(EncryptorConfig encryptorConfig, GatewayEncryptorConfig config, Map<String, EncryptorFacadeFactory<CryptoConfig>> facadeFactories, Map<String, DataConverter> dataConverters) {
+    public EncryptorGatewayFilter encryptorGatewayFilterFactory(EncryptorConfig encryptorConfig, GatewayEncryptorConfig config, Map<String, IEncryptorFacadeFactory<CryptoConfig>> facadeFactories, Map<String, DataConverter> dataConverters) {
         logger.info("register gateway encryptor");
         return new EncryptorGatewayFilter(config,
                 configL -> {
                     CryptoConfig cryptoConfig = CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configL);
                     return facadeFactories.get(cryptoConfig.getEncryptorFactory()).apply(cryptoConfig);
                 },
-                configM -> dataConverters.get(CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configM).getEncryptorConverter())
+                configM -> dataConverters.get(CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configM).getEncryptorConverter()),
+                config.getFilterConfig().getEncryptorFilterOrder()
         );
     }
 }

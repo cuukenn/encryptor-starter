@@ -10,9 +10,8 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.configuration.EncryptorAutoConfiguration;
-import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.facade.EncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -46,8 +45,8 @@ public class HttpTest {
     @SuppressWarnings("SameParameterValue")
     private void test_get_all_in_one(String url, Map<String, Object> params) {
         EncryptorAutoConfiguration configuration = new EncryptorAutoConfiguration();
-        EncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
-        CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY, EncryptorConstant.ALL_IN_BODY_CONVERTER);
+        IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
+        CryptoConfig cryptoConfig = new CryptoConfig();
         cryptoConfig.setPublicKey(publicKey);
         cryptoConfig.setPrivateKey(privateKey);
         EncryptorFacade facade = facadeFactory.apply(cryptoConfig);
@@ -81,8 +80,8 @@ public class HttpTest {
     @SuppressWarnings("SameParameterValue")
     private void test_post_all_in_one(String url, Map<String, Object> data) {
         EncryptorAutoConfiguration configuration = new EncryptorAutoConfiguration();
-        EncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
-        CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY, EncryptorConstant.ALL_IN_BODY_CONVERTER);
+        IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
+        CryptoConfig cryptoConfig = new CryptoConfig();
         cryptoConfig.setPublicKey(publicKey);
         cryptoConfig.setPrivateKey(privateKey);
         EncryptorFacade facade = facadeFactory.apply(cryptoConfig);

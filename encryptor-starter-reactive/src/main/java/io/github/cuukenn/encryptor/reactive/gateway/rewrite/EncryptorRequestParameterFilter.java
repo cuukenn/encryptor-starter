@@ -26,7 +26,11 @@ import java.util.Map;
  * @author changgg
  */
 public class EncryptorRequestParameterFilter implements GlobalFilter, Ordered {
-    public static final int FILTER_ORDER = -11;
+    private final int order;
+
+    public EncryptorRequestParameterFilter(int order) {
+        this.order = order;
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -68,6 +72,6 @@ public class EncryptorRequestParameterFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return FILTER_ORDER;
+        return order;
     }
 }
