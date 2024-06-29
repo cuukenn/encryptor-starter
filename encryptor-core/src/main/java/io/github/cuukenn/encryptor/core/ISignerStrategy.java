@@ -16,5 +16,5 @@ public interface ISignerStrategy<I, O> {
      *
      * @return 签名
      */
-    O sign(O data);
+    I sign(O data);
 }

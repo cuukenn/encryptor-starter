@@ -12,13 +12,14 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
+import org.springframework.core.Ordered;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 /**
  * @author changgg
  */
-public class EncryptorRequestFilter implements GlobalFilter {
+public class EncryptorRequestFilter implements GlobalFilter, Ordered {
     public static final int FILTER_ORDER = -10;
     private static final Logger logger = LoggerFactory.getLogger(EncryptorRequestFilter.class);
     private final ModifyRequestBodyGatewayFilterFactory gatewayFilterFactory;
@@ -39,6 +40,11 @@ public class EncryptorRequestFilter implements GlobalFilter {
         return this.gatewayFilterFactory.apply(config).filter(exchange, chain);
     }
 
+    @Override
+    public int getOrder() {
+        return FILTER_ORDER;
+    }
+
     /**
      * @author changgg
      */
@@ -54,7 +60,7 @@ public class EncryptorRequestFilter implements GlobalFilter {
         @Override
         public Publisher<byte[]> apply(ServerWebExchange serverWebExchange, String data) {
             if (data == null) {
-                return null;
+                return Mono.empty();
             }
             EncryptorDataWrapper dataWrapper = dataConverter.load(serverWebExchange.getRequest(), data);
             serverWebExchange.getAttributes().put(CoreEncryptorConstant.KEY, dataWrapper.getKey());

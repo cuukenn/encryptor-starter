@@ -38,6 +38,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -52,7 +53,7 @@ public class EncryptorReactiveAutoConfiguration {
 
     @ConditionalOnBean(RedisTemplate.class)
     @ConditionalOnMissingBean(name = "defaultNonceChecker")
-    @Bean("defaultNonceChecker")
+    //@Bean("defaultNonceChecker")
     public InRedisNonceChecker redisNonceChecker(RedisTemplate<Object, Object> redisTemplate, EncryptorConfig config) {
         logger.info("register in redis nonce checker");
         return new InRedisNonceChecker(redisTemplate, config.getNonceCheckerConfig().getOffsetTime());
@@ -70,7 +71,7 @@ public class EncryptorReactiveAutoConfiguration {
         return ascConfig -> {
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), obj.getBytes("iv")));
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), Optional.ofNullable(obj.getStr("iv")).map(String::getBytes).orElse(null)));
             };
             EncoderStrategy encoder = new HexEncoder();
             return new EncryptorFacade(
@@ -82,12 +83,12 @@ public class EncryptorReactiveAutoConfiguration {
         };
     }
 
-    @Bean
+    @Bean(EncryptorConstant.ALL_IN_BODY_CONVERTER)
     public DataConverter allInBodyConverter() {
         return new AllInBodyDataConverter();
     }
 
-    @Bean
+    @Bean(EncryptorConstant.HEADER_CONVERTER)
     public DataConverter headerDataConverter() {
         return new HeaderDataConverter();
     }

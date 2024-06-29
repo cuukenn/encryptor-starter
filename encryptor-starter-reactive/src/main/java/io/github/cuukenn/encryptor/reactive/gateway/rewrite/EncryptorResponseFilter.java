@@ -2,7 +2,6 @@ package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
 
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.reactive.converter.DataConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayKit;
 import org.reactivestreams.Publisher;
@@ -10,8 +9,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.cloud.gateway.filter.NettyWriteResponseFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyResponseBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
+import org.springframework.core.Ordered;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -20,7 +21,7 @@ import reactor.core.publisher.Mono;
  *
  * @author changgg
  */
-public class EncryptorResponseFilter implements GlobalFilter {
+public class EncryptorResponseFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorResponseFilter.class);
     private final ModifyResponseBodyGatewayFilterFactory gatewayFilterFactory;
 
@@ -34,10 +35,15 @@ public class EncryptorResponseFilter implements GlobalFilter {
             return chain.filter(exchange);
         }
         ModifyResponseBodyGatewayFilterFactory.Config config = new ModifyResponseBodyGatewayFilterFactory.Config();
-        config.setInClass(EncryptorDataWrapper.class);
+        config.setInClass(byte[].class);
         config.setOutClass(String.class);
         config.setRewriteFunction(new EncryptorEncoderFunction(GatewayKit.getEncryptorFacade(exchange), GatewayKit.getEncryptorDataConverter(exchange)));
         return this.gatewayFilterFactory.apply(config).filter(exchange, chain);
+    }
+
+    @Override
+    public int getOrder() {
+        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
     }
 
     /**

@@ -8,6 +8,7 @@ import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayKit;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.LinkedMultiValueMap;
@@ -24,7 +25,7 @@ import java.util.Map;
  *
  * @author changgg
  */
-public class EncryptorRequestParameterFilter implements GlobalFilter {
+public class EncryptorRequestParameterFilter implements GlobalFilter, Ordered {
     public static final int FILTER_ORDER = -11;
 
     @Override
@@ -63,5 +64,10 @@ public class EncryptorRequestParameterFilter implements GlobalFilter {
                 return chain.filter(exchange.mutate().request(updatedRequest).build());
             }
         }.filter(exchange, chain);
+    }
+
+    @Override
+    public int getOrder() {
+        return FILTER_ORDER;
     }
 }

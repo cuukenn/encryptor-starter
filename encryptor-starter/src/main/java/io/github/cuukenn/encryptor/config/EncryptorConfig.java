@@ -11,9 +11,9 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 public class EncryptorConfig {
     public static final String PREFIX = "encryptor.config";
     @NestedConfigurationProperty
-    private NonceCheckerConfig nonceCheckerConfig;
+    private NonceCheckerConfig nonceCheckerConfig = new NonceCheckerConfig();
     @NestedConfigurationProperty
-    private CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY);
+    private CryptoConfig cryptoConfig = new CryptoConfig("RSA", EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY, EncryptorConstant.ALL_IN_BODY_CONVERTER);
 
     public NonceCheckerConfig getNonceCheckerConfig() {
         return nonceCheckerConfig;

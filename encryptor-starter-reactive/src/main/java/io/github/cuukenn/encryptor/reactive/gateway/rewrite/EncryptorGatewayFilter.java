@@ -9,6 +9,7 @@ import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayKit;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
 import org.springframework.http.MediaType;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -16,7 +17,7 @@ import reactor.core.publisher.Mono;
 /**
  * @author changgg
  */
-public class EncryptorGatewayFilter implements GlobalFilter {
+public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     private final GatewayEncryptorConfig config;
     private final EncryptorFacadeFactory<CryptoConfig> facadeFactory;
     private final DataConverterFactory<CryptoConfig> dataConverterFactory;
@@ -50,5 +51,10 @@ public class EncryptorGatewayFilter implements GlobalFilter {
         GatewayKit.setEncryptorFacade(exchange, this.facadeFactory.apply(cryptoConfig));
         GatewayKit.setEncryptorDataConverter(exchange, this.dataConverterFactory.apply(cryptoConfig));
         return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -12;
     }
 }

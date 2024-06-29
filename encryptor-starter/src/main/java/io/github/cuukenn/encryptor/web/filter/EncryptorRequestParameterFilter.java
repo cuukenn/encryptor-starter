@@ -30,37 +30,32 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
+        Map<String, String[]> decryptParameters = getDecryptParameters(request);
         filterChain.doFilter(new HttpServletRequestWrapper(request) {
-            private Map<String, String[]> newParameters = null;
-
             @Override
             public Enumeration<String> getParameterNames() {
-                if (newParameters == null) {
-                    newParameters = getDecryptParameters(request);
-                }
-                return Collections.enumeration(newParameters.keySet());
+                return Collections.enumeration(decryptParameters.keySet());
             }
 
             @Override
             public String[] getParameterValues(String name) {
-                if (newParameters == null) {
-                    newParameters = getDecryptParameters(request);
-                }
-                return newParameters.get(name);
+                return decryptParameters.get(name);
             }
 
-            private Map<String, String[]> getDecryptParameters(HttpServletRequest request) {
-                final Map<String, String> parameters = request.getParameterMap().entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue()[0]));
-                if (parameters.isEmpty()) {
-                    return Collections.emptyMap();
-                }
-                EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, JSONUtil.toJsonStr(parameters));
-                byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
-                Map<String, String> map = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
-                }, true);
-                request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
-                return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
-            }
+
         }, response);
+    }
+
+    private Map<String, String[]> getDecryptParameters(HttpServletRequest request) {
+        final Map<String, String> parameters = request.getParameterMap().entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> x.getValue()[0]));
+        if (parameters.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, JSONUtil.toJsonStr(parameters));
+        byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
+        Map<String, String> map = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
+        }, true);
+        request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
+        return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
     }
 }

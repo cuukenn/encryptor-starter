@@ -20,6 +20,7 @@
         <module>encryptor-core</module>
         <module>encryptor-starter</module>
         <module>encryptor-starter-reactive</module>
+        <module>encryptor-example</module>
     </modules>
 
     <properties>

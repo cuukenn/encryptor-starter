@@ -18,11 +18,11 @@ public class EncryptorKit {
         final String encryptData = encryptorEncoder.encrypt(data);
         final String nonce = IdUtil.fastSimpleUUID();
         final long timestamp = System.currentTimeMillis();
-        final String sign = signerEncoder.sign(nonce + timestamp + encryptData);
+        final String sign = signerEncoder.sign((nonce + timestamp + encryptData).getBytes());
         return new EncryptorDataWrapper(
                 nonce, timestamp, sign,
-                encryptData,
-                key
+                key,
+                encryptData
         );
     }
 
@@ -32,12 +32,12 @@ public class EncryptorKit {
 
     public static byte[] decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, List<CheckerStrategy> checkStrategies, EncryptorDataWrapper data) {
         final String encryptData = data.getData();
-        final String nonce = IdUtil.fastSimpleUUID();
-        final long timestamp = System.currentTimeMillis();
+        final String nonce = data.getNonce();
+        final long timestamp = data.getTimestamp();
         for (CheckerStrategy checkerStrategy : checkStrategies) {
             checkerStrategy.check(data);
         }
-        boolean sigCheck = signerEncoder.verify(data.getSignature(), nonce + timestamp + encryptData);
+        boolean sigCheck = signerEncoder.verify(data.getSignature(), (nonce + timestamp + encryptData).getBytes());
         if (!sigCheck) {
             throw new EncryptorException("sig check error");
         }

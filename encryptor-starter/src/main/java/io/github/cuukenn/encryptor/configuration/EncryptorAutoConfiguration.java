@@ -38,6 +38,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -66,15 +67,15 @@ public class EncryptorAutoConfiguration {
     }
 
     @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
-    public EncryptorFacadeFactory<CryptoConfig> encryptorFacade(EncryptorConfig config, List<CheckerStrategy> checkerStrategies) {
-        return ascConfig -> {
+    public EncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
+        return config -> {
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), obj.getBytes("iv")));
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), Optional.ofNullable(obj.getStr("iv")).map(String::getBytes).orElse(null)));
             };
             EncoderStrategy encoder = new HexEncoder();
             return new EncryptorFacade(
-                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getCryptoConfig().getAlgorithm(), config.getCryptoConfig().getPrivateKey(), config.getCryptoConfig().getPublicKey())), encoder),
+                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getAlgorithm(), config.getPrivateKey(), config.getPublicKey())), encoder),
                     params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
                     params -> new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), strategyFunction.apply(params)), encoder),
                     checkerStrategies
@@ -82,12 +83,12 @@ public class EncryptorAutoConfiguration {
         };
     }
 
-    @Bean
+    @Bean(EncryptorConstant.ALL_IN_BODY_CONVERTER)
     public DataConverter allInBodyConverter() {
         return new AllInBodyDataConverter();
     }
 
-    @Bean
+    @Bean(EncryptorConstant.HEADER_CONVERTER)
     public DataConverter headerDataConverter() {
         return new HeaderDataConverter();
     }

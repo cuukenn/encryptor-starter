@@ -18,7 +18,7 @@ public class GatewayEncryptorConfig {
     /**
      * 白名单地址
      */
-    private List<String> blackURIs = new ArrayList<>();
+    private List<String> blackUris = new ArrayList<>();
     /**
      * 白名单请求类型
      */
@@ -33,11 +33,11 @@ public class GatewayEncryptorConfig {
     private List<String> blackMethods = new ArrayList<>();
 
     public List<String> getBlackURIs() {
-        return blackURIs;
+        return blackUris;
     }
 
     public void setBlackURIs(List<String> blackURIs) {
-        this.blackURIs = blackURIs;
+        this.blackUris = blackURIs;
     }
 
     public List<String> getBlackRequestContentType() {

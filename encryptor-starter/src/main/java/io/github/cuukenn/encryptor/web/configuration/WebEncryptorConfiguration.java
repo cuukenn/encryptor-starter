@@ -40,7 +40,7 @@ public class WebEncryptorConfiguration {
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Filter filter = new EncryptorRequestParameterFilter();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, -1, false);
+        binder.filterConfiguration(filter, -11, false);
         return registrationBean;
     }
 
@@ -52,7 +52,7 @@ public class WebEncryptorConfiguration {
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Filter filter = new EncryptorRequestBodyFilter();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, -1, false);
+        binder.filterConfiguration(filter, -10, false);
         return registrationBean;
     }
 
@@ -64,28 +64,25 @@ public class WebEncryptorConfiguration {
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Filter filter = new EncryptorResponseFilter();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, -1, false);
+        binder.filterConfiguration(filter, -3, false);
         return registrationBean;
     }
 
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultWebEncryptorFilter")
     @Bean("defaultWebEncryptorFilter")
-    public EncryptorWebFilter webEncryptorFilter(EncryptorConfig encryptorConfig, WebEncryptorConfig config, Map<String, EncryptorFacadeFactory<CryptoConfig>> facadeFactories, Map<String, DataConverter> dataConverters) {
+    public FilterRegistrationBean<? extends Filter> webEncryptorFilter(EncryptorConfig encryptorConfig, WebEncryptorConfig config, Map<String, EncryptorFacadeFactory<CryptoConfig>> facadeFactories, Map<String, DataConverter> dataConverters) {
         logger.info("register gateway encryptor");
-        return new EncryptorWebFilter(config,
-                configL -> {
-                    if (configL == null) {
-                        configL = encryptorConfig.getCryptoConfig();
-                    }
-                    return facadeFactories.get(configL.getEncryptorFactory()).apply(configL);
-                },
-                configM -> {
-                    if (configM == null) {
-                        configM = encryptorConfig.getCryptoConfig();
-                    }
-                    return dataConverters.get(configM.getEncryptorConverter());
-                });
+        FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
+        Builder<Filter> binder = new Builder<>(registrationBean);
+        binder.filterConfiguration(new EncryptorWebFilter(config,
+                        configL -> {
+                            CryptoConfig cryptoConfig = CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configL);
+                            return facadeFactories.get(cryptoConfig.getEncryptorFactory()).apply(cryptoConfig);
+                        },
+                        configM -> dataConverters.get(CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configM).getEncryptorConverter())),
+                -12, false);
+        return registrationBean;
     }
 
     private static class Builder<T extends Filter> {

@@ -13,6 +13,16 @@
                 <artifactId>encryptor-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn.encryptor</groupId>
+                <artifactId>encryptor-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn.encryptor</groupId>
+                <artifactId>encryptor-starter-reactive</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>
