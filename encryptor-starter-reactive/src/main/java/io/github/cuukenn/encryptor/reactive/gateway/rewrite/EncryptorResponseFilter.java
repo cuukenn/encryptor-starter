@@ -12,8 +12,15 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyResponseBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMessage;
+import org.springframework.util.MimeType;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * 响应加密及签名
@@ -36,7 +43,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
         ModifyResponseBodyGatewayFilterFactory.Config config = new ModifyResponseBodyGatewayFilterFactory.Config();
-        config.setInClass(byte[].class);
+        config.setInClass(String.class);
         config.setOutClass(String.class);
         config.setRewriteFunction(new EncryptorEncoderFunction(GatewayKit.getEncryptorFacade(exchange), GatewayKit.getEncryptorDataConverter(exchange)));
         return this.gatewayFilterFactory.apply(config).filter(exchange, chain);
@@ -50,7 +57,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
     /**
      * @author changgg
      */
-    public static class EncryptorEncoderFunction implements RewriteFunction<byte[], String> {
+    public static class EncryptorEncoderFunction implements RewriteFunction<String, String> {
         private final EncryptorFacade encryptorEncoder;
         private final DataConverter reactiveDataConverter;
 
@@ -60,12 +67,16 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
         }
 
         @Override
-        public Publisher<String> apply(ServerWebExchange serverWebExchange, byte[] data) {
+        public Publisher<String> apply(ServerWebExchange serverWebExchange, String data) {
             if (data == null) {
                 return Mono.empty();
             }
+            Charset charset = Optional.of(serverWebExchange.getResponse()).map(HttpMessage::getHeaders)
+                    .map(HttpHeaders::getContentType)
+                    .map(MimeType::getCharset)
+                    .orElse(StandardCharsets.UTF_8);
             String key = serverWebExchange.getAttribute(CoreEncryptorConstant.KEY);
-            return Mono.just(reactiveDataConverter.post(serverWebExchange.getResponse(), encryptorEncoder.encrypt(data, key)));
+            return Mono.just(reactiveDataConverter.post(serverWebExchange.getResponse(), encryptorEncoder.encrypt(data.getBytes(charset), key)));
         }
     }
 }

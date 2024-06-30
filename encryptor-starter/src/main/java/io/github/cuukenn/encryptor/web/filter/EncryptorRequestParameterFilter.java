@@ -1,6 +1,10 @@
 package io.github.cuukenn.encryptor.web.filter;
 
 import cn.hutool.core.lang.TypeReference;
+import cn.hutool.core.net.URLDecoder;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.ContentType;
+import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
@@ -13,9 +17,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.Enumeration;
-import java.util.Map;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -53,7 +57,21 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
         }
         EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, JSONUtil.toJsonStr(parameters));
         byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
-        Map<String, String> map = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
+        String contentType = request.getContentType();
+        String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
+        String data = new String(decryptData, Charset.forName(charset));
+        if (ContentType.isFormUrlEncode(contentType)) {
+            data = URLDecoder.decode(data, Charset.forName(charset));
+            Map<Object, Object> formDataMap = Arrays.stream(data.split("&")).map(x -> {
+                int index = StrUtil.indexOf(x, '=');
+                return new String[]{
+                        x.substring(0, index),
+                        x.substring(index + 1)
+                };
+            }).collect(Collectors.toMap(x -> x[0], x -> x[1]));
+            data = JSONUtil.toJsonStr(formDataMap);
+        }
+        Map<String, String> map = JSONUtil.toBean(data, new TypeReference<Map<String, String>>() {
         }, true);
         request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
         return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
