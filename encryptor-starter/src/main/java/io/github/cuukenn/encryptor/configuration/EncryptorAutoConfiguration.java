@@ -15,8 +15,8 @@ import io.github.cuukenn.encryptor.core.CheckerStrategy;
 import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
 import io.github.cuukenn.encryptor.core.digester.HtlDigester;
+import io.github.cuukenn.encryptor.core.encoder.Base64Encoder;
 import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
-import io.github.cuukenn.encryptor.core.encoder.HexEncoder;
 import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
 import io.github.cuukenn.encryptor.core.encryptor.HtlASymmetricCryptoEncryptor;
 import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
@@ -50,11 +50,11 @@ public class EncryptorAutoConfiguration {
     public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
         logger.info("register default encryptor factory, used checker:[{}]", checkerStrategies);
         return config -> {
+            EncoderStrategy encoder = new Base64Encoder();
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getBytes("key"), Optional.ofNullable(obj.getStr("iv")).map(String::getBytes).orElse(null)));
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), encoder.decode(obj.getStr("key")), Optional.ofNullable(obj.getStr("iv")).map(String::getBytes).orElse(null)));
             };
-            EncoderStrategy encoder = new HexEncoder();
             return new EncryptorFacade(
                     new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getAlgorithm(), config.getPrivateKey(), config.getPublicKey())), encoder),
                     params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
