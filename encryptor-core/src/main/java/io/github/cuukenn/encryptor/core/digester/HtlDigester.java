@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.core.digester;
 
+import cn.hutool.core.util.HexUtil;
 import cn.hutool.crypto.digest.Digester;
 import io.github.cuukenn.encryptor.core.DigesterStrategy;
 
@@ -23,6 +24,6 @@ public class HtlDigester implements DigesterStrategy {
 
     @Override
     public byte[] digest(byte[] data) {
-        return digester.digest(data);
+        return HexUtil.encodeHexStr(digester.digest(data)).getBytes();
     }
 }

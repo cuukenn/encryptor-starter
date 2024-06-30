@@ -1,4 +1,4 @@
-package io.github.cuukenn.encryptor.example.web.web;
+package io.github.cuukenn.encryptor.example.gateway.web;
 
 import org.springframework.web.bind.annotation.*;
 

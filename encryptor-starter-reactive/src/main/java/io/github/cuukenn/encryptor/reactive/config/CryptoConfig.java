@@ -19,7 +19,7 @@ public class CryptoConfig {
     /**
      * 密码套件
      */
-    private String algorithm = "RSA";
+    private String algorithm = "RSA/ECB/PKCS1Padding";
     /**
      * 加密工厂
      */
