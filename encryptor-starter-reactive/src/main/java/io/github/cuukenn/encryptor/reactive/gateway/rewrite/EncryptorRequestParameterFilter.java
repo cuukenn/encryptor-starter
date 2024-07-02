@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
 
 import cn.hutool.core.lang.TypeReference;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
@@ -47,7 +48,7 @@ public class EncryptorRequestParameterFilter implements GlobalFilter, Ordered {
                     return chain.filter(exchange);
                 }
 
-                EncryptorDataWrapper dataWrapper = GatewayKit.getEncryptorDataConverter(exchange).load(request, JSONUtil.toJsonStr(paramsMap));
+                EncryptorDataWrapper dataWrapper = new JSONObject(paramsMap).toBean(EncryptorDataWrapper.class);
 
                 exchange.getAttributes().put(CoreEncryptorConstant.KEY, dataWrapper.getKey());
 

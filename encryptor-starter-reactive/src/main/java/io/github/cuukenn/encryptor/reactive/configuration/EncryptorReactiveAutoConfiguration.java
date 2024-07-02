@@ -20,9 +20,6 @@ import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.reactive.converter.AllInOneDataConverter;
-import io.github.cuukenn.encryptor.reactive.converter.DataConverter;
-import io.github.cuukenn.encryptor.reactive.converter.HeaderDataConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.configuration.GatewayEncryptorConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,16 +59,6 @@ public class EncryptorReactiveAutoConfiguration {
                     checkerStrategies
             );
         };
-    }
-
-    @Bean(EncryptorConstant.ALL_IN_ONE_CONVERTER)
-    public DataConverter allInOneConverter() {
-        return new AllInOneDataConverter();
-    }
-
-    @Bean(EncryptorConstant.HEADER_CONVERTER)
-    public DataConverter headerDataConverter() {
-        return new HeaderDataConverter();
     }
 }
 

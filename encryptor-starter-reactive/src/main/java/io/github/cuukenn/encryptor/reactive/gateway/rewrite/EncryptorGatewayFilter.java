@@ -3,7 +3,6 @@ package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
 import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
-import io.github.cuukenn.encryptor.reactive.converter.DataConverterFactory;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayKit;
@@ -20,13 +19,11 @@ import reactor.core.publisher.Mono;
 public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     private final GatewayEncryptorConfig config;
     private final IEncryptorFacadeFactory<CryptoConfig> facadeFactory;
-    private final DataConverterFactory<CryptoConfig> dataConverterFactory;
     private final int order;
 
-    public EncryptorGatewayFilter(GatewayEncryptorConfig config, IEncryptorFacadeFactory<CryptoConfig> facadeFactory, DataConverterFactory<CryptoConfig> dataConverterFactory, int order) {
+    public EncryptorGatewayFilter(GatewayEncryptorConfig config, IEncryptorFacadeFactory<CryptoConfig> facadeFactory, int order) {
         this.config = config;
         this.facadeFactory = facadeFactory;
-        this.dataConverterFactory = dataConverterFactory;
         this.order = order;
     }
 
@@ -51,7 +48,6 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         String bestMatchStr = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
         CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(uri) : null;
         GatewayKit.setEncryptorFacade(exchange, this.facadeFactory.apply(cryptoConfig));
-        GatewayKit.setEncryptorDataConverter(exchange, this.dataConverterFactory.apply(cryptoConfig));
         return chain.filter(exchange);
     }
 
