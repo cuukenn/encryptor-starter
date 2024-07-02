@@ -1,4 +1,4 @@
-package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
+package io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite;
 
 import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.kit.StrKit;

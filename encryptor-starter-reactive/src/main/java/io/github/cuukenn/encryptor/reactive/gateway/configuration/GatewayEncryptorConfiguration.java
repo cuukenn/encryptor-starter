@@ -9,10 +9,11 @@ import io.github.cuukenn.encryptor.reactive.gateway.converter.FormMessageConvert
 import io.github.cuukenn.encryptor.reactive.gateway.converter.JsonMessageConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageReader;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageWriter;
-import io.github.cuukenn.encryptor.reactive.gateway.rewrite.EncryptorGatewayFilter;
-import io.github.cuukenn.encryptor.reactive.gateway.rewrite.EncryptorRequestFilter;
-import io.github.cuukenn.encryptor.reactive.gateway.rewrite.EncryptorRequestParameterFilter;
-import io.github.cuukenn.encryptor.reactive.gateway.rewrite.EncryptorResponseFilter;
+import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorSkipFilter;
+import io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite.EncryptorGatewayFilter;
+import io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite.EncryptorRequestFilter;
+import io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite.EncryptorRequestParameterFilter;
+import io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite.EncryptorResponseFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -73,6 +74,15 @@ public class GatewayEncryptorConfiguration {
                 },
                 config.getFilterConfig().getEncryptorFilterOrder()
         );
+    }
+
+    @ConditionalOnClass(GlobalFilter.class)
+    @ConditionalOnMissingBean(EncryptorSkipFilter.class)
+    @ConditionalOnProperty(prefix = EncryptorConfig.PREFIX + ".gateway", name = "skip-able", havingValue = "true")
+    @Bean
+    public EncryptorSkipFilter encryptorSkipFilter(GatewayEncryptorConfig config) {
+        logger.warn("register gateway skip encryptor filter, JUST GIVE A WAY TO SKIP IN TEST, DO NOT USE IN PRD!!!");
+        return new EncryptorSkipFilter(config.getFilterConfig().getEncryptorSkipFilterOrder());
     }
 
     @ConditionalOnMissingBean(FormMessageConverter.class)

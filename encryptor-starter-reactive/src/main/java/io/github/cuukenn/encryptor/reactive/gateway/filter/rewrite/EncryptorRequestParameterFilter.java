@@ -1,4 +1,4 @@
-package io.github.cuukenn.encryptor.reactive.gateway.rewrite;
+package io.github.cuukenn.encryptor.reactive.gateway.filter.rewrite;
 
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONObject;
