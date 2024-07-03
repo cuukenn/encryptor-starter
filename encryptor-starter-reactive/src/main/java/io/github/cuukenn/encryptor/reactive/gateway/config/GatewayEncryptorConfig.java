@@ -16,6 +16,15 @@ import java.util.Map;
 @ConfigurationProperties(prefix = EncryptorConfig.PREFIX + ".gateway")
 public class GatewayEncryptorConfig {
     /**
+     * 是否开启加密逻辑
+     */
+    private boolean enable = true;
+    /**
+     * 是否允许在加密开启的情况下通过前端配置来跳过加密处理
+     * 主要用于测试联调， 真是发版不应该信任客户端任何设置
+     */
+    private boolean skipAble;
+    /**
      * 过滤器配置
      */
     @NestedConfigurationProperty
@@ -41,12 +50,36 @@ public class GatewayEncryptorConfig {
      */
     private List<String> blackMethods = new ArrayList<>();
 
+    public boolean isEnable() {
+        return enable;
+    }
+
+    public void setEnable(boolean enable) {
+        this.enable = enable;
+    }
+
+    public boolean isSkipAble() {
+        return skipAble;
+    }
+
+    public void setSkipAble(boolean skipAble) {
+        this.skipAble = skipAble;
+    }
+
     public GatewayFilterConfig getFilterConfig() {
         return filterConfig;
     }
 
     public void setFilterConfig(GatewayFilterConfig filterConfig) {
         this.filterConfig = filterConfig;
+    }
+
+    public Map<String, CryptoConfig> getCryptoConfig() {
+        return cryptoConfig;
+    }
+
+    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
+        this.cryptoConfig = cryptoConfig;
     }
 
     public List<String> getBlackUris() {
@@ -57,20 +90,20 @@ public class GatewayEncryptorConfig {
         this.blackUris = blackUris;
     }
 
-    public List<String> getBlackRequestContentType() {
+    public List<String> getBlackReqContentType() {
         return blackReqContentType;
     }
 
-    public void setBlackRequestContentType(List<String> blackRequestContentType) {
-        this.blackReqContentType = blackRequestContentType;
+    public void setBlackReqContentType(List<String> blackReqContentType) {
+        this.blackReqContentType = blackReqContentType;
     }
 
-    public List<String> getBlackResponseContentType() {
+    public List<String> getBlackResContentType() {
         return blackResContentType;
     }
 
-    public void setBlackResponseContentType(List<String> blackResponseContentType) {
-        this.blackResContentType = blackResponseContentType;
+    public void setBlackResContentType(List<String> blackResContentType) {
+        this.blackResContentType = blackResContentType;
     }
 
     public List<String> getBlackMethods() {
@@ -79,13 +112,5 @@ public class GatewayEncryptorConfig {
 
     public void setBlackMethods(List<String> blackMethods) {
         this.blackMethods = blackMethods;
-    }
-
-    public Map<String, CryptoConfig> getCryptoConfig() {
-        return cryptoConfig;
-    }
-
-    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
-        this.cryptoConfig = cryptoConfig;
     }
 }

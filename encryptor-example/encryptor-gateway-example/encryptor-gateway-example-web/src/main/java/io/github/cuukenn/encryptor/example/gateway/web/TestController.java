@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.example.gateway.web;
 
+import org.springframework.http.MediaType;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -17,6 +19,11 @@ public class TestController {
 
     @PostMapping("/hello")
     public String hello(@RequestBody Map<String, Object> data) {
+        return "Hello, " + data;
+    }
+
+    @PostMapping(value = "/hello", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    public String helloForm(@RequestBody MultiValueMap<String, Object> data) {
         return "Hello, " + data;
     }
 }

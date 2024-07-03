@@ -2,7 +2,6 @@ package io.github.cuukenn.encryptor.reactive.gateway.kit;
 
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.kit.StrKit;
-import io.github.cuukenn.encryptor.reactive.converter.DataConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import org.springframework.http.MediaType;
@@ -22,7 +21,7 @@ public class GatewayKit {
     public static boolean isResEncryptorEnable(ServerWebExchange exchange) {
         MediaType contentType = exchange.getResponse().getHeaders().getContentType();
         GatewayEncryptorConfig config = exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_CONFIG);
-        return exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_ENABLE) != null && !(contentType != null && StrKit.anyMatch(contentType.toString(), Objects.requireNonNull(config).getBlackResponseContentType()));
+        return exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_ENABLE) != null && !(contentType != null && StrKit.anyMatch(contentType.toString(), Objects.requireNonNull(config).getBlackResContentType()));
     }
 
     public static EncryptorFacade getEncryptorFacade(ServerWebExchange exchange) {
@@ -31,13 +30,5 @@ public class GatewayKit {
 
     public static void setEncryptorFacade(ServerWebExchange exchange, EncryptorFacade facade) {
         exchange.getAttributes().put(GatewayConstant.GATEWAY_ENCRYPTOR_BEAN, facade);
-    }
-
-    public static DataConverter getEncryptorDataConverter(ServerWebExchange exchange) {
-        return exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_DATA_CONVERTER_BEAN);
-    }
-
-    public static void setEncryptorDataConverter(ServerWebExchange exchange, DataConverter facade) {
-        exchange.getAttributes().put(GatewayConstant.GATEWAY_ENCRYPTOR_DATA_CONVERTER_BEAN, facade);
     }
 }

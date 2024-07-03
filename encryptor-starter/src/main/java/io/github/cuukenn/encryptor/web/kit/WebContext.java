@@ -76,6 +76,6 @@ public class WebContext {
 
     public static boolean isResEncryptorEnable(HttpServletResponse response) {
         String contentType = response.getHeader(HttpHeaders.CONTENT_TYPE);
-        return current().isReqEncryptor() && !(contentType != null && StrKit.anyMatch(contentType, Objects.requireNonNull(current().getConfig()).getBlackResponseContentType()));
+        return current().isReqEncryptor() && !(contentType != null && StrKit.anyMatch(contentType, Objects.requireNonNull(current().getConfig()).getBlackResContentType()));
     }
 }

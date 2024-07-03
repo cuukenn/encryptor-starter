@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.web.filter;
 
 import cn.hutool.core.io.IoUtil;
+import cn.hutool.http.HttpUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
@@ -14,6 +15,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * 解密request body
@@ -30,7 +34,10 @@ public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
         InputStream newInputstream;
         byte[] bytes = IoUtil.readBytes(request.getInputStream());
         if (bytes != null && bytes.length > 0) {
-            EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, new String(bytes));
+            String contentType = request.getContentType();
+            String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
+            String data = new String(bytes, Charset.forName(charset));
+            EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, data);
             byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
             request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             newInputstream = new BufferedInputStream(new ByteArrayInputStream(decryptData));

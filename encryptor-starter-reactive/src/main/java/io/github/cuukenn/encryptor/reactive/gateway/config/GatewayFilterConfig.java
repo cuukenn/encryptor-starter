@@ -9,7 +9,11 @@ public class GatewayFilterConfig {
     /**
      * 门面加密过滤器顺序
      */
-    private int encryptorFilterOrder = -12;
+    private int encryptorFilterOrder = -13;
+    /**
+     * 跳过加密逻辑
+     */
+    private int encryptorSkipFilterOrder = -12;
     /**
      * 请求参数过滤器顺序
      */
@@ -22,6 +26,14 @@ public class GatewayFilterConfig {
      * 响应体过滤器顺序
      */
     private int encryptorResFilterOrder = NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
+
+    public int getEncryptorSkipFilterOrder() {
+        return encryptorSkipFilterOrder;
+    }
+
+    public void setEncryptorSkipFilterOrder(int encryptorSkipFilterOrder) {
+        this.encryptorSkipFilterOrder = encryptorSkipFilterOrder;
+    }
 
     public int getEncryptorFilterOrder() {
         return encryptorFilterOrder;

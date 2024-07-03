@@ -16,6 +16,10 @@ import java.util.Map;
 @ConfigurationProperties(prefix = EncryptorConfig.PREFIX + ".web")
 public class WebEncryptorConfig {
     /**
+     * 是否开启加密逻辑
+     */
+    private boolean enable = true;
+    /**
      * 过滤器配置
      */
     @NestedConfigurationProperty
@@ -41,12 +45,28 @@ public class WebEncryptorConfig {
      */
     private List<String> blackMethods = new ArrayList<>();
 
+    public boolean isEnable() {
+        return enable;
+    }
+
+    public void setEnable(boolean enable) {
+        this.enable = enable;
+    }
+
     public WebFilterConfig getFilterConfig() {
         return filterConfig;
     }
 
     public void setFilterConfig(WebFilterConfig filterConfig) {
         this.filterConfig = filterConfig;
+    }
+
+    public Map<String, CryptoConfig> getCryptoConfig() {
+        return cryptoConfig;
+    }
+
+    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
+        this.cryptoConfig = cryptoConfig;
     }
 
     public List<String> getBlackUris() {
@@ -57,20 +77,20 @@ public class WebEncryptorConfig {
         this.blackUris = blackUris;
     }
 
-    public List<String> getBlackRequestContentType() {
+    public List<String> getBlackReqContentType() {
         return blackReqContentType;
     }
 
-    public void setBlackRequestContentType(List<String> blackRequestContentType) {
-        this.blackReqContentType = blackRequestContentType;
+    public void setBlackReqContentType(List<String> blackReqContentType) {
+        this.blackReqContentType = blackReqContentType;
     }
 
-    public List<String> getBlackResponseContentType() {
+    public List<String> getBlackResContentType() {
         return blackResContentType;
     }
 
-    public void setBlackResponseContentType(List<String> blackResponseContentType) {
-        this.blackResContentType = blackResponseContentType;
+    public void setBlackResContentType(List<String> blackResContentType) {
+        this.blackResContentType = blackResContentType;
     }
 
     public List<String> getBlackMethods() {
@@ -79,13 +99,5 @@ public class WebEncryptorConfig {
 
     public void setBlackMethods(List<String> blackMethods) {
         this.blackMethods = blackMethods;
-    }
-
-    public Map<String, CryptoConfig> getCryptoConfig() {
-        return cryptoConfig;
-    }
-
-    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
-        this.cryptoConfig = cryptoConfig;
     }
 }
