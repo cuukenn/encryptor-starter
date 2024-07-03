@@ -40,7 +40,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         }
         exchange.getAttributes().put(GatewayConstant.GATEWAY_ENCRYPTOR_ENABLE, true);
         MediaType contentType = exchange.getRequest().getHeaders().getContentType();
-        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType.toString(), config.getBlackRequestContentType());
+        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType.toString(), config.getBlackReqContentType());
         if (!isBlankReqContentType) {
             exchange.getAttributes().put(GatewayConstant.GATEWAY_ENCRYPTOR_REQUEST_ENABLE, true);
         }

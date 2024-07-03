@@ -21,7 +21,7 @@ public class GatewayKit {
     public static boolean isResEncryptorEnable(ServerWebExchange exchange) {
         MediaType contentType = exchange.getResponse().getHeaders().getContentType();
         GatewayEncryptorConfig config = exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_CONFIG);
-        return exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_ENABLE) != null && !(contentType != null && StrKit.anyMatch(contentType.toString(), Objects.requireNonNull(config).getBlackResponseContentType()));
+        return exchange.getAttribute(GatewayConstant.GATEWAY_ENCRYPTOR_ENABLE) != null && !(contentType != null && StrKit.anyMatch(contentType.toString(), Objects.requireNonNull(config).getBlackResContentType()));
     }
 
     public static EncryptorFacade getEncryptorFacade(ServerWebExchange exchange) {

@@ -44,7 +44,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         WebContext.current().setEncryptor(true);
         String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackRequestContentType());
+        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackReqContentType());
         if (!isBlankReqContentType) {
             WebContext.current().setReqEncryptor(true);
         }
