@@ -12,7 +12,4 @@
         <module>encryptor-gateway-example-gateway</module>
         <module>encryptor-gateway-example-web</module>
     </modules>
-    <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-    </properties>
 </project>

@@ -7,9 +7,6 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
     <artifactId>encryptor-web-example</artifactId>
-    <properties>
-        <maven.deploy.skip>true</maven.deploy.skip>
-    </properties>
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
