@@ -1,12 +1,11 @@
-package io.github.cuukenn.encryptor.reactive.gateway.converter;
+package io.github.cuukenn.encryptor.web.converter;
 
-import org.springframework.cloud.gateway.filter.factory.rewrite.RewriteFunction;
 import org.springframework.http.MediaType;
 
 /**
  * @author changgg
  */
-public interface MessageWriter<I, O> {
+public interface MessageWriter {
     /**
      * 是否可写
      *
@@ -20,5 +19,5 @@ public interface MessageWriter<I, O> {
      *
      * @return 策略
      */
-    RewriteFunction<I, O> write();
+    RewriteFunction<byte[], byte[]> write();
 }

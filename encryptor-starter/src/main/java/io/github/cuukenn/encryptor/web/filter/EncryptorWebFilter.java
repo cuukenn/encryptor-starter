@@ -1,7 +1,6 @@
 package io.github.cuukenn.encryptor.web.filter;
 
 import io.github.cuukenn.encryptor.config.CryptoConfig;
-import io.github.cuukenn.encryptor.converter.DataConverterFactory;
 import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
@@ -21,12 +20,10 @@ import java.io.IOException;
 public class EncryptorWebFilter extends OncePerRequestFilter {
     private final WebEncryptorConfig config;
     private final IEncryptorFacadeFactory<CryptoConfig> facadeFactory;
-    private final DataConverterFactory<CryptoConfig> dataConverterFactory;
 
-    public EncryptorWebFilter(WebEncryptorConfig config, IEncryptorFacadeFactory<CryptoConfig> facadeFactory, DataConverterFactory<CryptoConfig> dataConverterFactory) {
+    public EncryptorWebFilter(WebEncryptorConfig config, IEncryptorFacadeFactory<CryptoConfig> facadeFactory) {
         this.config = config;
         this.facadeFactory = facadeFactory;
-        this.dataConverterFactory = dataConverterFactory;
     }
 
     @Override
@@ -52,7 +49,6 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         String bestMatchStr = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
         CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(uri) : null;
         WebContext.current().setEncryptorFacade(this.facadeFactory.apply(cryptoConfig));
-        WebContext.current().setDataConverter(this.dataConverterFactory.apply(cryptoConfig));
         filterChain.doFilter(request, response);
     }
 }

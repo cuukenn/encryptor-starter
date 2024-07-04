@@ -1,10 +1,10 @@
 package io.github.cuukenn.encryptor.web.filter;
 
 import cn.hutool.core.io.IoUtil;
-import cn.hutool.http.HttpUtil;
-import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
-import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
+import io.github.cuukenn.encryptor.web.converter.DefaultMessageConverter;
+import io.github.cuukenn.encryptor.web.converter.MessageReader;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
+import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.FilterChain;
@@ -15,8 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpServletResponse;
 import java.io.*;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -25,21 +24,26 @@ import java.util.Optional;
  * @author changgg
  */
 public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
+    private final List<MessageReader> messageReaders;
+
+    public EncryptorRequestBodyFilter(List<MessageReader> messageReaders) {
+        this.messageReaders = messageReaders;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         if (!WebContext.current().isReqEncryptor()) {
             filterChain.doFilter(request, response);
             return;
         }
+        MediaType mediaType = MediaType.valueOf(Optional.ofNullable(request.getContentType()).orElseGet(MediaType.APPLICATION_JSON::toString));
+        MessageReader messageReader = messageReaders.stream().filter(reader -> reader.canRead(mediaType))
+                .findFirst()
+                .orElseGet(DefaultMessageConverter::new);
         InputStream newInputstream;
         byte[] bytes = IoUtil.readBytes(request.getInputStream());
         if (bytes != null && bytes.length > 0) {
-            String contentType = request.getContentType();
-            String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
-            String data = new String(bytes, Charset.forName(charset));
-            EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, data);
-            byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
-            request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
+            byte[] decryptData = messageReader.read().apply(request, response, bytes);
             newInputstream = new BufferedInputStream(new ByteArrayInputStream(decryptData));
         } else {
             newInputstream = new ByteArrayInputStream(new byte[0]);

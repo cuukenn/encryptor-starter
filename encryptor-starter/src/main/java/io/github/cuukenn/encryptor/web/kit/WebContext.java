@@ -1,7 +1,6 @@
 package io.github.cuukenn.encryptor.web.kit;
 
 import cn.hutool.core.thread.ThreadUtil;
-import io.github.cuukenn.encryptor.converter.DataConverter;
 import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
@@ -19,7 +18,6 @@ public class WebContext {
     private boolean reqEncryptor;
     private boolean resEncryptor;
     private EncryptorFacade encryptorFacade;
-    private DataConverter webDataConverter;
     private WebEncryptorConfig config;
 
     public WebEncryptorConfig getConfig() {
@@ -40,14 +38,6 @@ public class WebContext {
 
     public boolean isResEncryptor() {
         return resEncryptor;
-    }
-
-    public DataConverter getDataConverter() {
-        return webDataConverter;
-    }
-
-    public void setDataConverter(DataConverter webDataConverter) {
-        this.webDataConverter = webDataConverter;
     }
 
     public void setReqEncryptor(boolean reqEncryptor) {

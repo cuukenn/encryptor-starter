@@ -5,6 +5,7 @@ import cn.hutool.core.net.URLDecoder;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
@@ -55,7 +56,7 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
         if (parameters.isEmpty()) {
             return Collections.emptyMap();
         }
-        EncryptorDataWrapper dataWrapper = WebContext.current().getDataConverter().load(request, JSONUtil.toJsonStr(parameters));
+        EncryptorDataWrapper dataWrapper = new JSONObject(parameters).toBean(EncryptorDataWrapper.class);
         byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
         String contentType = request.getContentType();
         String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());

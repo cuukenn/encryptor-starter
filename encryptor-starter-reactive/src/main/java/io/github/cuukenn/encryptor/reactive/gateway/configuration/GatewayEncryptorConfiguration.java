@@ -5,8 +5,6 @@ import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
-import io.github.cuukenn.encryptor.reactive.gateway.converter.FormMessageConverter;
-import io.github.cuukenn.encryptor.reactive.gateway.converter.JsonMessageConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageReader;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageWriter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorSkipFilter;
@@ -24,6 +22,7 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyResponseBodyGatewayFilterFactory;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
@@ -35,6 +34,7 @@ import java.util.Map;
 @Configuration
 @ConditionalOnProperty(prefix = EncryptorConfig.PREFIX + ".gateway", name = "enable", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(GatewayEncryptorConfig.class)
+@ComponentScan(basePackageClasses = {MessageReader.class})
 public class GatewayEncryptorConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorReactiveAutoConfiguration.class);
 
@@ -83,17 +83,5 @@ public class GatewayEncryptorConfiguration {
     public EncryptorSkipFilter encryptorSkipFilter(GatewayEncryptorConfig config) {
         logger.warn("register gateway skip encryptor filter, JUST GIVE A WAY TO SKIP IN TEST, DO NOT USE IN PRD!!!");
         return new EncryptorSkipFilter(config.getFilterConfig().getEncryptorSkipFilterOrder());
-    }
-
-    @ConditionalOnMissingBean(FormMessageConverter.class)
-    @Bean
-    public FormMessageConverter formMessageConverter() {
-        return new FormMessageConverter();
-    }
-
-    @ConditionalOnMissingBean(JsonMessageConverter.class)
-    @Bean
-    public JsonMessageConverter jsonMessageConverter() {
-        return new JsonMessageConverter();
     }
 }

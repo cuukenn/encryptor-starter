@@ -8,9 +8,6 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.converter.AllInOneDataConverter;
-import io.github.cuukenn.encryptor.converter.DataConverter;
-import io.github.cuukenn.encryptor.converter.HeaderDataConverter;
 import io.github.cuukenn.encryptor.core.CheckerStrategy;
 import io.github.cuukenn.encryptor.core.EncoderStrategy;
 import io.github.cuukenn.encryptor.core.EncryptorStrategy;
@@ -62,15 +59,5 @@ public class EncryptorAutoConfiguration {
                     checkerStrategies
             );
         };
-    }
-
-    @Bean(EncryptorConstant.ALL_IN_ONE_CONVERTER)
-    public DataConverter allInOneConverter() {
-        return new AllInOneDataConverter();
-    }
-
-    @Bean(EncryptorConstant.HEADER_CONVERTER)
-    public DataConverter headerDataConverter() {
-        return new HeaderDataConverter();
     }
 }
