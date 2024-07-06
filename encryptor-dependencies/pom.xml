@@ -1,61 +1,62 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.github.cuukenn</groupId>
-    <artifactId>encryptor-parent</artifactId>
+    <artifactId>encryptor-dependencies</artifactId>
     <version>1.0.0-SNAPSHOT</version>
+    <name>encryptor-dependencies</name>
     <packaging>pom</packaging>
-    <name>encryptor</name>
-    <description>encrypt and decrypt data</description>
+    <description>Encryptor dependencies</description>
     <url>https://github.com/cuukenn/encryptor-starter</url>
     <properties>
-        <rversion>${version}</rversion>
-        <!-- *************************maven基础配置*************************************-->
-        <!--maven编译的JDK版本和编码字符集-->
-        <java.version>8</java.version>
-        <maven.compiler.target>${java.version}</maven.compiler.target>
-        <maven.compiler.source>${java.version}</maven.compiler.source>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
-        <!-- *************************三方依赖版本号**************************************-->
-        <spring-boot.version>2.4.2</spring-boot.version>
-        <spring-cloud.version>2020.0.1</spring-cloud.version>
-        <spring-cloud-alibaba.version>2021.1</spring-cloud-alibaba.version>
+        <revision>${version}</revision>
+        <hutool.version>5.8.25</hutool.version>
+        <spring-cloud-starter-bootstrap.version>3.1.0</spring-cloud-starter-bootstrap.version>
     </properties>
     <dependencyManagement>
         <dependencies>
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring-boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!--spring cloud依赖控制-->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!--spring cloud alibaba依赖控制-->
-            <dependency>
-                <groupId>com.alibaba.cloud</groupId>
-                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>${spring-cloud-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!--project dependencies依赖控制-->
+            <!--local dependency-->
             <dependency>
                 <groupId>io.github.cuukenn</groupId>
-                <artifactId>encryptor-dependencies</artifactId>
-                <version>${project.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
+                <artifactId>encryptor-core</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-web-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!--third dependency-->
+            <!--spring-cloud-starter-bootstrap-->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-starter-bootstrap</artifactId>
+                <version>${spring-cloud-starter-bootstrap.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-all</artifactId>
+                <version>${hutool.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>1.78.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -88,26 +89,6 @@
         <url>https://github.com/cuukenn/encryptor-starter/issues</url>
     </issueManagement>
     <profiles>
-        <profile>
-            <id>all-modules</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <modules>
-                <module>encryptor-dependencies</module>
-                <module>encryptor-core</module>
-                <module>encryptor-starters</module>
-                <module>encryptor-examples</module>
-            </modules>
-        </profile>
-        <profile>
-            <id>main-module</id>
-            <modules>
-                <module>encryptor-dependencies</module>
-                <module>encryptor-core</module>
-                <module>encryptor-starters</module>
-            </modules>
-        </profile>
         <profile>
             <id>release</id>
             <build>
@@ -145,24 +126,6 @@
     </profiles>
     <build>
         <finalName>${project.artifactId}-${project.version}</finalName>
-        <resources>
-            <resource>
-                <!--将bootstrap配置文件列入maven变量替换范围-->
-                <directory>${basedir}/src/main/resources</directory>
-                <filtering>true</filtering>
-                <includes>
-                    <include>**/bootstrap*.yml</include>
-                </includes>
-            </resource>
-            <resource>
-                <!--将bootstrap配置文件之外的文件也列为资源文件进行打包-->
-                <directory>${basedir}/src/main/resources</directory>
-                <filtering>false</filtering>
-                <excludes>
-                    <exclude>**/bootstrap*.yml</exclude>
-                </excludes>
-            </resource>
-        </resources>
         <pluginManagement>
             <plugins>
                 <!--  javadoc-->

@@ -25,25 +25,25 @@ encryptor-spring-boot-starter是一个基于springboot的快速集成Mongodb多�
           <version>版本</version>
         </dependency>
         ```
-    - mvc项目。
+    - web项目。
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->
         <!-- https://mvnrepository.com/artifact/io.github.cuukenn -->
         <dependency>
           <groupId>io.github.cuukenn.encryptor</groupId>
-          <artifactId>encryptor-spring-boot-starter</artifactId>
+          <artifactId>encryptor-web-spring-boot-starter</artifactId>
           <version>版本</version>
         </dependency>
         ```
 
-    - webflux项目。
+    - gateway项目。
 
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->
         <!-- https://mvnrepository.com/artifact/io.github.cuukenn/dynamic-mongodb-database-starter -->
         <dependency>
           <groupId>io.github.cuukenn.encryptor</groupId>
-          <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
+          <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
           <version>版本</version>
         </dependency>
         ```
