@@ -63,18 +63,25 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
         String data = new String(decryptData, Charset.forName(charset));
         if (ContentType.isFormUrlEncode(contentType)) {
             data = URLDecoder.decode(data, Charset.forName(charset));
-            Map<Object, Object> formDataMap = Arrays.stream(data.split("&")).map(x -> {
-                int index = StrUtil.indexOf(x, '=');
-                return new String[]{
-                        x.substring(0, index),
-                        x.substring(index + 1)
-                };
-            }).collect(Collectors.toMap(x -> x[0], x -> x[1]));
-            data = JSONUtil.toJsonStr(formDataMap);
+            data = JSONUtil.toJsonStr(parseFormData(data));
         }
         Map<String, String> map = JSONUtil.toBean(data, new TypeReference<Map<String, String>>() {
         }, true);
         request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
         return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
+    }
+
+    /**
+     * 解析 form 表单文本：兼容没有 '=' 的段落与重复 key
+     * （原实现遇到 "a=1&broken" 会抛 StringIndexOutOfBoundsException，遇到重复 key 会抛 IllegalStateException）
+     *
+     * @param data 表单文本
+     * @return 参数
+     */
+    static Map<Object, Object> parseFormData(String data) {
+        return Arrays.stream(data.split("&")).filter(StrUtil::isNotBlank).map(x -> {
+            int index = x.indexOf('=');
+            return index < 0 ? new String[]{x, ""} : new String[]{x.substring(0, index), x.substring(index + 1)};
+        }).collect(Collectors.toMap(x -> x[0], x -> x[1], (x1, x2) -> x1));
     }
 }

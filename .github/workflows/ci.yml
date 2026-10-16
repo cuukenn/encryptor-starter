@@ -1,0 +1,22 @@
+# 每次 push 与 PR 都跑一遍构建 + 测试
+name: Build & Test
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repo
+        uses: actions/checkout@v3
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '8'
+          cache: maven
+      # main-module = dependencies + core + starters；examples 是演示工程，不参与 CI
+      - name: Build & Test
+        run: mvn -B -Pmain-module clean install

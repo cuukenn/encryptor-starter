@@ -165,6 +165,18 @@
         </resources>
         <pluginManagement>
             <plugins>
+                <!--  单元测试：JUnit5 需要 surefire 2.22+，Maven 默认的 2.12.x 不会执行 JUnit5 测试-->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>2.22.2</version>
+                    <configuration>
+                        <!-- HttpTest 是需要先启动服务的端到端脚本，不属于单元测试 -->
+                        <excludes>
+                            <exclude>**/HttpTest.java</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
                 <!--  javadoc-->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

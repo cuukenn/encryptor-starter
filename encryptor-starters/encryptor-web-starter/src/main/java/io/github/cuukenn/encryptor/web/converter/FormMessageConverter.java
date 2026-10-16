@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.web.converter;
 
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.core.net.URLDecoder;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -52,13 +53,23 @@ public class FormMessageConverter implements MessageReader, MessageWriter {
             String contentType = request.getContentType();
             String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
             String data = new String(URLDecoder.decode(input), Charset.forName(charset));
-            Map<String, String> map = Arrays.stream(data.split("&")).map(x -> {
-                int index = x.indexOf("=");
-                return new String[]{x.substring(0, index), x.substring(index + 1)};
-            }).collect(Collectors.toMap(x -> x[0], x -> x[1], (x1, x2) -> x1));
+            Map<String, String> map = parseForm(data);
             EncryptorDataWrapper dataWrapper = new JSONObject(map).toBean(EncryptorDataWrapper.class);
             request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             return WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
         };
+    }
+
+    /**
+     * 解析 form 表单文本，兼容没有 '=' 的段落（如 "a=1&broken"）与重复 key
+     *
+     * @param data 表单文本
+     * @return 参数
+     */
+    static Map<String, String> parseForm(String data) {
+        return Arrays.stream(data.split("&")).filter(StrUtil::isNotBlank).map(x -> {
+            int index = x.indexOf("=");
+            return index < 0 ? new String[]{x, ""} : new String[]{x.substring(0, index), x.substring(index + 1)};
+        }).collect(Collectors.toMap(x -> x[0], x -> x[1], (x1, x2) -> x1));
     }
 }

@@ -19,6 +19,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
@@ -54,7 +55,7 @@ public class EncryptorRequestParameterFilter implements GlobalFilter, Ordered {
 
                 byte[] decryptData = GatewayKit.getEncryptorFacade(exchange).decrypt(dataWrapper);
 
-                Map<String, String> newParameters = JSONUtil.toBean(new String(decryptData), new TypeReference<Map<String, String>>() {
+                Map<String, String> newParameters = JSONUtil.toBean(new String(decryptData, StandardCharsets.UTF_8), new TypeReference<Map<String, String>>() {
                 }, true);
 
                 MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();

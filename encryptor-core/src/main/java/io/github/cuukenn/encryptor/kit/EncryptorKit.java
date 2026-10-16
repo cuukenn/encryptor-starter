@@ -7,6 +7,7 @@ import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -18,7 +19,7 @@ public class EncryptorKit {
         final String encryptData = encryptorEncoder.encrypt(data);
         final String nonce = IdUtil.fastSimpleUUID();
         final long timestamp = System.currentTimeMillis();
-        final String sign = signerEncoder.sign((nonce + timestamp + encryptData).getBytes());
+        final String sign = signerEncoder.sign((nonce + timestamp + encryptData).getBytes(StandardCharsets.UTF_8));
         return new EncryptorDataWrapper(
                 nonce, timestamp, sign,
                 key,
@@ -37,7 +38,7 @@ public class EncryptorKit {
         for (CheckerStrategy checkerStrategy : checkStrategies) {
             checkerStrategy.check(data);
         }
-        boolean sigCheck = signerEncoder.verify(data.getSignature(), (nonce + timestamp + encryptData).getBytes());
+        boolean sigCheck = signerEncoder.verify(data.getSignature(), (nonce + timestamp + encryptData).getBytes(StandardCharsets.UTF_8));
         if (!sigCheck) {
             throw new EncryptorException("sig check error");
         }

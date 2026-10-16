@@ -6,6 +6,7 @@ import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
 import io.github.cuukenn.encryptor.kit.EncryptorKit;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.Function;
 
@@ -27,15 +28,15 @@ public class EncryptorFacade {
 
     public EncryptorDataWrapper encrypt(byte[] data, String key) {
         final byte[] params = negotiateEncoder.decrypt(key);
-        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params));
-        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params));
+        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params, StandardCharsets.UTF_8));
+        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params, StandardCharsets.UTF_8));
         return EncryptorKit.encrypt(encryptorEncoderL, signerEncoderL, data, key);
     }
 
     public byte[] decrypt(EncryptorDataWrapper data) {
         final byte[] params = negotiateEncoder.decrypt(data.getKey());
-        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params));
-        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params));
+        EncryptorEncoder encryptorEncoderL = encryptorEncoder.apply(new String(params, StandardCharsets.UTF_8));
+        SignerEncoder signerEncoderL = signerEncoder.apply(new String(params, StandardCharsets.UTF_8));
         return EncryptorKit.decrypt(encryptorEncoderL, signerEncoderL, checkerStrategies, data);
     }
 

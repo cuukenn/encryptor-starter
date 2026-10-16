@@ -28,27 +28,35 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        final String uri = request.getRequestURI();
-        boolean isBlankUri = StrKit.anyMatch(uri, config.getBlackUris());
-        if (isBlankUri) {
+        try {
+            final String uri = request.getRequestURI();
+            boolean isBlankUri = StrKit.anyMatch(uri, config.getBlackUris());
+            if (isBlankUri) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            boolean isBlankMethod = StrKit.anyMatch(request.getMethod(), config.getBlackMethods());
+            if (isBlankMethod) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            WebContext context = WebContext.current();
+            context.setEncryptor(true);
+            String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
+            boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackReqContentType());
+            if (!isBlankReqContentType) {
+                context.setReqEncryptor(true);
+            }
+            context.setConfig(config);
+            String bestMatchStr = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
+            // 必须用命中的正则 key 取值：用 uri 取值会让 uri 级 crypto-config 永远匹配不到
+            CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(bestMatchStr) : null;
+            context.setEncryptorFacade(this.facadeFactory.apply(cryptoConfig));
             filterChain.doFilter(request, response);
-            return;
+        } finally {
+            // 请求结束必须清理上下文：Servlet 线程池会复用线程，
+            // 否则上一个请求的 EncryptorFacade / config / 标志位会泄漏到下一个请求
+            WebContext.clear();
         }
-        boolean isBlankMethod = StrKit.anyMatch(request.getMethod(), config.getBlackMethods());
-        if (isBlankMethod) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-        WebContext.current().setEncryptor(true);
-        String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        boolean isBlankReqContentType = contentType != null && StrKit.anyMatch(contentType, config.getBlackReqContentType());
-        if (!isBlankReqContentType) {
-            WebContext.current().setReqEncryptor(true);
-        }
-        WebContext.current().setConfig(config);
-        String bestMatchStr = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
-        CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(uri) : null;
-        WebContext.current().setEncryptorFacade(this.facadeFactory.apply(cryptoConfig));
-        filterChain.doFilter(request, response);
     }
 }

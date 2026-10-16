@@ -6,7 +6,6 @@ import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 
 /**
  * @author changgg
@@ -23,12 +22,18 @@ public class InRedisNonceChecker implements CheckerStrategy {
     @Override
     public void check(EncryptorDataWrapper data) {
         final String nonce = data.getNonce();
-        if (redisTemplate.opsForValue().get(nonce) != null) {
-            throw new EncryptorException("request replay");
+        final Long timestamp = data.getTimestamp();
+        if (timestamp == null) {
+            throw new EncryptorException("request timestamp is missing");
         }
-        if (System.currentTimeMillis() - data.getTimestamp() >= offsetDuration.get(ChronoUnit.SECONDS) * 1000L) {
+        // 时窗必须对称：只判断"过去"的话，客户端把时间戳写成未来即可绕过校验
+        if (Math.abs(System.currentTimeMillis() - timestamp) >= offsetDuration.toMillis()) {
             throw new EncryptorException("request out of time or client time error");
         }
-        redisTemplate.opsForValue().set(nonce, true, offsetDuration);
+        // setIfAbsent 是原子的：先 get 再 set 会让两个并发的同 nonce 请求同时通过防重放校验
+        Boolean firstSet = redisTemplate.opsForValue().setIfAbsent(nonce, true, offsetDuration);
+        if (!Boolean.TRUE.equals(firstSet)) {
+            throw new EncryptorException("request replay");
+        }
     }
 }

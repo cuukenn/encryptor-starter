@@ -14,7 +14,6 @@ encryptor-spring-boot-starter是一个基于springboot的快速集成数据传�
 - 支持 **请求、响应可选处理及uri,请求contentType,响应contentType白名单处理**。
 - 支持 **uri匹配不同密钥算法配置**。
 - 支持 **网关测试环境可选跳过功能**。
-- 支持 **网关gzip的encode,decode处理**。
 - 支持 **网关自定义contentType类型处理**。
 
 ## 使用方法
@@ -23,9 +22,9 @@ encryptor-spring-boot-starter是一个基于springboot的快速集成数据传�
     - 普通项目
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->
-        <!-- https://mvnrepository.com/artifact/io.github.cuukenn -->
+        <!-- https://mvnrepository.com/artifact/io.github.cuukenn/encryptor-core -->
         <dependency>
-          <groupId>io.github.cuukenn.encryptor</groupId>
+          <groupId>io.github.cuukenn</groupId>
           <artifactId>encryptor-core</artifactId>
           <version>版本</version>
         </dependency>
@@ -33,9 +32,9 @@ encryptor-spring-boot-starter是一个基于springboot的快速集成数据传�
     - web项目。
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->
-        <!-- https://mvnrepository.com/artifact/io.github.cuukenn -->
+        <!-- https://mvnrepository.com/artifact/io.github.cuukenn/encryptor-web-spring-boot-starter -->
         <dependency>
-          <groupId>io.github.cuukenn.encryptor</groupId>
+          <groupId>io.github.cuukenn</groupId>
           <artifactId>encryptor-web-spring-boot-starter</artifactId>
           <version>版本</version>
         </dependency>
@@ -45,9 +44,9 @@ encryptor-spring-boot-starter是一个基于springboot的快速集成数据传�
 
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->
-        <!-- https://mvnrepository.com/artifact/io.github.cuukenn/dynamic-mongodb-database-starter -->
+        <!-- https://mvnrepository.com/artifact/io.github.cuukenn/encryptor-gateway-spring-boot-starter -->
         <dependency>
-          <groupId>io.github.cuukenn.encryptor</groupId>
+          <groupId>io.github.cuukenn</groupId>
           <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
           <version>版本</version>
         </dependency>

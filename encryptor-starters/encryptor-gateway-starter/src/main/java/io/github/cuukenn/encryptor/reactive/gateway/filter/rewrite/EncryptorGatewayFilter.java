@@ -46,7 +46,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         }
         exchange.getAttributes().put(GatewayConstant.GATEWAY_ENCRYPTOR_CONFIG, config);
         String bestMatchStr = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
-        CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(uri) : null;
+        // 必须用命中的正则 key 取值：用 uri 取值会让 uri 级 crypto-config 永远匹配不到
+        CryptoConfig cryptoConfig = bestMatchStr != null ? config.getCryptoConfig().get(bestMatchStr) : null;
         GatewayKit.setEncryptorFacade(exchange, this.facadeFactory.apply(cryptoConfig));
         return chain.filter(exchange);
     }
