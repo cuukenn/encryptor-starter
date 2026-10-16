@@ -135,6 +135,29 @@
 
 **测试：** 切换 `bypassRequest` 后**同一进程内下一次读取即为新值**；`setBypass` 后 `resolve` 重新计算（用计数假 factory 断言缓存确实被清）。
 
+### Task 17: `CipherSuite` SPI + `JceCipherSuite`（现有 RSA/AES 下沉）
+
+**Files:** create `.../jose/{CipherSuite,JceCipherSuite}.java`；modify `.../jose/JweCodec.java`（构造期接收套件列表并按 `alg`/`enc` 分派；响应改为手工拼 compact，才能支持 nimbus 不认识的 `enc`）；test `.../jose/JceCipherSuiteTest.java`、modify `.../jose/JweCodecTest.java`
+
+**Interfaces:**
+- `CipherSuite`：`Set<String> algorithms()`、`Set<String> encryptionMethods()`、`byte[] unwrapCek(ServerKeyStore, String kid, String alg, byte[] encryptedKey)`、`byte[] aeadDecrypt(String enc, byte[] cek, byte[] iv, byte[] cipherText, byte[] authTag, byte[] aad)`、`byte[] aeadEncrypt(String enc, byte[] cek, byte[] iv, byte[] plaintext, byte[] aad)`、`int keyLength(String enc)`
+- `JceCipherSuite`：alg = `RSA-OAEP-256`；enc = `A128GCM`/`A192GCM`/`A256GCM`
+- `JweCodec(ServerKeyStore, List<CipherSuite>, Set<String> allowedAlgs, Set<String> allowedEncs)`（保留 3 参构造 = 仅 JCE 套件）；新增 `encryptResponse(..., String enc, ...)` 重载（旧签名按 CEK 长度推断）
+
+**测试：** 用"假套件"（alg=`TEST-ALG`/enc=`TEST-ENC`）装配 `JweCodec` 并能解出该套件生产的报文 ⇒ 证明分派来自套件、白名单不硬编码；`aeadEncrypt/aeadDecrypt` 往返；响应显式 `enc` 生效、不支持的 `enc` ⇒ `ENCRYPT_FAILED`。
+
+### Task 18: `SmCipherSuite` + SM2 密钥类型 + JWKS 国密表示
+
+**Files:** create `.../jose/SmCipherSuite.java`；modify `.../jose/ServerKeyStore.java`（`type: RSA|SM2`）、`.../jose/PublicKeyInfo.java`（`jwk` 支持 `crv=SM2`）；test `.../jose/SmCipherSuiteTest.java`、modify `.../jose/ServerKeyStoreTest.java`
+
+**Interfaces:**
+- `SmCipherSuite`：alg = `SM2`（C1C3C2）、enc = `SM4-GCM`；只用 BC 轻量级 API，不注册 Provider
+- `ServerKeyStore` 密钥项增加 `type`（缺省 `RSA`）；SM2 私钥 PKCS#8、公钥 SPKI 或裸 64 字节 `x||y`
+
+**测试：** SM2 封装/解封往返（钉住 C1C3C2 排列）；SM4-GCM 往返 + 篡改 tag/密文失败；密钥/长度非法 ⇒ fail-fast；装配 JCE+SM 两套件的端到端解密成功、JWKS 出现 `crv=SM2`。
+
+> **执行顺序**：Task 17、18 必须在 **Task 8（配置 + 自动装配）之前**——T8 的 `allowed-algs/encs` 要包含 `SM2`/`SM4-GCM`，`keys[]` 要带 `type`。
+
 ## Phase B — servlet 侧
 
 ### Task 7: `EncryptorListener` + `EncryptorFailure` + `StrKit` 正则缓存

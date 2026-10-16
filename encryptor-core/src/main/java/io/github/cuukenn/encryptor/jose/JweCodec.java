@@ -4,31 +4,30 @@ import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
 import com.nimbusds.jose.JWEObject;
-import com.nimbusds.jose.Payload;
-import com.nimbusds.jose.crypto.DirectEncrypter;
 import com.nimbusds.jose.util.Base64URL;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.OAEPParameterSpec;
-import javax.crypto.spec.PSource;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.spec.MGF1ParameterSpec;
+import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * JWE 编解码器（请求方向解密、响应方向封装）。
  *
- * <p>顺序不可变：解析 → {@code alg}/{@code enc} 白名单 → {@code kid} → 上下文（AAD）→ 解封 CEK → AES-GCM 解密（tag 校验）。
+ * <p>顺序不可变：解析 → {@code alg}/{@code enc} 白名单 → {@code kid} → 上下文（AAD）→ 解封 CEK → AEAD 解密（tag 校验）。
  * 白名单在<b>本类内部</b>强制，不可被外部 bean 关掉；集合为空表示"只接受协议默认"（RSA-OAEP-256 / A256GCM）。
  *
- * <p>时间戳与 nonce 的<b>新鲜度</b>校验不在这里（见 T5 {@code ReplayGuard}）：必须先通过 GCM tag 校验，
+ * <p>算法本身不在这里，而在装配进来的 {@link CipherSuite} 里：本类只做"结构 + 顺序 + 白名单 + 分派"，
+ * 因此新增算法（例如国密）不需要碰协议与线格式。
+ *
+ * <p>时间戳与 nonce 的<b>新鲜度</b>校验不在这里（见 {@link ReplayGuard}）：必须先通过 AEAD tag 校验，
  * 否则未认证输入会污染 nonce 存储。
  *
  * @author changgg
@@ -39,23 +38,33 @@ public class JweCodec {
     public static final String DEFAULT_ALG = JWEAlgorithm.RSA_OAEP_256.getName();
     public static final String DEFAULT_ENC = EncryptionMethod.A256GCM.getName();
 
-    /** 本实现支持的内容加密方法（均为 AEAD 的 GCM 家族）。 */
-    private static final Set<String> SUPPORTED_ENCS = Collections.unmodifiableSet(
-        new LinkedHashSet<>(java.util.Arrays.asList(EncryptionMethod.A256GCM.getName(),
-            EncryptionMethod.A192GCM.getName(), EncryptionMethod.A128GCM.getName())));
-    /** 本实现支持的密钥封装算法（只有 RSA-OAEP-256）。 */
-    private static final Set<String> SUPPORTED_ALGS = Collections.singleton(DEFAULT_ALG);
-
-    private static final int GCM_TAG_BITS = 128;
+    /** AEAD 的标准 IV 长度（GCM 12 字节）。 */
+    private static final int IV_LENGTH = 12;
 
     private final ServerKeyStore keys;
+    private final List<CipherSuite> suites;
     private final Set<String> allowedAlgs;
     private final Set<String> allowedEncs;
+    private final SecureRandom random = new SecureRandom();
 
+    /** 仅装配 JCE 套件（RSA-OAEP-256 + AES-GCM）的便捷构造。 */
     public JweCodec(ServerKeyStore keys, Set<String> allowedAlgs, Set<String> allowedEncs) {
+        this(keys, Collections.singletonList(new JceCipherSuite()), allowedAlgs, allowedEncs);
+    }
+
+    /**
+     * @param suites      装配的算法套件（至少一个；白名单只允许取自这里声明的 alg/enc）
+     * @param allowedAlgs 允许的封装算法；为空 = 协议默认
+     * @param allowedEncs 允许的内容加密方法；为空 = 协议默认
+     */
+    public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs) {
+        if (suites == null || suites.isEmpty()) {
+            throw new EncryptorException("必须装配至少一个 CipherSuite");
+        }
         this.keys = keys;
-        this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), SUPPORTED_ALGS, "alg");
-        this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), SUPPORTED_ENCS, "enc");
+        this.suites = Collections.unmodifiableList(new ArrayList<>(suites));
+        this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), installed(true), "alg");
+        this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), installed(false), "enc");
     }
 
     /**
@@ -70,9 +79,10 @@ public class JweCodec {
         if (compact == null || compact.trim().isEmpty()) {
             throw fail(EncryptorFailure.MISSING, "命中加密范围但报文缺少 jwe 字段");
         }
+        String token = compact.trim();
         JWEObject jwe;
         try {
-            jwe = JWEObject.parse(compact.trim());
+            jwe = JWEObject.parse(token);
         } catch (Exception e) {
             throw new EncryptorException(EncryptorFailure.BAD_HEADER, "JWE 解析失败: " + e.getMessage(), e);
         }
@@ -109,24 +119,26 @@ public class JweCodec {
             throw fail(EncryptorFailure.BAD_HEADER, "绑上下文缺少 ts/nonce");
         }
 
-        byte[] aad = aadOf(compact.trim());
+        byte[] aad = aadOf(token);
         byte[] iv = jwe.getIV().decode();
         byte[] cipherText = jwe.getCipherText().decode();
         byte[] authTag = jwe.getAuthTag().decode();
 
+        CipherSuite unwrapSuite = suiteOfAlg(alg);
+        CipherSuite aeadSuite = suiteOfEnc(enc);
         byte[] cek;
         try {
-            cek = unwrapCek(kid, jwe.getEncryptedKey().decode());
+            cek = unwrapSuite.unwrapCek(keys, kid, alg, jwe.getEncryptedKey().decode());
         } catch (Exception e) {
             throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "CEK 解封失败", e);
         }
-        if (cek == null || cek.length != cekLength(enc)) {
+        if (cek == null || cek.length != aeadSuite.keyLength(enc)) {
             throw fail(EncryptorFailure.DECRYPT_FAILED, "CEK 长度非法");
         }
 
         byte[] plaintext;
         try {
-            plaintext = gcmDecrypt(cek, iv, cipherText, authTag, aad);
+            plaintext = aeadSuite.aeadDecrypt(enc, cek, iv, cipherText, authTag, aad);
         } catch (Exception e) {
             throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "AEAD 校验或解密失败", e);
         }
@@ -136,23 +148,50 @@ public class JweCodec {
     /**
      * 封装一个响应报文：{@code alg=dir}，复用请求协商出的 CEK（客户端因此不需要自己的密钥对）。
      *
-     * <p>每次调用都由 nimbus 生成新的随机 IV；AAD 仍是 protected header（含 {@code dir=res} 与新的 {@code ts}/{@code nonce}），
-     * 因此响应密文与"响应方向 + 该 uri/method + 该时刻"绑定，请求密文与之互换必然失败。
-     *
-     * <p>{@code enc} 由 CEK 长度决定（16/24/32 → A128GCM/A192GCM/A256GCM）：{@code dir} 下 CEK 长度必须与
-     * {@code enc} 匹配，跟随请求选择的算法才能被客户端解开。
+     * <p>{@code enc} 按 CEK 长度推断（16/24/32 → A128GCM/A192GCM/A256GCM），仅供 AES 路径的便捷调用；
+     * 非 AES 套件（例如国密）必须用带 {@code enc} 的重载，显式传入请求协商出的 {@code enc}。
      */
     public String encryptResponse(byte[] body, byte[] cek, String uri, String method, long ts, String nonce) {
         if (cek == null) {
             throw fail(EncryptorFailure.ENCRYPT_FAILED, "缺少 CEK");
         }
-        EncryptionMethod enc = encOf(cek.length);
-        Map<String, Object> claims = ContextAad.claims(uri, method, Direction.RESPONSE, ts, nonce);
+        return encryptResponse(body, cek, encOf(cek.length), uri, method, ts, nonce);
+    }
+
+    /**
+     * 封装一个响应报文（{@code alg=dir}，显式指定 {@code enc}）。
+     *
+     * <p>每次调用生成新的随机 IV；AAD 仍是 protected header（含 {@code dir=res} 与新的 {@code ts}/{@code nonce}），
+     * 因此响应密文与"响应方向 + 该 uri/method + 该时刻"绑定，请求密文与之互换必然失败。
+     */
+    public String encryptResponse(byte[] body, byte[] cek, String enc, String uri, String method, long ts,
+                                  String nonce) {
+        if (cek == null) {
+            throw fail(EncryptorFailure.ENCRYPT_FAILED, "缺少 CEK");
+        }
+        CipherSuite suite = suiteOfEnc(enc, true);
+        if (cek.length != suite.keyLength(enc)) {
+            throw fail(EncryptorFailure.ENCRYPT_FAILED, "CEK 长度非法: " + cek.length);
+        }
+        int tagLength = suite.tagLength(enc);
         try {
-            JWEObject jwe = new JWEObject(new JWEHeader.Builder(JWEAlgorithm.DIR, enc).customParams(claims).build(),
-                new Payload(body == null ? new byte[0] : body));
-            jwe.encrypt(new DirectEncrypter(new SecretKeySpec(cek, "AES")));
-            return jwe.serialize();
+            JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.DIR, encMethod(enc))
+                .customParams(ContextAad.claims(uri, method, Direction.RESPONSE, ts, nonce))
+                .build();
+            byte[] aad = header.toBase64URL().toString().getBytes(StandardCharsets.US_ASCII);
+            byte[] iv = new byte[IV_LENGTH];
+            random.nextBytes(iv);
+            byte[] packed = suite.aeadEncrypt(enc, cek, iv, body == null ? new byte[0] : body, aad);
+            if (packed.length < tagLength) {
+                throw fail(EncryptorFailure.ENCRYPT_FAILED, "AEAD 输出长度非法");
+            }
+            // 手工拼 compact：protected header . encrypted_key（dir 为空） . iv . cipherText . authTag
+            return new String(aad, StandardCharsets.US_ASCII) + "." + "."
+                + Base64URL.encode(iv) + "."
+                + Base64URL.encode(Arrays.copyOf(packed, packed.length - tagLength)) + "."
+                + Base64URL.encode(Arrays.copyOfRange(packed, packed.length - tagLength, packed.length));
+        } catch (EncryptorException e) {
+            throw e;
         } catch (Exception e) {
             throw new EncryptorException(EncryptorFailure.ENCRYPT_FAILED, "响应加密失败: " + e.getMessage(), e);
         }
@@ -173,30 +212,39 @@ public class JweCodec {
         return protectedHeader.getBytes(StandardCharsets.US_ASCII);
     }
 
-    /**
-     * RSA-OAEP-256 解封 CEK。
-     *
-     * <p>不走 nimbus 的 {@code RSADecrypter}：它对"密钥封装"类算法会连同内容一起解、返回的是<b>明文</b>本身，
-     * 而我们需要 CEK 原值来加密响应（{@code alg=dir}）。这里用 JCE 显式指定 {@code OAEPParameterSpec}，
-     * 因为裸的 {@code OAEPWithSHA-256AndMGF1Padding} 的 MGF1 默认是 SHA-1，与 JOSE 的 RSA-OAEP-256 不符。
-     * 每次调用新建 {@code Cipher}（非线程安全，绝不共享单实例）。
-     */
-    private byte[] unwrapCek(String kid, byte[] encryptedKey) throws Exception {
-        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-        cipher.init(Cipher.DECRYPT_MODE, keys.privateKey(kid), new OAEPParameterSpec("SHA-256", "MGF1",
-            MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT));
-        return cipher.doFinal(encryptedKey);
+    private CipherSuite suiteOfAlg(String alg) {
+        for (CipherSuite suite : suites) {
+            if (suite.algorithms().contains(alg)) {
+                return suite;
+            }
+        }
+        throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "没有套件支持该 alg: " + alg);
     }
 
-    static byte[] gcmDecrypt(byte[] cek, byte[] iv, byte[] cipherText, byte[] authTag, byte[] aad)
-        throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(cek, "AES"), new GCMParameterSpec(GCM_TAG_BITS, iv));
-        cipher.updateAAD(aad);
-        byte[] input = new byte[cipherText.length + authTag.length];
-        System.arraycopy(cipherText, 0, input, 0, cipherText.length);
-        System.arraycopy(authTag, 0, input, cipherText.length, authTag.length);
-        return cipher.doFinal(input);
+    private CipherSuite suiteOfEnc(String enc) {
+        return suiteOfEnc(enc, false);
+    }
+
+    /** @param encrypting true 表示响应方向：找不到套件时按 {@code ENCRYPT_FAILED} 报错 */
+    private CipherSuite suiteOfEnc(String enc, boolean encrypting) {
+        for (CipherSuite suite : suites) {
+            if (suite.encryptionMethods().contains(enc)) {
+                return suite;
+            }
+        }
+        if (encrypting) {
+            throw fail(EncryptorFailure.ENCRYPT_FAILED, "没有套件支持该 enc: " + enc);
+        }
+        throw fail(EncryptorFailure.ENC_NOT_ALLOWED, "没有套件支持该 enc: " + enc);
+    }
+
+    /** 已装配套件声明的 alg / enc（白名单只能取自这里）。 */
+    private Set<String> installed(boolean algorithms) {
+        Set<String> union = new LinkedHashSet<>();
+        for (CipherSuite suite : suites) {
+            union.addAll(algorithms ? suite.algorithms() : suite.encryptionMethods());
+        }
+        return union;
     }
 
     private static Set<String> effective(Set<String> configured, String fallback) {
@@ -206,39 +254,42 @@ public class JweCodec {
         return Collections.unmodifiableSet(new LinkedHashSet<>(configured));
     }
 
-    /** 配置里出现本实现不支持的算法一律在构造期失败（fail-fast，不等第一个请求）。 */
-    private static Set<String> validate(Set<String> configured, Set<String> supported, String name) {
+    /** 配置里出现没有套件支持的算法一律在构造期失败（fail-fast，不等第一个请求）。 */
+    private static Set<String> validate(Set<String> configured, Set<String> installed, String name) {
         for (String value : configured) {
-            if (!supported.contains(value)) {
-                throw new EncryptorException("暂不支持的 " + name + ": " + value + "（当前仅支持 " + supported + "）");
+            if (!installed.contains(value)) {
+                throw new EncryptorException(
+                    "没有套件支持配置的 " + name + ": " + value + "（已装配套件支持 " + installed + "）");
             }
         }
         return configured;
     }
 
-    /** AEAD 密钥长度由 {@code enc} 决定。 */
-    private static int cekLength(String enc) {
-        if (EncryptionMethod.A128GCM.getName().equals(enc)) {
-            return 16;
-        }
-        if (EncryptionMethod.A192GCM.getName().equals(enc)) {
-            return 24;
-        }
-        return 32;
-    }
-
-    /** 反向：{@code dir} 下响应 {@code enc} 由 CEK 长度决定。 */
-    private static EncryptionMethod encOf(int cekLength) {
+    /** 反向：{@code dir} 下 AES 路径的响应 {@code enc} 由 CEK 长度决定。 */
+    private static String encOf(int cekLength) {
         switch (cekLength) {
             case 16:
-                return EncryptionMethod.A128GCM;
+                return EncryptionMethod.A128GCM.getName();
             case 24:
-                return EncryptionMethod.A192GCM;
+                return EncryptionMethod.A192GCM.getName();
             case 32:
-                return EncryptionMethod.A256GCM;
+                return EncryptionMethod.A256GCM.getName();
             default:
                 throw fail(EncryptorFailure.ENCRYPT_FAILED, "CEK 长度非法: " + cekLength);
         }
+    }
+
+    /** 名字 → nimbus 的 {@link EncryptionMethod}（未注册名也允许：nimbus 会新建实例）。 */
+    private static EncryptionMethod encMethod(String enc) {
+        try {
+            EncryptionMethod parsed = EncryptionMethod.parse(enc);
+            if (parsed != null) {
+                return parsed;
+            }
+        } catch (RuntimeException ignored) {
+            // 落到下面的构造器
+        }
+        return new EncryptionMethod(enc);
     }
 
     private static Long longParam(JWEHeader header, String name) {
@@ -261,8 +312,13 @@ public class JweCodec {
         return value == null ? null : String.valueOf(value);
     }
 
-    /** 便捷方法：把 base64url 段解码（供 T4 复用同一套 AAD 规则时使用）。 */
+    /** 便捷方法：把 base64url 段解码（供后续任务复用同一套 AAD 规则时使用）。 */
     static byte[] decode(Base64URL value) {
         return value == null ? null : value.decode();
+    }
+
+    /** 绑上下文字段名（供后续任务构造/校验 protected header 时复用）。 */
+    static Map<String, Object> claims(String uri, String method, Direction direction, long ts, String nonce) {
+        return ContextAad.claims(uri, method, direction, ts, nonce);
     }
 }

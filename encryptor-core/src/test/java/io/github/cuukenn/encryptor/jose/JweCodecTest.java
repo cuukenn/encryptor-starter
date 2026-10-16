@@ -213,6 +213,143 @@ class JweCodecTest {
             "CEK 缺失必须拒绝");
     }
 
+    @Test
+    void 按套件分派而非硬编码() throws Exception {
+        // 允许 TEST-ALG/TEST-ENC 的只有"假套件"，能构造出来并解出内容即证明分派来自套件
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        String compact = fakeJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST", 1L, "n1");
+
+        JweContext context = fake.decryptRequest(compact, URI, "POST");
+
+        assertEquals("hi", new String(context.plaintext(), StandardCharsets.UTF_8));
+        assertEquals("TEST-ALG", context.alg());
+        assertEquals("TEST-ENC", context.enc());
+        assertEquals(4, context.cek().length, "CEK 长度必须取自套件");
+    }
+
+    @Test
+    void 白名单来自已装配套件() {
+        // 只有 JCE 套件时，TEST-ALG/TEST-ENC 必须在构造期被拒（不硬编码、也不放行未知算法）
+        assertThrows(EncryptorException.class,
+            () -> new JweCodec(store, Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC")));
+        // 空白名单 = 协议默认（RSA-OAEP-256/A256GCM）：套件不支持默认值时同样 fail-fast
+        assertThrows(EncryptorException.class,
+            () -> new JweCodec(store, Collections.singletonList(new FakeSuite()),
+                Collections.emptySet(), Collections.emptySet()));
+    }
+
+    @Test
+    void 响应可用显式enc封装() throws Exception {
+        byte[] cek = new byte[4];
+        new java.security.SecureRandom().nextBytes(cek);
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+
+        String response = fake.encryptResponse("world".getBytes(StandardCharsets.UTF_8), cek, "TEST-ENC",
+            URI, "POST", 2L, "n2");
+
+        String[] parts = response.split("\\.");
+        assertEquals(5, parts.length, "必须是 JWE compact");
+        assertEquals("", parts[1], "alg=dir 的 encrypted_key 必须为空");
+        JWEHeader header = JWEHeader.parse(new com.nimbusds.jose.util.Base64URL(parts[0]));
+        assertEquals(JWEAlgorithm.DIR, header.getAlgorithm());
+        assertEquals("TEST-ENC", header.getEncryptionMethod().getName());
+        assertEquals(Direction.RESPONSE.code(), header.getCustomParam(ContextAad.CLAIM_DIRECTION));
+        // 用假套件解回原文（tag 由套件自定义）
+        byte[] packed = b64urlDecode(parts[3] + "." + parts[4]);
+        assertArrayEquals("world".getBytes(StandardCharsets.UTF_8), new FakeSuite().aeadDecrypt("TEST-ENC", cek,
+            new byte[12], java.util.Arrays.copyOf(packed, packed.length - 1),
+            java.util.Arrays.copyOfRange(packed, packed.length - 1, packed.length), parts[0].getBytes("US-ASCII")));
+    }
+
+    @Test
+    void 响应enc不被套件支持时拒绝() {
+        assertEquals(EncryptorFailure.ENCRYPT_FAILED, assertThrows(EncryptorException.class,
+            () -> codec.encryptResponse("x".getBytes(StandardCharsets.UTF_8), new byte[32], "A128CBC-HS256",
+                URI, "POST", 1L, "n1")).failure());
+    }
+
+    /** 假套件：alg=TEST-ALG / enc=TEST-ENC（CEK 4 字节、xor 加密、tag = CEK 首字节）。用于证明分派来自套件而非硬编码。 */
+    static final class FakeSuite implements CipherSuite {
+
+        @Override
+        public java.util.Set<String> algorithms() {
+            return Collections.singleton("TEST-ALG");
+        }
+
+        @Override
+        public java.util.Set<String> encryptionMethods() {
+            return Collections.singleton("TEST-ENC");
+        }
+
+        @Override
+        public byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey) {
+            return encryptedKey;
+        }
+
+        @Override
+        public byte[] aeadEncrypt(String enc, byte[] cek, byte[] iv, byte[] plaintext, byte[] aad) {
+            byte[] out = new byte[plaintext.length + 1];
+            for (int i = 0; i < plaintext.length; i++) {
+                out[i] = (byte)(plaintext[i] ^ cek[i % cek.length]);
+            }
+            out[plaintext.length] = cek[0];
+            return out;
+        }
+
+        @Override
+        public byte[] aeadDecrypt(String enc, byte[] cek, byte[] iv, byte[] cipherText, byte[] authTag, byte[] aad) {
+            if (authTag.length != 1 || authTag[0] != cek[0]) {
+                throw new IllegalStateException("tag 不匹配");
+            }
+            byte[] out = new byte[cipherText.length];
+            for (int i = 0; i < cipherText.length; i++) {
+                out[i] = (byte)(cipherText[i] ^ cek[i % cek.length]);
+            }
+            return out;
+        }
+
+        @Override
+        public int keyLength(String enc) {
+            return 4;
+        }
+
+        @Override
+        public int tagLength(String enc) {
+            return 1;
+        }
+    }
+
+    private static String fakeJwe(byte[] plaintext, String uri, String method, long ts, String nonce) throws Exception {
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("TEST-ALG"), EncryptionMethod.parse("TEST-ENC"))
+            .keyID(KID)
+            .customParams(ContextAad.claims(uri, method, Direction.REQUEST, ts, nonce))
+            .build();
+        String protectedHeader = header.toBase64URL().toString();
+        byte[] cek = "cek1".getBytes(StandardCharsets.UTF_8);
+        byte[] iv = new byte[12];
+        new java.security.SecureRandom().nextBytes(iv);
+        byte[] packed = new FakeSuite().aeadEncrypt("TEST-ENC", cek, iv, plaintext,
+            protectedHeader.getBytes(StandardCharsets.US_ASCII));
+        return protectedHeader + "." + b64url(cek) + "." + b64url(iv) + "."
+            + b64url(java.util.Arrays.copyOf(packed, packed.length - 1)) + "." + b64url(
+            java.util.Arrays.copyOfRange(packed, packed.length - 1, packed.length));
+    }
+
+    private static String b64url(byte[] bytes) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static byte[] b64urlDecode(String parts) {
+        int index = parts.indexOf('.');
+        byte[] cipherText = Base64.getUrlDecoder().decode(parts.substring(0, index));
+        byte[] authTag = Base64.getUrlDecoder().decode(parts.substring(index + 1));
+        byte[] packed = java.util.Arrays.copyOf(cipherText, cipherText.length + authTag.length);
+        System.arraycopy(authTag, 0, packed, cipherText.length, authTag.length);
+        return packed;
+    }
+
     private static String clientJwe(byte[] plaintext, String uri, String method, long ts, String nonce,
                                     JWEAlgorithm alg, EncryptionMethod enc, String kid) throws Exception {
         JWEHeader.Builder builder = new JWEHeader.Builder(alg, enc)

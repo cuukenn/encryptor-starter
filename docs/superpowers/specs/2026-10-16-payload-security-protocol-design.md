@@ -162,6 +162,17 @@
 
 **轮换 SOP（写进 README）**：① 加新 `kid`（含公钥）→ ② 观察客户端开始用新 `kid`（≤ 缓存 TTL）→ ③ 切 `active-kid` → ④ 旧 `kid` 只解不封，直到确认无旧客户端流量 → ⑤ 移除旧 `kid`。**全程不停机、前端不发版。**
 
+### 3.9 国密（SM2 / SM4-GCM）—— 必须支持
+
+**范围**：只加算法层，**不改线格式**（仍是单 `jwe` 字段的 JWE Compact）。与 RSA/AES 并存。
+
+- **算法名**：`alg=SM2`（CEK 封装，C1C3C2 排列）、`enc=SM4-GCM`（内容 AEAD）。二者不是 IANA/JOSE 注册名，本实现只当作字符串白名单项；nimbus 对未知名会新建实例，结构/头解析照常可用。
+- **密钥**：服务端 `keys[]` 增加 `type: RSA | SM2`（缺省 `RSA`）。SM2 私钥 PKCS#8、公钥 SPKI 或裸 64 字节（`x||y`）；启动期 fail-fast。JWKS 输出 `kty=EC, crv=SM2, x, y`（仍只发布公钥）。
+- **实现**：只用 BouncyCastle **轻量级 API**（`SM2Engine`(C1C3C2)、`GCMBlockCipher`+`SM4Engine`、`PrivateKeyFactory`/`PublicKeyFactory`），**不注册全局 Provider**（不污染宿主 JCA、不与宿主已有 BC 版本冲突）。`bcpkix-jdk18on` 已在依赖里（T1/P2-9 记录：hutool 的国密也依赖它，勿删）。
+- **一致性**：SM4-GCM 仍是 AEAD ⇒ 完整性由 tag 保证，**不引入** `SM4-CBC + HMAC-SM3`；若密评明确要求该组合，作为**追加的 `enc` 值**后补（套件 SPI 可扩展，不改线格式）。
+- **JS**：WebCrypto 无 SM ⇒ SM 路径需纯 JS 库（`sm-crypto`）；RSA/AES 路径仍用 `crypto.subtle`。示例两条路径都演示，并注明 SM 路径需第三方库。
+- **抽象**：SM 与 RSA/AES 在"CEK 封装 + 内容加密"两侧都不同，抽出 `CipherSuite` SPI（`algorithms`/`encryptionMethods`/`unwrapCek`/`aeadEncrypt`/`aeadDecrypt`/`keyLength`）；JCE 实现 `JceCipherSuite`、国密实现 `SmCipherSuite`；`JweCodec` 按 `alg`/`enc` 分派，白名单仍在本类内部强制。
+
 ## 4. 模块与 API 变更
 
 ### 4.1 保留的骨架（不动）
