@@ -15,6 +15,11 @@
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
         </dependency>
+        <!--JOSE/JWE 编解码（新协议的唯一密码学依赖）-->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+        </dependency>
         <!--
             必须保留：core 里没有任何源码直接引用 BouncyCastle，但 hutool 的 SM2/SM4（国密）实现
             依赖 BC 提供的 JCA provider（如 SM4 的 KeyGenerator.getInstance("SM4")），
