@@ -46,7 +46,7 @@
 | `MessageReader<I, O>` | `boolean canRead(MediaType)` / `RewriteFunction<I, O> read()` |
 | `MessageWriter<I, O>` | `boolean canWrite(MediaType)` / `RewriteFunction<I, O> write()` |
 
-实现：`JsonMessageConverter`（`EncryptorDataWrapper` ↔ `byte[]`，覆盖 `application/json`、`application/*+json`、`application/x-ndjson`）、`FormMessageConverter`、`DefaultMessageConverter`（兜底，委托 JSON）。`@Component` + `@ComponentScan(basePackageClasses = MessageReader.class)`。
+实现：`JsonMessageConverter`（`EncryptorDataWrapper` ↔ `byte[]`，覆盖 `application/json`、`application/*+json`、`application/x-ndjson`）、`FormMessageConverter`、`DefaultMessageConverter`（兜底，委托 JSON）。**2026-10-16 起**由 `GatewayEncryptorConfiguration` 以 `@Bean + @ConditionalOnMissingBean` 显式注册（不再 `@Component`/`@ComponentScan`），加密/解密的 RSA/AES 运算跑在 `Schedulers.boundedElastic()` 上。
 
 ## 上下文与常量
 
@@ -66,13 +66,15 @@ encryptor:
         crypto-config: { ... }       # 同 web 侧，key 是 uri 正则
         filter-config: { ... }       # 各 filter order
         black-uris / black-methods / black-req-content-type / black-res-content-type
+        failure-status: 400          # 报文解不开时返回的状态码（默认 400）
+        max-request-size: 1048576    # 请求体上限（字节，<=0 不限；网关上暂未强制，仅 web 侧生效）
 ```
 
 ## 扩展点
 
 | 想做的事 | 做法 |
 | --- | --- |
-| 支持新的 contentType | 新增 `MessageReader`/`MessageWriter` 实现（`@Component`） |
+| 支持新的 contentType | 新增 `MessageReader`/`MessageWriter` 实现并注册成 Spring bean（starter 已不再 `@ComponentScan`，改显式 `@Bean` + `@ConditionalOnMissingBean`，可被使用方覆盖） |
 | 换掉某个 filter | 注册同类型 bean（装配方法上有 `@ConditionalOnMissingBean`） |
 | 调整顺序 | 改 `encryptor.config.reactive.gateway.filter-config.*-order`（响应顺序要连带考虑 `NettyWriteResponseFilter`） |
 | 换整套算法组合 | 见 `encryptor-starter-reactive.md` / `IEncryptorFacadeFactory` |
@@ -85,8 +87,10 @@ encryptor:
 
 ## 坑
 
-- `GatewayEncryptorConfiguration` 的 logger 用的是 `LoggerFactory.getLogger(EncryptorReactiveAutoConfiguration.class)`（**类名写错**），看日志时别以为是 reactive 基础模块的问题。
+- 🟩（2026-10-16 已修）`GatewayEncryptorConfiguration` 的 logger **曾**用 `LoggerFactory.getLogger(EncryptorReactiveAutoConfiguration.class)`（类名写错），现已改用本类。
 - **网关没有任何 gzip 处理**（`README.md` 曾声称"支持网关 gzip 的 encode/decode"，该错误声明已于 2026-10-16 删除）。不要照着 README 去找实现；需要的话就是从零加。
-- `GATEWAY_ENCRYPTOR_ENABLE` 与 `GATEWAY_ENCRYPTOR_REQUEST_ENABLE` 两个常量的字符串值相同，语义却想区分"整体开关/请求开关"——按现实现，它们其实是一个键。
+- 🟩（2026-10-16 已修）`GATEWAY_ENCRYPTOR_ENABLE` 与 `GATEWAY_ENCRYPTOR_REQUEST_ENABLE` 两个常量**曾**值相同（导致 `black-req-content-type` 静默失效），现已给请求侧独立值；请求方向需两个属性都置位才生效。
+- ⚠️（2026-10-16 端到端发现）**网关的下游必须是没引入 encryptor 的普通应用**：网关转发给下游的已经是**明文**参数（见 `security-review.md` S16），下游若自己也带 starter 会再解一次密 → `key=null` → 回 `failure-status`（默认 400）。示例里正确的下游是 `encryptor-examples/gateway-example/web`。
+- ⚠️ 网关的加解密运算自 2026-10-16 起跑在 `Schedulers.boundedElastic()`（不再阻塞 Netty event loop）；`max-request-size` 目前在网关侧**未强制**（网关是流式的，留待后续）。
 - **配置前缀比 servlet 侧多一层 `reactive`**：reactive 侧是 `encryptor.config.reactive.*`，不是 `encryptor.config.*`。从 web 侧抄配置到网关时最容易踩这个。
 - 与 web 侧一样，`black*` 名字与实际"跳过名单"语义相反，且匹配是**正则**。

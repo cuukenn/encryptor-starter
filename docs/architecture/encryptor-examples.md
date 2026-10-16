@@ -14,9 +14,10 @@
 | 文件 | 内容 |
 | --- | --- |
 | `src/main/java/.../example/web/WebApplication.java` | `@SpringBootApplication`；注册 `@Bean CheckerStrategy nonceChecker() = new InMemoryNonceChecker(1000, Duration.ofSeconds(30))` |
-| `src/main/java/.../example/web/web/TestController.java` | `GET /test/hello?name=`、`POST /test/hello`(JSON)、`POST /test/hello`(form-urlencoded) |
-| `src/main/resources/application.yml` | `server.port=8081`，`encryptor.config.crypto-config.{private-key,public-key}` |
-| `src/test/java/.../HttpTest.java` | ❗**不是单元测试而是端到端脚本**：手工构造 RSA/AES 报文打真实端口（`http://127.0.0.1:8081/test/hello`）。**需要先启动应用**，否则失败 |
+| `src/main/java/.../example/web/web/TestController.java` | `GET /test/hello?name=`、`POST /test/hello`(JSON)、`POST /test/hello`(form-urlencoded)、`GET /test/secret?name=`（**uri 级 `crypto-config` 的演示端点**，见下） |
+| `src/main/resources/application.yml` | `server.port=8081`，`encryptor.config.crypto-config.{private-key,public-key}`；**外加一条 uri 级覆盖** `encryptor.config.web.crypto-config."[^/test/secret.*]"`（括号写法，另一对密钥） |
+| `src/test/java/.../example/web/CryptoConfigBindingTest.java` | `@SpringBootTest(RANDOM_PORT)`：断言含 `.` 的正则 key 被**原样绑定**（括号写法必需性的证据），CI 可跑 |
+| `src/test/java/.../HttpTest.java` | ❗**不是单元测试而是端到端脚本**：手工构造 RSA/AES 报文打真实端口（`http://127.0.0.1:8081/test/hello`，另有 `/test/secret` 走 uri 级密钥）。**需要先启动应用**，否则失败；2026-10-16 起带真断言 |
 | `front/` | Node Demo 客户端：`encryptor/rsa.js`、`encryptor/aes.js`、`encryptor/random.js`、`encryptor/md5withaes.signature.js`，`index.js`/`test.js` 是入口；依赖 `axios`、`crypto-js`、`node-forge`、`qs` |
 
 ## gateway-example
@@ -29,14 +30,19 @@
 ## 怎么用来验证改动
 
 ```text
-终端 A：mvn -pl encryptor-examples/web-example spring-boot:run          # 或先 install 再跑
-终端 B：直接跑 web-example 的 HttpTest（当前是 JUnit 测试类，需要 A 已启动）
+终端 A：mvn -pl encryptor-examples/web-example -am install   # 先装 starter，再启动
+        mvn -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+终端 B：跑 web-example 的 HttpTest（见下方"怎么跑端到端"；当前它已带断言）
 网关场景：
-终端 A：web-example（8081）
-终端 B：mvn -pl encryptor-examples/gateway-example/gateway spring-boot:run（8080）
+终端 A：gateway-example/web（8081，普通下游）→ mvn -pl encryptor-examples/gateway-example/web org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+终端 B：mvn -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.4.2:run（8080）
 ```
 
-> 这两个 `HttpTest` 用 `@Test` 暴露手工脚本：**在 CI 里没有先起服务时必然失败**，改动测试相关代码前先确认这一点，不要误判为回归。
+> ⚠️ `mvn spring-boot:run` 这个**前缀在本仓不可用**（POM 没有声明 `spring-boot-maven-plugin`，只能写全坐标 `org.springframework.boot:spring-boot-maven-plugin:2.4.2:run`）。
+> ⚠️ 网关场景的**下游必须是没有引入 encryptor 的 `gateway-example/web`**；拿 `web-example` 当下游会 400（网关转发的是明文参数，下游 starter 会再解密，见 `security-review.md` S16）。
+> ⚠️ 这两个 `HttpTest` 被 surefire **刻意排除**，要跑得显式放开：`-Dtest=HttpTest -Dsurefire.excludes= -DfailIfNoTests=false -DtrimStackTrace=false`。
+
+> 这两个 `HttpTest` 用 `@Test` 暴露手工脚本：**在 CI 里没有先起服务时必然失败**，改动测试相关代码前先确认这一点，不要误判为回归。2026-10-16 起它们**都带真实断言**（HTTP 200 + 解出的明文内容），并已真实跑通（顺带修掉 3 个此前被"无断言"掩盖的示例 bug：网关 `application.yml` 的 `skip-able:` 空值导致起不来、web 的 `HttpTest` 误用网关密钥对、GET 查询串未做 URL 编码）。
 
 ## 坑
 

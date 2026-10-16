@@ -38,7 +38,7 @@
 
 ## 消息编解码器（SPI）
 
-`converter/` 下两个对称接口（`@Component`，被 `WebEncryptorConfiguration` 的 `@ComponentScan(basePackageClasses = MessageReader.class)` 扫描）：
+`converter/` 下两个对称接口（`FormMessageConverter`/`JsonMessageConverter` 实现它们；**2026-10-16 起**由 `WebEncryptorConfiguration` 以 `@Bean + @ConditionalOnMissingBean` 显式注册，不再 `@ComponentScan`）：
 
 | 接口 | 方法 |
 | --- | --- |
@@ -71,8 +71,8 @@ encryptor:
   config:
     web:
       enable: true
-      crypto-config:                 # Map<String, CryptoConfig>，key 是 uri 正则
-        "/api/.*": { ... }           # 按 uri 覆盖加密参数
+      crypto-config:                 # Map<String, CryptoConfig>，key 是 uri 正则（整串匹配）
+        "[^/api/.*]": { ... }        # 按 uri 覆盖加密参数 —— 含 `.` 的 key 必须用 [key] 括号写法！
       filter-config:
         encryptor-filter-order: -12
         encryptor-req-params-filter-order: -11
@@ -81,16 +81,43 @@ encryptor:
       black-uris: [ ... ]            # 命中则完全跳过加解密
       black-methods: [ ... ]         # 命中则完全跳过
       black-req-content-type: [ ... ]# 命中则不处理请求
-      black-res-content-type: [ ... ]# 命中则不处理响应
+      black-res-content-type: [ ... ]# 命中则不处理响应（**在业务链跑完后判定**，见下方"坑"）
+      failure-status: 400            # 报文解不开时返回的状态码（默认 400）
+      max-request-size: 1048576      # 请求体上限（字节，<=0 表示不限；超限回 413 且不进业务链）
 ```
 
 继承 `encryptor.config.crypto-config`（`EncryptorConfig`）作为默认值，uri 级配置通过 `CryptoConfig.getOrDefaultFill(default, override)` 做**逐字段兜底**。
+
+### uri 级 `crypto-config` 的写法（⚠️ 必须用括号）
+
+key 是 **uri 正则**，且是**整串**匹配（等价 `Pattern.matches`，要前缀匹配得自己写 `.*`）。命中时该请求用这里的密钥，未命中的回落到全局 `encryptor.config.crypto-config`。多规则命中时按"最长正则优先、等长按声明顺序"（`StrKit.getBestMatchStr`）。
+
+**key 里只要含 `.`（例如 `.*`），就必须写成 `[key]` 形式** —— 否则 Spring Boot 的 `Map` key 绑定会把 `.` 当分隔符并把 `^`、`/`、`*` 等非法字符**静默剥离**（实测：裸写 `^/test/secret.*` 会被绑成 `testsecret`，不报错、配置形同不存在）。
+
+```yaml
+# YAML：外层双引号是 YAML 需要的，方括号是 key 内容的一部分
+encryptor:
+  config:
+    web:
+      crypto-config:
+        "[^/test/secret.*]":
+          private-key: <base64 PKCS8>
+          public-key: <base64 X509>
+```
+
+```properties
+# properties：直接把方括号写进属性名
+encryptor.config.web.crypto-config.[^/test/secret.*].private-key=<base64 PKCS8>
+encryptor.config.web.crypto-config.[^/test/secret.*].public-key=<base64 X509>
+```
+
+可回归的证据：`encryptor-examples/web-example` 的 `CryptoConfigBindingTest`（绑定，CI 可跑）+ `HttpTest#test_get_uri_level_crypto_config`（端到端正向 200）/ `#test_get_uri_level_crypto_config_wrong_key_rejected`（用全局密钥打同端点 → 400）。
 
 ## 扩展点
 
 | 想做的事 | 做法 |
 | --- | --- |
-| 支持新的请求/响应 contentType | 新增 `MessageReader`/`MessageWriter` 实现并标 `@Component`（会被扫描到），`canRead/canWrite` 返回 `true` |
+| 支持新的请求/响应 contentType | 新增 `MessageReader`/`MessageWriter` 实现并注册成 Spring bean（`@Component` 或自己的 `@Bean`；starter 已不再 `@ComponentScan`，见"坑"） |
 | 换掉某个 Filter | 注册同名 bean（`defaultWebEncryptorFilter` 等）覆盖 |
 | 调整执行顺序 | 改 `encryptor.config.web.filter-config.*-order` |
 | 换整套算法组合 | 见 `encryptor-starter.md` 的 `IEncryptorFacadeFactory` |
@@ -99,11 +126,12 @@ encryptor:
 
 - 本模块与 `encryptor-gateway-starter` 的 `converter/`、`filter/` 是**平行实现**（名字相同、包不同）。改协议（`EncryptorDataWrapper` 的字段、`x-key` attribute 名）必须两边一起改。
 - 改 `WebFilterConfig` 的默认顺序 → 会影响所有使用方，慎改。
-- 新增 `MessageReader` 实现会全局生效（`@ComponentScan` 按类扫描整包），注意 `canRead` 的匹配范围不要写太宽。
+- 新增 `MessageReader` 实现**只要是个 Spring bean** 就会被注入使用（2026-10-16 起 starter 不再 `@ComponentScan`，改为显式 `@Bean` + `@ConditionalOnMissingBean`，所以你自己的同类型 bean 可以覆盖默认的 `FormMessageConverter`/`JsonMessageConverter`）。注意 `canRead` 的匹配范围不要写太宽。
 
 ## 坑
 
-- 🟩（2026-10-16 已修）**uri 级 `crypto-config` 曾经实际取不到**：`EncryptorWebFilter` 第 49–50 行先算 `bestMatchStr`，却用 `config.getCryptoConfig().get(uri)` 取值——只有当 uri 恰好等于配置 key 时才命中，正则 key 永远拿不到。现已改为 `get(bestMatchStr)`，并配了回归用例 `web/filter/EncryptorWebFilterTest`（gateway 侧同源问题一并在 `EncryptorGatewayFilter.java:48-49` 修掉）。**未经 `mvn` 验证**。
+- 🟩（2026-10-16 已修，**经 `mvn` 验证**）**uri 级 `crypto-config` 曾经实际取不到**：`EncryptorWebFilter` 第 49–50 行先算 `bestMatchStr`，却用 `config.getCryptoConfig().get(uri)` 取值——只有当 uri 恰好等于配置 key 时才命中，正则 key 永远拿不到。现已改为 `get(bestMatchStr)`，并配了回归用例 `web/filter/EncryptorWebFilterTest`（gateway 侧同源问题一并在 `EncryptorGatewayFilter.java:48-49` 修掉）。同一处现在还顺带**按命中的 key 缓存 facade**（不再每请求 `new RSA`）。
+- 🟩（2026-10-16 已修）**`black-res-content-type` 曾经是死配置**：`EncryptorResponseFilter` 进入时响应还没有 Content-Type，在链前判定等于永远不命中。现已挪到业务链**跑完之后**判定（命中则不加密、原样回写）。
 - `black*` 命名与语义相反：Javadoc 写"白名单"，行为和字段名写"命中即跳过"。别望文生义。
 - 名单匹配用的是**正则**（`StrKit.anyMatch` → `ReUtil.isMatch`），不是 ant 风格通配符。
 - 🟩（2026-10-16 已修）`WebContext` 是 `ThreadLocal`，**曾经不清理**（泄漏面等于线程池规模，会串号）；现在 `WebContext.clear()` 已在 `EncryptorWebFilter` 的 `finally` 里调用。**新增过滤器时不要绕开这一点。**

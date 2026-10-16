@@ -56,7 +56,7 @@
 | --- | --- | --- |
 | `HtlSymmetricCryptoEncryptor` | `core/encryptor/` | 包裹 hutool `SymmetricCrypto`（如 `AES`），用于**数据体**加解密 |
 | `HtlASymmetricCryptoEncryptor` | `core/encryptor/` | 包裹 hutool `AbstractAsymmetricCrypto<?>`（如 `RSA`）；**加密用公钥、解密用私钥** |
-| `GroupEncryptor` | `core/encryptor/` | 分段加解密，`groupSplit` 默认 `"."`；**2026-10-16 已实现**（按 `groupSize` 切片，`decrypt` 用 `Pattern.quote(groupSplit)` 切分；未验证） |
+| `GroupEncryptor` | `core/encryptor/` | 分段加解密，`groupSplit` 默认 `"."`；**2026-10-16 已实现并修正语义**（整段只加解密一次，只按 `groupSize` 切分**编码后的密文**，`decrypt` 用 `Pattern.quote(groupSplit)` 切回再拼接；已 `mvn` 验证，见 `open-issues.md` P2-8） |
 | `EncryptorEncoder` | `core/encoder/` | 组合 `EncryptorStrategy` + `EncoderStrategy`，实现 `IEncryptorStrategy<byte[], String>` |
 | `SignerEncoder` | `core/encoder/` | 组合 `SignerStrategy` + `EncoderStrategy`，实现 `ISignerStrategy<String, byte[]>` |
 | `Base64Encoder` | `core/encoder/` | Base64 编解码（当前默认使用） |
@@ -125,6 +125,6 @@ public EncryptorFacade(EncryptorEncoder negotiateEncoder,        // 协商密钥
 
 ## 已知问题（改动前先确认）
 
-- `GroupEncryptor.encrypt/decrypt` 曾是未完成的实现（直接返回 `null`），2026-10-16 已补全（**未经 `mvn` 验证**）。
+- `GroupEncryptor.encrypt/decrypt` 曾是未完成的实现（直接返回 `null`），2026-10-16 已补全（**经 `mvn` 验证**）。⚠️ 期间做过一次**破坏性语义修正**：旧实现按**明文**分组独立加密（等于分组 ECB，相同明文块 → 相同密文块）；现在整段只加密一次、只切分编码后的密文，`groupSize` 数的是**密文字符数**（见 `open-issues.md` P2-8）。
 - 协议路径上的字符集已全部显式化为 `StandardCharsets.UTF_8`（`EncryptorKit` 签名输入、`EncryptorFacade` 参数 JSON、两个自动装配类的 `iv`）。
 - `HtlDigester.digest` 返回 hex 文本的字节，长度是摘要长度的两倍。

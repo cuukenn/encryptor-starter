@@ -103,21 +103,27 @@ encryptor-core            ← 加解密内核（无 Spring 上下文；例外：
 | --- | --- |
 | 通用（servlet） | `encryptor.config.*` |
 | 通用（reactive） | `encryptor.config.reactive.*` |
-| web | `encryptor.config.web.*` |
-| gateway | `encryptor.config.reactive.gateway.*` |
+| web | `encryptor.config.web.*`（含 `failure-status`、`max-request-size`） |
+| gateway | `encryptor.config.reactive.gateway.*`（含 `failure-status`、`max-request-size`） |
 
 ## 已知问题（详见各模块文档的"坑"）
 
-1. 🟩（2026-10-16 已修）`EncryptorWebFilter.java:49-50`（web）与 `EncryptorGatewayFilter.java:48-49`（gateway）**曾**用 `config.getCryptoConfig().get(uri)` 而不是 `get(bestMatchStr)`，导致 uri 级 `crypto-config` 正则匹配失效；两处均已改并各配了回归用例（**未经 `mvn` 验证**）。
-2. 🟩（2026-10-16 已实现）`GroupEncryptor.encrypt/decrypt` **曾**直接 `return null`；现按仓库既有的 `EncryptorStrategyTest` 契约实现（**未经 `mvn` 验证**）。
+1. 🟩（2026-10-16 已修，**经 `mvn` 验证**）`EncryptorWebFilter.java:49-50`（web）与 `EncryptorGatewayFilter.java:48-49`（gateway）**曾**用 `config.getCryptoConfig().get(uri)` 而不是 `get(bestMatchStr)`，导致 uri 级 `crypto-config` 正则匹配失效；两处均已改并各配了回归用例。（gateway 那条用例当时是坏的——它让工厂 `return null`，撞上 `MockServerWebExchange` 的 `ConcurrentHashMap` 不接受 null value 而 NPE，已改。）
+2. 🟩（2026-10-16 已实现 → **当批又改为不再泄漏**，经 `mvn` 验证）`GroupEncryptor.encrypt/decrypt` **曾**直接 `return null`；后来按 `EncryptorStrategyTest` 契约实现，但"按**明文**分组独立加密"等于分组 ECB（相同明文块 → 相同密文块）。**现已改为"整段只加解密一次、分组只切分编码后的密文"**，泄漏消失、往返不变；⚠️ 语义变更：`groupSize` 现在数的是**密文字符数**（见 `open-issues.md` P2-8）。
 3. 🟩（2026-10-16 已修）`README.md` 曾声称支持**网关 gzip encode/decode**（代码里从未实现），该错误声明已从特性列表删除。
-4. `black*` 配置项名字与"跳过加密名单"语义相反，且匹配是**正则**不是通配符。
-5. `GatewayEncryptorConfiguration` 的 logger 误用了 `EncryptorReactiveAutoConfiguration.class`。
+4. `black*` 配置项名字与"跳过加密名单"语义相反，且匹配是**正则**不是通配符（**且是整串匹配**：`ReUtil.isMatch` 等价 `Pattern.matches`，要前缀匹配得写 `.*`，实证见 `open-issues.md` P3-6）。另：`crypto-config` 的 uri 正则 key **含 `.` 时必须用 `[key]` 括号写法**，否则 Spring Boot 会静默把 key 改坏（实测 `^/test/secret.*` → `testsecret`，不报错），见 P3-7 与 `encryptor-examples/web-example` 的 `CryptoConfigBindingTest`。
+5. 🟩（2026-10-16 已修）`GatewayEncryptorConfiguration` 的 logger 误用了 `EncryptorReactiveAutoConfiguration.class`，已改用本类。
 6. 🟩（2026-10-16 已修）`README.md` 里的依赖坐标 groupId 曾写成 `io.github.cuukenn.encryptor`（实际 `io.github.cuukenn`），已全部改正，并补全了三个 mvnrepository 链接。
+7. 🟩（2026-10-16 第三批扫描发现 → **当批全部修完，经 `mvn` 验证 + 真实端到端跑通**）网关侧 `x-gateway-encryptor-enable` 与 `x-gateway-encryptor-request-enable` 两个常量**值相同**，导致 `black-req-content-type` 在网关侧静默失效（已给 request 侧独立值）；`EncryptorKit.decrypt` 提前拆箱 `Long timestamp`，缺字段直接 NPE（已改为先做字段存在性校验，统一抛 `EncryptorException`）；带 `;charset=UTF-8` 的表单请求识别失败（两侧 `canRead` 改用 `isCompatibleWith`）。**同批当时未修、现已全部修完**：`black-res-content-type` 求值时机（P1-9）、参数包装器只覆写一半（P1-11）、错误面统一 + 新增 `failure-status` 配置（P1-12）、报文大小上限 `max-request-size` + 网关切 `boundedElastic`（P1-13）、每请求重建 RSA/AES 与响应重复 RSA（P2-7）、`GroupEncryptor` 分组泄漏（P2-8）、死代码清理（P2-9）、`@ComponentScan` → `@ConditionalOnMissingBean`（P2-10）、`StrKit` 契约（P3-6）、pom `<name>` 去重 + enforcer（P3-8）。完整条目见 `docs/architecture/open-issues.md` 的 **P0-6 / P0-7 / P1-9 ~ P1-13 / P2-1 / P2-7 ~ P2-10 / P3-6 / P3-8**，机制级见 `security-review.md` 的 **S14 ~ S17**（S1/S3 已补可执行证据）。
+8. 🛠️ **教训（P2-9 自我更正）**：`bcpkix-jdk18on` 曾被判定为"无引用 = 无用依赖"并删除，结果 4 个国密用例立刻报 `CryptoException: SM4 KeyGenerator not available`——**hutool 的 SM2/SM4 依赖 BC 提供的 JCA provider，源码里没有直接引用**。已加回 `encryptor-core/pom.xml` 并注释用途。**删依赖前要跑全量测试，别只看 grep。**
+9. ⚠️（2026-10-16 端到端发现）网关的**下游必须是没有引入 encryptor 的普通应用**（`encryptor-examples/gateway-example/web`）：网关转发给下游的已是**明文**参数，下游若自己也带 starter 会再解一次密 → `key=null` → P1-12 之后是 **400**（架构约束，见 `security-review.md` S16）。另：网关示例 `application.yml` 的 `skip-able:` 曾是**空值**导致 boolean 绑定失败、网关**根本起不来**（已改 `false`）。
 
 **完整清单（P0–P3，含修法与验证方式）见 `docs/architecture/open-issues.md`；机制级（密码学/协议）审查见 `docs/architecture/security-review.md` —— 首要结论：本机制不提供客户端身份认证，签名只保证报文自洽（公钥是公开的，任何人都能伪造合法请求）。**
 
-**⚠️ 2026-10-16 第二批修复**（P0-1 / P0-5 / P1-1 Redis 侧 / P1-5 / P1-7 / P2-4，外加固定 `maven-surefire-plugin:2.22.2` 让 JUnit5 真正执行）**已落盘但未编译、未运行**——本机没有 JDK/Maven。在能跑构建的机器上执行 `mvn -Pmain-module clean install` 之前，不要把这些改动当成已验证。
+**✅ 构建状态（2026-10-16）**：本机跑通了 `mvn -B clean install`（默认 all-modules，含 examples）——**BUILD SUCCESS，73 个测试全绿**（core 43 / reactive 1 / web 17 / gateway 10 / web-example 2）。此外示例已**真实起服务跑通端到端**：web-example（8081，含 uri 级 `crypto-config` 正向/反向两条）、gateway（8080，下游用 `encryptor-examples/gateway-example/web`）。Maven 在 **`/usr/local/maven/3.8.9/bin/mvn`**（不在 PATH），`java`/`javac` 11.0.28。排障提示：surefire 默认 `trimStackTrace=true` 会把栈裁到只剩测试方法一行，定位失败请加 `-DtrimStackTrace=false`。**第一批 ~ 第三批已落盘的修复（P0-1/P0-2/P0-5/P0-6/P0-7/P1-1/P1-5/P1-7/P1-8/P1-9/P1-10/P1-11/P1-12/P1-13/P2-1/P2-4/P2-6/P2-7/P2-8/P2-9/P2-10/P3-6/P3-7/P3-8）均已随这次构建验证通过。**
+- 新增配置项：`encryptor.config.web.failure-status` / `encryptor.config.reactive.gateway.failure-status`（报文非法时的 HTTP 状态，默认 400）、`encryptor.config.web.max-request-size` / `encryptor.config.reactive.gateway.max-request-size`（字节，默认 1MiB，`<=0` 不限）。
+
+**🧪 机制行为已固化为可执行断言**：`encryptor-core/src/test/java/io/github/cuukenn/encryptor/audit/CryptoMechanismAuditTest.java`（5 条）钉住了签名输入歧义（S7）、固定 (K,IV) 的确定性（S14）、篡改可检出、畸形签名逃逸为 `CryptoException`（S15）、`GroupEncryptor` **不再**明文分组泄漏（P2-8）；`encryptor-core/src/test/java/io/github/cuukenn/encryptor/audit/ClientAuthAuditTest.java`（2 条）钉住了两条"设计非目标"：**S1** 只持公钥即可伪造合法请求、**S3** 服务端接受任意客户端自选算法（无白名单）——**改这些行为时它们会报警**，请连同 `security-review.md` 一起更新。
 
 ## 约定
 

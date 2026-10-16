@@ -251,5 +251,36 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <!--
+                构建环境基线：JDK / Maven 版本与重复依赖声明在位即可拦截。
+                刻意不开 dependencyConvergence：本项目依赖 Spring Boot / Spring Cloud 的传递依赖树，
+                收敛失败往往是上游版本组合问题，需要先确认期望版本再决定是否纳入门禁。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-environment</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>[3.6,)</version>
+                                </requireMavenVersion>
+                                <requireJavaVersion>
+                                    <version>[1.8,)</version>
+                                </requireJavaVersion>
+                                <banDuplicatePomDependencyVersions/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>
