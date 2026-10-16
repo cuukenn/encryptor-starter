@@ -15,10 +15,17 @@
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
         </dependency>
-        <!--JOSE/JWE 编解码（新协议的唯一密码学依赖）-->
+        <!--
+            JOSE/JWE 编解码（新协议的唯一密码学依赖）。
+            版本必须显式写：Spring Boot 2.4.2 的 spring-boot-dependencies 也管理了 nimbus-jose-jwt（9.1.3），
+            且它的 BOM 在 encryptor-parent 里先于本项目的 BOM 被 import，Maven 的"先声明者胜"会让 9.1.3 生效。
+            9.1.3 存在已知漏洞（如 CVE-2023-1370 嵌套 JSON 解析栈溢出、CVE-2023-52428 等），而本协议会解析
+            客户端提交的 JWE 头（不受信输入），因此这里显式抬到 9.37.3。升级 Spring Boot 时请重新核对。
+        -->
         <dependency>
             <groupId>com.nimbusds</groupId>
             <artifactId>nimbus-jose-jwt</artifactId>
+            <version>9.37.3</version>
         </dependency>
         <!--
             必须保留：core 里没有任何源码直接引用 BouncyCastle，但 hutool 的 SM2/SM4（国密）实现
