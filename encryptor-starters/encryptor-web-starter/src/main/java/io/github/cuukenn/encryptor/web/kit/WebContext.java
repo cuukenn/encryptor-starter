@@ -75,6 +75,16 @@ public class WebContext {
         CONTEXT.remove();
     }
 
+    /**
+     * 报文非法时返回的 HTTP 状态码（默认 400）。
+     *
+     * <p>上下文还没被 {@code EncryptorWebFilter} 初始化时（过滤器被单独使用）也回退到 400。</p>
+     */
+    public static int failureStatus() {
+        WebEncryptorConfig config = current().getConfig();
+        return config == null ? 400 : config.getFailureStatus();
+    }
+
     public static boolean isResEncryptorEnable(HttpServletResponse response) {
         String contentType = response.getHeader(HttpHeaders.CONTENT_TYPE);
         return current().isReqEncryptor() && !(contentType != null && StrKit.anyMatch(contentType, Objects.requireNonNull(current().getConfig()).getBlackResContentType()));

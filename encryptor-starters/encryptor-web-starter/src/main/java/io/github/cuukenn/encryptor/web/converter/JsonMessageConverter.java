@@ -3,10 +3,10 @@ package io.github.cuukenn.encryptor.web.converter;
 import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.util.MimeType;
 
 import java.nio.charset.Charset;
@@ -19,7 +19,6 @@ import java.util.Optional;
 /**
  * @author changgg
  */
-@Component
 public class JsonMessageConverter implements MessageReader, MessageWriter {
     private static final List<MimeType> DEFAULT_MIME_TYPES = Collections.unmodifiableList(
             Arrays.asList(
@@ -54,7 +53,13 @@ public class JsonMessageConverter implements MessageReader, MessageWriter {
             String contentType = request.getContentType();
             String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
             String data = new String(input, Charset.forName(charset));
-            EncryptorDataWrapper dataWrapper = JSONUtil.toBean(data, EncryptorDataWrapper.class);
+            EncryptorDataWrapper dataWrapper;
+            try {
+                dataWrapper = JSONUtil.toBean(data, EncryptorDataWrapper.class);
+            } catch (RuntimeException e) {
+                // 报文不是合法密文结构：算"报文非法"，由过滤器回 4xx
+                throw new EncryptorException("request body is not a valid encrypted payload", e);
+            }
             request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             return WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
         };

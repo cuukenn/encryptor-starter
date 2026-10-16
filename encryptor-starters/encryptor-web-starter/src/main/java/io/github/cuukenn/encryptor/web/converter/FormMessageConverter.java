@@ -7,10 +7,10 @@ import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -22,11 +22,11 @@ import java.util.stream.Collectors;
 /**
  * @author changgg
  */
-@Component
 public class FormMessageConverter implements MessageReader, MessageWriter {
     @Override
     public boolean canRead(MediaType mediaType) {
-        return MediaType.APPLICATION_FORM_URLENCODED.equals(mediaType);
+        // 不能用 equals：application/x-www-form-urlencoded;charset=UTF-8 与常量不等
+        return MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(mediaType);
     }
 
     @Override
@@ -53,8 +53,14 @@ public class FormMessageConverter implements MessageReader, MessageWriter {
             String contentType = request.getContentType();
             String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
             String data = new String(URLDecoder.decode(input), Charset.forName(charset));
-            Map<String, String> map = parseForm(data);
-            EncryptorDataWrapper dataWrapper = new JSONObject(map).toBean(EncryptorDataWrapper.class);
+            EncryptorDataWrapper dataWrapper;
+            try {
+                Map<String, String> map = parseForm(data);
+                dataWrapper = new JSONObject(map).toBean(EncryptorDataWrapper.class);
+            } catch (RuntimeException e) {
+                // 报文不是合法密文结构：算"报文非法"，由过滤器回 4xx
+                throw new EncryptorException("request body is not a valid encrypted payload", e);
+            }
             request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
             return WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
         };

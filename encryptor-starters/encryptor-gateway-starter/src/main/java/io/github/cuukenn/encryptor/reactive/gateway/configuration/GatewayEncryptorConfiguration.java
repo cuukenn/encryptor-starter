@@ -3,8 +3,9 @@ package io.github.cuukenn.encryptor.reactive.gateway.configuration;
 import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
-import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.gateway.converter.FormMessageConverter;
+import io.github.cuukenn.encryptor.reactive.gateway.converter.JsonMessageConverter;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageReader;
 import io.github.cuukenn.encryptor.reactive.gateway.converter.MessageWriter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorSkipFilter;
@@ -22,7 +23,6 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyResponseBodyGatewayFilterFactory;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
@@ -34,9 +34,25 @@ import java.util.Map;
 @Configuration
 @ConditionalOnProperty(prefix = EncryptorConfig.PREFIX + ".gateway", name = "enable", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(GatewayEncryptorConfig.class)
-@ComponentScan(basePackageClasses = {MessageReader.class})
 public class GatewayEncryptorConfiguration {
-    private static final Logger logger = LoggerFactory.getLogger(EncryptorReactiveAutoConfiguration.class);
+    private static final Logger logger = LoggerFactory.getLogger(GatewayEncryptorConfiguration.class);
+
+    /**
+     * 消息转换器在自动装配里显式声明，不再用 {@code @ComponentScan} 扫 starter 的包：
+     * 扫包会把 starter 内部的 bean 倒进业务上下文，且使用方没有开关能去掉；
+     * 这里同时提供 {@code @ConditionalOnMissingBean}，使用方注册同类型 bean 即可覆盖。
+     */
+    @Bean
+    @ConditionalOnMissingBean(FormMessageConverter.class)
+    public FormMessageConverter formMessageConverter() {
+        return new FormMessageConverter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(JsonMessageConverter.class)
+    public JsonMessageConverter jsonMessageConverter() {
+        return new JsonMessageConverter();
+    }
 
     @ConditionalOnClass(GlobalFilter.class)
     @ConditionalOnMissingBean(EncryptorRequestParameterFilter.class)

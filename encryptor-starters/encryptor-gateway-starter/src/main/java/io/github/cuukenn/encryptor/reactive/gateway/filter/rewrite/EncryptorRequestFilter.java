@@ -48,7 +48,9 @@ public class EncryptorRequestFilter implements GlobalFilter, Ordered {
         config.setInClass(resolvableType.getGeneric(0).toClass());
         config.setOutClass(resolvableType.getGeneric(1).toClass());
         config.setRewriteFunction(messageReader.read());
-        return this.gatewayFilterFactory.apply(config).filter(exchange, chain);
+        // 请求体解密发生在 rewrite 里（反应式）：报错必须以 4xx 收敛，不能让它变成 500
+        return this.gatewayFilterFactory.apply(config).filter(exchange, chain)
+                .onErrorResume(EncryptorException.class, e -> GatewayKit.failure(exchange));
     }
 
     @Override

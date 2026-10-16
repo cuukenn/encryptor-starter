@@ -44,6 +44,19 @@ public class WebEncryptorConfig {
      * 白名单方法
      */
     private List<String> blackMethods = new ArrayList<>();
+    /**
+     * 报文非法（解不开 / 验签失败）时返回的 HTTP 状态码
+     * 默认 400（客户端问题），而不是让异常冒泡成 500
+     */
+    private int failureStatus = 400;
+    /**
+     * 请求体大小上限（字节），默认 1MiB。
+     *
+     * <p>请求体解密发生在认证之前，且原实现一次性把整个 body 读进内存，
+     * 单个超大报文即可把堆打爆（见 open-issues.md P1-13）。超过上限直接回 413。
+     * {@code <= 0} 表示不限制。</p>
+     */
+    private int maxRequestSize = 1048576;
 
     public boolean isEnable() {
         return enable;
@@ -99,5 +112,21 @@ public class WebEncryptorConfig {
 
     public void setBlackMethods(List<String> blackMethods) {
         this.blackMethods = blackMethods;
+    }
+
+    public int getFailureStatus() {
+        return failureStatus;
+    }
+
+    public void setFailureStatus(int failureStatus) {
+        this.failureStatus = failureStatus;
+    }
+
+    public int getMaxRequestSize() {
+        return maxRequestSize;
+    }
+
+    public void setMaxRequestSize(int maxRequestSize) {
+        this.maxRequestSize = maxRequestSize;
     }
 }

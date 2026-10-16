@@ -8,6 +8,7 @@ import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -35,7 +36,14 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        Map<String, String[]> decryptParameters = getDecryptParameters(request);
+        Map<String, String[]> decryptParameters;
+        try {
+            decryptParameters = getDecryptParameters(request);
+        } catch (EncryptorException e) {
+            // 报文来自网络：解不开就是"报文非法"，回 4xx 且不进业务链，不要冒泡成 500
+            response.setStatus(WebContext.failureStatus());
+            return;
+        }
         filterChain.doFilter(new HttpServletRequestWrapper(request) {
             @Override
             public Enumeration<String> getParameterNames() {
@@ -47,7 +55,18 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
                 return decryptParameters.get(name);
             }
 
+            // getParameter / getParameterMap 必须一并覆写：只覆写上面两个的话，
+            // 它们会回落到被包装的原始请求，同一个请求里出现"密文/明文"两个视图
+            @Override
+            public String getParameter(String name) {
+                String[] values = decryptParameters.get(name);
+                return values == null || values.length == 0 ? null : values[0];
+            }
 
+            @Override
+            public Map<String, String[]> getParameterMap() {
+                return decryptParameters;
+            }
         }, response);
     }
 
@@ -56,19 +75,29 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
         if (parameters.isEmpty()) {
             return Collections.emptyMap();
         }
-        EncryptorDataWrapper dataWrapper = new JSONObject(parameters).toBean(EncryptorDataWrapper.class);
-        byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
-        String contentType = request.getContentType();
-        String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
-        String data = new String(decryptData, Charset.forName(charset));
-        if (ContentType.isFormUrlEncode(contentType)) {
-            data = URLDecoder.decode(data, Charset.forName(charset));
-            data = JSONUtil.toJsonStr(parseFormData(data));
+        EncryptorDataWrapper dataWrapper;
+        try {
+            dataWrapper = new JSONObject(parameters).toBean(EncryptorDataWrapper.class);
+        } catch (RuntimeException e) {
+            throw new EncryptorException("request parameters are not a valid encrypted payload", e);
         }
-        Map<String, String> map = JSONUtil.toBean(data, new TypeReference<Map<String, String>>() {
-        }, true);
+        byte[] decryptData = WebContext.current().getEncryptorFacade().decrypt(dataWrapper);
         request.setAttribute(CoreEncryptorConstant.KEY, dataWrapper.getKey());
-        return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
+        try {
+            String contentType = request.getContentType();
+            String charset = Optional.ofNullable(HttpUtil.getCharset(contentType)).orElse(StandardCharsets.UTF_8.name());
+            String data = new String(decryptData, Charset.forName(charset));
+            if (ContentType.isFormUrlEncode(contentType)) {
+                data = URLDecoder.decode(data, Charset.forName(charset));
+                data = JSONUtil.toJsonStr(parseFormData(data));
+            }
+            Map<String, String> map = JSONUtil.toBean(data, new TypeReference<Map<String, String>>() {
+            }, true);
+            return map.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> new String[]{x.getValue()}));
+        } catch (RuntimeException e) {
+            // 解密成功但明文不是合法参数（不是 JSON / 编码坏了）：同样算"报文非法"
+            throw new EncryptorException("decrypted parameters are not a valid payload", e);
+        }
     }
 
     /**

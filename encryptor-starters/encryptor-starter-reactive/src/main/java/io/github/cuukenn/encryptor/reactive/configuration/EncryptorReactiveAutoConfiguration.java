@@ -48,7 +48,7 @@ public class EncryptorReactiveAutoConfiguration {
             EncoderStrategy encoder = new Base64Encoder();
             Function<String, EncryptorStrategy> strategyFunction = params -> {
                 JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), obj.getStr("key").getBytes(StandardCharsets.UTF_8), Optional.ofNullable(obj.getStr("iv")).map(x -> x.getBytes(StandardCharsets.UTF_8)).orElse(null)));
+                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), encoder.decode(obj.getStr("key")), Optional.ofNullable(obj.getStr("iv")).map(x -> x.getBytes(StandardCharsets.UTF_8)).orElse(null)));
             };
             return new EncryptorFacade(
                     new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(ascConfig.getAlgorithm(), ascConfig.getPrivateKey(), ascConfig.getPublicKey())), encoder),
