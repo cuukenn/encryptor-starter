@@ -5,11 +5,14 @@ import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
 import com.nimbusds.jose.JWEObject;
 import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.DirectDecrypter;
 import com.nimbusds.jose.crypto.RSAEncrypter;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import javax.crypto.spec.SecretKeySpec;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -159,6 +162,55 @@ class JweCodecTest {
         assertEquals(EncryptorFailure.BAD_HEADER,
             assertThrows(EncryptorException.class, () -> codec.decryptRequest(jwe.serialize(), URI, "POST")).failure(),
             "缺 ts/nonce 必须拒绝");
+    }
+
+    @Test
+    void 响应可被同一CEK解回并绑定res方向() throws Exception {
+        long ts = System.currentTimeMillis();
+        String compact = clientJwe("req".getBytes(StandardCharsets.UTF_8), URI, "POST", ts, "n1",
+            JWEAlgorithm.RSA_OAEP_256, EncryptionMethod.A256GCM, KID);
+        JweContext context = codec.decryptRequest(compact, URI, "POST");
+
+        long resTs = System.currentTimeMillis();
+        byte[] body = "world".getBytes(StandardCharsets.UTF_8);
+        String response = codec.encryptResponse(body, context.cek(), URI, "POST", resTs, "n2");
+
+        String[] parts = response.split("\\.");
+        assertEquals(5, parts.length, "必须是 JWE compact");
+        assertEquals("", parts[1], "alg=dir 的 encrypted_key（第 2 段）必须为空");
+
+        JWEObject parsed = JWEObject.parse(response);
+        assertEquals(JWEAlgorithm.DIR, parsed.getHeader().getAlgorithm());
+        assertEquals(EncryptionMethod.A256GCM, parsed.getHeader().getEncryptionMethod());
+        assertEquals(Direction.RESPONSE.code(), parsed.getHeader().getCustomParam(ContextAad.CLAIM_DIRECTION));
+        assertEquals(resTs, ((Number)parsed.getHeader().getCustomParam(ContextAad.CLAIM_TS)).longValue());
+        assertEquals("n2", parsed.getHeader().getCustomParam(ContextAad.CLAIM_NONCE));
+
+        // 响应绑定的是响应方向：拿请求方向去校验必须失败
+        EncryptorException mismatch = assertThrows(EncryptorException.class,
+            () -> ContextAad.verify(parsed.getHeader().toJSONObject(), URI, "POST", Direction.REQUEST));
+        assertTrue(mismatch.getMessage().contains("AAD"), mismatch.getMessage());
+
+        parsed.decrypt(new DirectDecrypter(new SecretKeySpec(context.cek(), "AES")));
+        assertArrayEquals(body, parsed.getPayload().toBytes(), "同一 CEK 必须能解回响应原文");
+    }
+
+    @Test
+    void 每次响应使用新的IV() {
+        byte[] cek = new byte[32];
+        new java.security.SecureRandom().nextBytes(cek);
+        String first = codec.encryptResponse("same".getBytes(StandardCharsets.UTF_8), cek, URI, "POST", 1L, "n1");
+        String second = codec.encryptResponse("same".getBytes(StandardCharsets.UTF_8), cek, URI, "POST", 1L, "n2");
+        assertNotEquals(first.split("\\.")[2], second.split("\\.")[2], "IV 必须每次新生成");
+    }
+
+    @Test
+    void 非法长度的CEK拒绝() {
+        assertEquals(EncryptorFailure.ENCRYPT_FAILED, assertThrows(EncryptorException.class,
+            () -> codec.encryptResponse("x".getBytes(StandardCharsets.UTF_8), new byte[20], URI, "POST", 1L, "n1")).failure());
+        assertEquals(EncryptorFailure.ENCRYPT_FAILED, assertThrows(EncryptorException.class,
+            () -> codec.encryptResponse("x".getBytes(StandardCharsets.UTF_8), null, URI, "POST", 1L, "n1")).failure(),
+            "CEK 缺失必须拒绝");
     }
 
     private static String clientJwe(byte[] plaintext, String uri, String method, long ts, String nonce,

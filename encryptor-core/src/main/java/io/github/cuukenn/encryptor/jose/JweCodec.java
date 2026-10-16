@@ -4,6 +4,8 @@ import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
 import com.nimbusds.jose.JWEObject;
+import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.DirectEncrypter;
 import com.nimbusds.jose.util.Base64URL;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
@@ -17,10 +19,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.spec.MGF1ParameterSpec;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * JWE 编解码器（请求方向：解密）。
+ * JWE 编解码器（请求方向解密、响应方向封装）。
  *
  * <p>顺序不可变：解析 → {@code alg}/{@code enc} 白名单 → {@code kid} → 上下文（AAD）→ 解封 CEK → AES-GCM 解密（tag 校验）。
  * 白名单在<b>本类内部</b>强制，不可被外部 bean 关掉；集合为空表示"只接受协议默认"（RSA-OAEP-256 / A256GCM）。
@@ -130,6 +133,31 @@ public class JweCodec {
         return new JweContext(plaintext, cek, kid, alg, enc, ts, nonce);
     }
 
+    /**
+     * 封装一个响应报文：{@code alg=dir}，复用请求协商出的 CEK（客户端因此不需要自己的密钥对）。
+     *
+     * <p>每次调用都由 nimbus 生成新的随机 IV；AAD 仍是 protected header（含 {@code dir=res} 与新的 {@code ts}/{@code nonce}），
+     * 因此响应密文与"响应方向 + 该 uri/method + 该时刻"绑定，请求密文与之互换必然失败。
+     *
+     * <p>{@code enc} 由 CEK 长度决定（16/24/32 → A128GCM/A192GCM/A256GCM）：{@code dir} 下 CEK 长度必须与
+     * {@code enc} 匹配，跟随请求选择的算法才能被客户端解开。
+     */
+    public String encryptResponse(byte[] body, byte[] cek, String uri, String method, long ts, String nonce) {
+        if (cek == null) {
+            throw fail(EncryptorFailure.ENCRYPT_FAILED, "缺少 CEK");
+        }
+        EncryptionMethod enc = encOf(cek.length);
+        Map<String, Object> claims = ContextAad.claims(uri, method, Direction.RESPONSE, ts, nonce);
+        try {
+            JWEObject jwe = new JWEObject(new JWEHeader.Builder(JWEAlgorithm.DIR, enc).customParams(claims).build(),
+                new Payload(body == null ? new byte[0] : body));
+            jwe.encrypt(new DirectEncrypter(new SecretKeySpec(cek, "AES")));
+            return jwe.serialize();
+        } catch (Exception e) {
+            throw new EncryptorException(EncryptorFailure.ENCRYPT_FAILED, "响应加密失败: " + e.getMessage(), e);
+        }
+    }
+
     /** 构造带分类的失败异常（供本包与后续任务复用）。 */
     public static EncryptorException fail(EncryptorFailure failure, String message) {
         return new EncryptorException(failure, message);
@@ -197,6 +225,20 @@ public class JweCodec {
             return 24;
         }
         return 32;
+    }
+
+    /** 反向：{@code dir} 下响应 {@code enc} 由 CEK 长度决定。 */
+    private static EncryptionMethod encOf(int cekLength) {
+        switch (cekLength) {
+            case 16:
+                return EncryptionMethod.A128GCM;
+            case 24:
+                return EncryptionMethod.A192GCM;
+            case 32:
+                return EncryptionMethod.A256GCM;
+            default:
+                throw fail(EncryptorFailure.ENCRYPT_FAILED, "CEK 长度非法: " + cekLength);
+        }
     }
 
     private static Long longParam(JWEHeader header, String name) {
