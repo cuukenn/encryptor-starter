@@ -37,3 +37,6 @@ build/
 *.log
 
 node_modules/
+
+### Tooling indexes (machine-local, generated) ###
+.codegraph/
