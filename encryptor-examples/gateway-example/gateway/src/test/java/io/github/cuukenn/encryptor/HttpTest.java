@@ -1,7 +1,5 @@
 package io.github.cuukenn.encryptor;
 
-import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.lang.TypeReference;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.crypto.Mode;
@@ -12,18 +10,18 @@ import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
 import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
 import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.springframework.util.CollectionUtils;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * @author changgg
@@ -35,16 +33,22 @@ public class HttpTest {
 
     @Test
     public void test_get() {
-        test_get_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
+        String body = test_get_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
+        // 网关把 /test/** 路由到下游（127.0.0.1:8081），下游 GET /test/hello 返回 "Hello, " + name
+        Assertions.assertTrue(body.contains("Hello"), "响应应包含下游返回的 Hello，实际为: " + body);
+        Assertions.assertTrue(body.contains("小明"), "响应应回显请求参数 name=小明，实际为: " + body);
     }
 
     @Test
     public void test_post() {
-        test_post_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
+        String body = test_post_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
+        // 下游 POST /test/hello(JSON) 返回 "Hello, " + data（data 是 {name=小明}）
+        Assertions.assertTrue(body.contains("Hello"), "响应应包含下游返回的 Hello，实际为: " + body);
+        Assertions.assertTrue(body.contains("小明"), "响应应回显请求体中的 name=小明，实际为: " + body);
     }
 
     @SuppressWarnings("SameParameterValue")
-    private void test_get_all_in_one(String url, Map<String, Object> params) {
+    private String test_get_all_in_one(String url, Map<String, Object> params) {
         EncryptorReactiveAutoConfiguration configuration = new EncryptorReactiveAutoConfiguration();
         IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
         CryptoConfig cryptoConfig = new CryptoConfig();
@@ -63,25 +67,44 @@ public class HttpTest {
         logger.info("xKey: {}, decryptKey: {}", xKey, new String(facade.getNegotiateEncoder().decrypt(xKey)));
 
         EncryptorDataWrapper encrypt = facade.encrypt(JSONUtil.toJsonStr(params).getBytes(), xKey);
-        Map<String, List<String>> encryptParams = JSONUtil.toBean(JSONUtil.toJsonStr(encrypt), new TypeReference<Map<String, String>>() {
-        }, true).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> CollUtil.newArrayList(x.getValue())));
         logger.info(JSONUtil.toJsonStr(encrypt));
 
         logger.info("localDecrypted:{}", new String(facade.decrypt(encrypt)));
 
-        URI uri = UriComponentsBuilder.fromUriString(url)
-                .replaceQueryParams(CollectionUtils.toMultiValueMap(encryptParams)).build().toUri();
+        // WebTestClient 会把 URI 当成已编码串直接发送，所以这里自己严格 URL 编码：
+        // base64 里的 '+' 若不编码成 %2B，网关侧 getQueryParams() 会把它解成空格 -> 解密失败
+        Map<String, Object> query = new LinkedHashMap<>();
+        query.put("nonce", encrypt.getNonce());
+        query.put("timestamp", encrypt.getTimestamp());
+        query.put("signature", encrypt.getSignature());
+        query.put("key", encrypt.getKey());
+        query.put("data", encrypt.getData());
+        StringBuilder fullUrl = new StringBuilder(url);
+        boolean first = true;
+        for (Map.Entry<String, Object> entry : query.entrySet()) {
+            fullUrl.append(first ? '?' : '&');
+            first = false;
+            fullUrl.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                    .append('=')
+                    .append(URLEncoder.encode(String.valueOf(entry.getValue()), StandardCharsets.UTF_8));
+        }
+        URI uri = URI.create(fullUrl.toString());
 
+        final String[] plaintext = new String[1];
         WebTestClient client = WebTestClient.bindToServer().build();
-        client.get().uri(uri).exchange().expectBody(byte[].class).consumeWith(res -> {
-            logger.info("raw:{}", res);
-            byte[] decrypt = facade.decrypt(JSONUtil.toBean(new String(Objects.requireNonNull(res.getResponseBody())), EncryptorDataWrapper.class));
-            logger.info("decryptedData:{}", new String(decrypt));
-        });
+        client.get().uri(uri).exchange()
+                .expectStatus().isOk()
+                .expectBody(byte[].class).consumeWith(res -> {
+                    byte[] raw = Objects.requireNonNull(res.getResponseBody());
+                    logger.info("raw:{}", new String(raw));
+                    plaintext[0] = new String(facade.decrypt(JSONUtil.toBean(new String(raw), EncryptorDataWrapper.class)));
+                    logger.info("decryptedData:{}", plaintext[0]);
+                });
+        return plaintext[0];
     }
 
     @SuppressWarnings("SameParameterValue")
-    private void test_post_all_in_one(String url, Map<String, Object> data) {
+    private String test_post_all_in_one(String url, Map<String, Object> data) {
         EncryptorReactiveAutoConfiguration configuration = new EncryptorReactiveAutoConfiguration();
         IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
         CryptoConfig cryptoConfig = new CryptoConfig();
@@ -100,19 +123,22 @@ public class HttpTest {
         logger.info("xKey: {}, decryptKey: {}", xKey, new String(facade.getNegotiateEncoder().decrypt(xKey)));
 
         EncryptorDataWrapper encrypt = facade.encrypt(JSONUtil.toJsonStr(data).getBytes(), xKey);
-        Map<String, List<String>> encryptParams = JSONUtil.toBean(JSONUtil.toJsonStr(encrypt), new TypeReference<Map<String, String>>() {
-        }, true).entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, x -> CollUtil.newArrayList(x.getValue())));
         logger.info(JSONUtil.toJsonStr(encrypt));
 
         logger.info("localDecrypted:{}", new String(facade.decrypt(encrypt)));
 
+        final String[] plaintext = new String[1];
         WebTestClient client = WebTestClient.bindToServer().build();
         client.post().uri(url)
                 .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                .body((clientHttpRequest, context) -> clientHttpRequest.writeWith(Mono.just(clientHttpRequest.bufferFactory().wrap(JSONUtil.toJsonStr(encrypt).getBytes())))).exchange().expectBody(byte[].class).consumeWith(res -> {
-                    logger.info("raw:{}", res);
-                    byte[] decrypt = facade.decrypt(JSONUtil.toBean(new String(Objects.requireNonNull(res.getResponseBody())), EncryptorDataWrapper.class));
-                    logger.info("decryptedData:{}", new String(decrypt));
+                .body((clientHttpRequest, context) -> clientHttpRequest.writeWith(Mono.just(clientHttpRequest.bufferFactory().wrap(JSONUtil.toJsonStr(encrypt).getBytes())))).exchange()
+                .expectStatus().isOk()
+                .expectBody(byte[].class).consumeWith(res -> {
+                    byte[] raw = Objects.requireNonNull(res.getResponseBody());
+                    logger.info("raw:{}", new String(raw));
+                    plaintext[0] = new String(facade.decrypt(JSONUtil.toBean(new String(raw), EncryptorDataWrapper.class)));
+                    logger.info("decryptedData:{}", plaintext[0]);
                 });
+        return plaintext[0];
     }
 }
