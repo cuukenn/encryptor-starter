@@ -32,9 +32,17 @@ public class EncryptorKit {
     }
 
     public static byte[] decrypt(EncryptorEncoder encryptorEncoder, SignerEncoder signerEncoder, List<CheckerStrategy> checkStrategies, EncryptorDataWrapper data) {
+        if (data == null) {
+            throw new EncryptorException("request body is missing");
+        }
         final String encryptData = data.getData();
         final String nonce = data.getNonce();
-        final long timestamp = data.getTimestamp();
+        final Long timestamp = data.getTimestamp();
+        // 字段缺失必须在拆箱/进加密库之前拦住：否则 timestamp 拆箱 NPE、签名解码会抛 CryptoException，
+        // 调用方拿到的是无法分类的 500，而不是"报文非法"
+        if (nonce == null || timestamp == null || encryptData == null || data.getSignature() == null) {
+            throw new EncryptorException("request field is missing: nonce/timestamp/signature/data must be present");
+        }
         for (CheckerStrategy checkerStrategy : checkStrategies) {
             checkerStrategy.check(data);
         }

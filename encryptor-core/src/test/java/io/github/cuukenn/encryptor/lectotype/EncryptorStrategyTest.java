@@ -92,4 +92,49 @@ public class EncryptorStrategyTest {
             Assertions.assertArrayEquals(data.getBytes(), decrypt);
         }
     }
+
+    /**
+     * 往返能力：明文长度不是 groupSize 整数倍、明文为空、groupSize 为 1 都必须能还原。
+     */
+    @Test
+    public void test_group_encryptor_round_trip_edge_cases() {
+        EncryptorEncoder encryptorEncoder = new EncryptorEncoder(
+                new HtlSymmetricCryptoEncryptor(new AES()), new Base64Encoder());
+        List<byte[]> plaintexts = Arrays.asList(
+                "a".getBytes(StandardCharsets.UTF_8),
+                "abc".getBytes(StandardCharsets.UTF_8),
+                "abcdefg".getBytes(StandardCharsets.UTF_8),
+                "This Is A Test".getBytes(StandardCharsets.UTF_8));
+        for (int groupSize : new int[]{1, 3, 4, 7, 64}) {
+            GroupEncryptor groupEncryptor = new GroupEncryptor(encryptorEncoder, groupSize);
+            for (byte[] plaintext : plaintexts) {
+                Assertions.assertArrayEquals(plaintext,
+                        groupEncryptor.decrypt(groupEncryptor.encrypt(plaintext)),
+                        "groupSize=" + groupSize + ", len=" + plaintext.length);
+            }
+            // 空输入
+            Assertions.assertEquals("", groupEncryptor.encrypt(new byte[0]));
+            Assertions.assertArrayEquals(new byte[0], groupEncryptor.decrypt(""));
+        }
+    }
+
+    /**
+     * 分组只影响传输分片、不影响加密粒度：整段明文只加密一次，
+     * 重复明文块不会产生重复的密文分片（旧实现会退化成"分组 ECB"，泄漏明文结构）。
+     */
+    @Test
+    public void test_group_encryptor_encrypts_whole_plaintext_once() {
+        EncryptorEncoder encryptorEncoder = new EncryptorEncoder(
+                new HtlSymmetricCryptoEncryptor(new AES()), new Base64Encoder());
+        GroupEncryptor groupEncryptor = new GroupEncryptor(encryptorEncoder, 4);
+        byte[] plaintext = "abcdabcd".getBytes(StandardCharsets.UTF_8);
+
+        String cipher = groupEncryptor.encrypt(plaintext);
+        String[] groups = cipher.split("\\.");
+        Assertions.assertTrue(groups.length > 1);
+        // 去掉分隔符拼回分片 == 一次性加密整段明文
+        Assertions.assertEquals(encryptorEncoder.encrypt(plaintext), String.join("", groups));
+        Assertions.assertNotEquals(groups[0], groups[1]);
+        Assertions.assertArrayEquals(plaintext, groupEncryptor.decrypt(cipher));
+    }
 }
