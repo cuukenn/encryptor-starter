@@ -1,92 +1,134 @@
 package io.github.cuukenn.encryptor.web.kit;
 
 import cn.hutool.core.thread.ThreadUtil;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.kit.StrKit;
+import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
-import org.springframework.http.HttpHeaders;
 
-import javax.servlet.http.HttpServletResponse;
-import java.util.Objects;
+import java.util.Map;
 
 /**
+ * 一次请求内的解密结果与配置上下文（门面过滤器写入，下游过滤器/转换器只读消费）。
+ *
  * @author changgg
  */
 public class WebContext {
-    private static final ThreadLocal<WebContext> CONTEXT = ThreadUtil.createThreadLocal(WebContext::new);
-    private boolean encryptor;
-    private boolean reqEncryptor;
-    private boolean resEncryptor;
-    private EncryptorFacade encryptorFacade;
-    private WebEncryptorConfig config;
-
-    public WebEncryptorConfig getConfig() {
-        return config;
+    /**
+     * jwe 载体形态。
+     */
+    public enum Carrier {
+        /**
+         * 非加密请求（透传）。
+         */
+        NONE,
+        /**
+         * query 参数 {@code ?jwe=…}，明文是 urlencoded 文本。
+         */
+        QUERY,
+        /**
+         * JSON body {@code {"jwe":"…"}}，明文是业务 JSON。
+         */
+        JSON,
+        /**
+         * form 字段 {@code jwe=…}，明文既是 urlencoded 文本（参数视图）也是 body。
+         */
+        FORM
     }
+
+    private static final ThreadLocal<WebContext> CONTEXT = ThreadUtil.createThreadLocal(WebContext::new);
+    private boolean reqEncryptor;
+    private JweContext jweContext;
+    private Carrier carrier = Carrier.NONE;
+    private byte[] bodyPlaintext;
+    private Map<String, String[]> parameters;
+    private WebEncryptorConfig config;
+    private EncryptorConfig protocol;
 
     public boolean isReqEncryptor() {
         return reqEncryptor;
-    }
-
-    public boolean isEncryptor() {
-        return encryptor;
-    }
-
-    public void setEncryptor(boolean encryptor) {
-        this.encryptor = encryptor;
-    }
-
-    public boolean isResEncryptor() {
-        return resEncryptor;
     }
 
     public void setReqEncryptor(boolean reqEncryptor) {
         this.reqEncryptor = reqEncryptor;
     }
 
-    public void setResEncryptor(boolean resEncryptor) {
-        this.resEncryptor = resEncryptor;
+    public JweContext getJweContext() {
+        return jweContext;
     }
 
-    public EncryptorFacade getEncryptorFacade() {
-        return encryptorFacade;
+    public void setJweContext(JweContext jweContext) {
+        this.jweContext = jweContext;
     }
 
-    public void setEncryptorFacade(EncryptorFacade encryptorFacade) {
-        this.encryptorFacade = encryptorFacade;
+    public Carrier getCarrier() {
+        return carrier;
+    }
+
+    public void setCarrier(Carrier carrier) {
+        this.carrier = carrier;
+    }
+
+    public byte[] getBodyPlaintext() {
+        return bodyPlaintext;
+    }
+
+    public void setBodyPlaintext(byte[] bodyPlaintext) {
+        this.bodyPlaintext = bodyPlaintext;
+    }
+
+    public Map<String, String[]> getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(Map<String, String[]> parameters) {
+        this.parameters = parameters;
+    }
+
+    public WebEncryptorConfig getConfig() {
+        return config;
     }
 
     public void setConfig(WebEncryptorConfig config) {
         this.config = config;
     }
 
+    public EncryptorConfig getProtocol() {
+        return protocol;
+    }
+
+    public void setProtocol(EncryptorConfig protocol) {
+        this.protocol = protocol;
+    }
+
     public static WebContext current() {
         return CONTEXT.get();
     }
 
-    /**
-     * 清理当前线程的上下文。
-     *
-     * <p><b>必须在请求结束时调用</b>：Servlet 容器会复用线程，ThreadLocal 不清理的话，
-     * 上一个请求写入的 {@code encryptorFacade} / {@code config} / 各标志位会泄漏到下一个请求，
-     * 按 uri 配不同密钥的场景下可能串号解密。</p>
-     */
     public static void clear() {
         CONTEXT.remove();
     }
 
     /**
-     * 报文非法时返回的 HTTP 状态码（默认 400）。
-     *
-     * <p>上下文还没被 {@code EncryptorWebFilter} 初始化时（过滤器被单独使用）也回退到 400。</p>
+     * 报文非法时的 HTTP 状态码；上下文未初始化时退回 400。
      */
     public static int failureStatus() {
-        WebEncryptorConfig config = current().getConfig();
-        return config == null ? 400 : config.getFailureStatus();
+        EncryptorConfig protocol = current().protocol;
+        return protocol == null ? 400 : protocol.getFailureStatus();
     }
 
-    public static boolean isResEncryptorEnable(HttpServletResponse response) {
-        String contentType = response.getHeader(HttpHeaders.CONTENT_TYPE);
-        return current().isReqEncryptor() && !(contentType != null && StrKit.anyMatch(contentType, Objects.requireNonNull(current().getConfig()).getBlackResContentType()));
+    /**
+     * 请求体大小上限（字节）；{@code <= 0} 表示不限；上下文未初始化时按不限处理。
+     */
+    public static long maxRequestSize() {
+        EncryptorConfig protocol = current().protocol;
+        return protocol == null ? 0L : protocol.getMaxRequestSize();
+    }
+
+    /**
+     * 命中范围的请求是否必须携带合法 jwe；上下文未初始化时按必须处理（fail-closed）。
+     */
+    public static boolean requireEncrypted() {
+        EncryptorConfig protocol = current().protocol;
+        return protocol == null || protocol.isRequireEncrypted();
     }
 }

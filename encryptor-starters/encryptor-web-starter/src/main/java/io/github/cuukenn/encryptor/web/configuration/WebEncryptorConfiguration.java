@@ -1,13 +1,9 @@
 package io.github.cuukenn.encryptor.web.configuration;
 
-import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
-import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
+import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
-import io.github.cuukenn.encryptor.web.converter.FormMessageConverter;
-import io.github.cuukenn.encryptor.web.converter.JsonMessageConverter;
-import io.github.cuukenn.encryptor.web.converter.MessageReader;
-import io.github.cuukenn.encryptor.web.converter.MessageWriter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestBodyFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestParameterFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorResponseFilter;
@@ -23,11 +19,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.servlet.Filter;
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
+ * web 侧（servlet）装配：四个过滤器 + v2 协议栈注入。
+ *
  * @author changgg
  */
 @ConditionalOnProperty(prefix = EncryptorConfig.PREFIX + ".web", name = "enable", havingValue = "true", matchIfMissing = true)
@@ -36,71 +32,47 @@ import java.util.Map;
 public class WebEncryptorConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(WebEncryptorConfiguration.class);
 
-    /**
-     * 消息转换器在自动装配里显式声明，不再用 {@code @ComponentScan} 扫 starter 的包：
-     * 扫包会把 starter 内部的 bean 倒进业务上下文，且使用方没有开关能去掉；
-     * 这里同时提供 {@code @ConditionalOnMissingBean}，使用方注册同类型 bean 即可覆盖。
-     */
-    @Bean
-    @ConditionalOnMissingBean(FormMessageConverter.class)
-    public FormMessageConverter formMessageConverter() {
-        return new FormMessageConverter();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(JsonMessageConverter.class)
-    public JsonMessageConverter jsonMessageConverter() {
-        return new JsonMessageConverter();
-    }
-
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultRequestParameterEncryptorFilter")
     @Bean("defaultRequestParameterEncryptorFilter")
     public FilterRegistrationBean<? extends Filter> encryptorRequestParameterFilterFilterRegistrationBean(WebEncryptorConfig config) {
         logger.info("register request parameter encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
-        Filter filter = new EncryptorRequestParameterFilter();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, config.getFilterConfig().getEncryptorReqParamsFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorRequestParameterFilter(), config.getFilterConfig().getEncryptorReqParamsFilterOrder(), false);
         return registrationBean;
     }
 
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultRequestBodyEncryptorFilter")
     @Bean("defaultRequestBodyEncryptorFilter")
-    public FilterRegistrationBean<? extends Filter> encryptorRequestBodyFilterFilterRegistrationBean(WebEncryptorConfig config, List<MessageReader> messageReaders) {
+    public FilterRegistrationBean<? extends Filter> encryptorRequestBodyFilterFilterRegistrationBean(WebEncryptorConfig config) {
         logger.info("register request body encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
-        Filter filter = new EncryptorRequestBodyFilter(messageReaders);
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, config.getFilterConfig().getEncryptorReqBodyFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorRequestBodyFilter(), config.getFilterConfig().getEncryptorReqBodyFilterOrder(), false);
         return registrationBean;
     }
 
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultResponseEncryptorFilter")
     @Bean("defaultResponseEncryptorFilter")
-    public FilterRegistrationBean<? extends Filter> encryptorResponseFilterFilterRegistrationBean(WebEncryptorConfig config, List<MessageWriter> messageWriters) {
+    public FilterRegistrationBean<? extends Filter> encryptorResponseFilterFilterRegistrationBean(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack) {
         logger.info("register response encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
-        Filter filter = new EncryptorResponseFilter(messageWriters);
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(filter, config.getFilterConfig().getEncryptorResFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorResponseFilter(encryptorConfig, protocolStack), config.getFilterConfig().getEncryptorResFilterOrder(), false);
         return registrationBean;
     }
 
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultWebEncryptorFilter")
     @Bean("defaultWebEncryptorFilter")
-    public FilterRegistrationBean<? extends Filter> webEncryptorFilter(EncryptorConfig encryptorConfig, WebEncryptorConfig config, Map<String, IEncryptorFacadeFactory<CryptoConfig>> facadeFactories) {
-        logger.info("register gateway encryptor");
+    public FilterRegistrationBean<? extends Filter> webEncryptorFilter(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack, EncryptorRuntime runtime) {
+        logger.info("register web encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(new EncryptorWebFilter(config,
-                        configL -> {
-                            CryptoConfig cryptoConfig = CryptoConfig.getOrDefaultFill(encryptorConfig.getCryptoConfig(), configL);
-                            return facadeFactories.get(cryptoConfig.getEncryptorFactory()).apply(cryptoConfig);
-                        }),
+        binder.filterConfiguration(new EncryptorWebFilter(config, encryptorConfig, protocolStack, runtime),
                 config.getFilterConfig().getEncryptorFilterOrder(), false);
         return registrationBean;
     }

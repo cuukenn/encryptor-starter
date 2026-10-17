@@ -1,62 +1,52 @@
 package io.github.cuukenn.encryptor.web.config;
 
-import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
+ * web 侧（servlet）配置。报文大小上限与失败状态码已上移到全局 {@link EncryptorConfig}。
+ *
  * @author changgg
  */
-@ConfigurationProperties(prefix = EncryptorConfig.PREFIX + ".web")
+@ConfigurationProperties(prefix = WebEncryptorConfig.PREFIX)
 public class WebEncryptorConfig {
+    public static final String PREFIX = EncryptorConfig.PREFIX + ".web";
     /**
-     * 是否开启加密逻辑
+     * 是否启用 web 侧过滤链。
      */
     private boolean enable = true;
     /**
-     * 过滤器配置
+     * 过滤器顺序配置。
      */
     @NestedConfigurationProperty
     private WebFilterConfig filterConfig = new WebFilterConfig();
     /**
-     * 加密配置
-     */
-    private Map<String, CryptoConfig> cryptoConfig = new LinkedHashMap<>();
-    /**
-     * 白名单地址
+     * 完全跳过加解密的 uri（整串正则匹配，非通配符；前缀匹配请写 {@code .*}）。
      */
     private List<String> blackUris = new ArrayList<>();
     /**
-     * 白名单请求类型
-     */
-    private List<String> blackReqContentType = new ArrayList<>();
-    /**
-     * 白名单响应类型
-     */
-    private List<String> blackResContentType = new ArrayList<>();
-    /**
-     * 白名单方法
+     * 完全跳过加解密的 HTTP 方法（整串正则）。
      */
     private List<String> blackMethods = new ArrayList<>();
     /**
-     * 报文非法（解不开 / 验签失败）时返回的 HTTP 状态码
-     * 默认 400（客户端问题），而不是让异常冒泡成 500
+     * 请求方向跳过的 Content-Type（整串正则，小写后匹配）。
      */
-    private int failureStatus = 400;
+    private List<String> blackReqContentType = new ArrayList<>();
     /**
-     * 请求体大小上限（字节），默认 1MiB。
-     *
-     * <p>请求体解密发生在认证之前，且原实现一次性把整个 body 读进内存，
-     * 单个超大报文即可把堆打爆（见 open-issues.md P1-13）。超过上限直接回 413。
-     * {@code <= 0} 表示不限制。</p>
+     * 响应方向跳过的 Content-Type（整串正则，链后 Content-Type 落定判定）。
      */
-    private int maxRequestSize = 1048576;
+    private List<String> blackResContentType = new ArrayList<>();
+    /**
+     * uri 级 kid 白名单：uri 正则 → 该 uri 只接受的 kid 列表；空列表 = 不限。
+     * 含 {@code .} 的正则 key 必须用括号写法：{@code crypto-config["[^/pay/.*]"]: [k1, k2]}。
+     */
+    private Map<String, List<String>> cryptoConfig = new HashMap<>();
 
     public boolean isEnable() {
         return enable;
@@ -74,20 +64,20 @@ public class WebEncryptorConfig {
         this.filterConfig = filterConfig;
     }
 
-    public Map<String, CryptoConfig> getCryptoConfig() {
-        return cryptoConfig;
-    }
-
-    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
-        this.cryptoConfig = cryptoConfig;
-    }
-
     public List<String> getBlackUris() {
         return blackUris;
     }
 
     public void setBlackUris(List<String> blackUris) {
         this.blackUris = blackUris;
+    }
+
+    public List<String> getBlackMethods() {
+        return blackMethods;
+    }
+
+    public void setBlackMethods(List<String> blackMethods) {
+        this.blackMethods = blackMethods;
     }
 
     public List<String> getBlackReqContentType() {
@@ -106,27 +96,11 @@ public class WebEncryptorConfig {
         this.blackResContentType = blackResContentType;
     }
 
-    public List<String> getBlackMethods() {
-        return blackMethods;
+    public Map<String, List<String>> getCryptoConfig() {
+        return cryptoConfig;
     }
 
-    public void setBlackMethods(List<String> blackMethods) {
-        this.blackMethods = blackMethods;
-    }
-
-    public int getFailureStatus() {
-        return failureStatus;
-    }
-
-    public void setFailureStatus(int failureStatus) {
-        this.failureStatus = failureStatus;
-    }
-
-    public int getMaxRequestSize() {
-        return maxRequestSize;
-    }
-
-    public void setMaxRequestSize(int maxRequestSize) {
-        this.maxRequestSize = maxRequestSize;
+    public void setCryptoConfig(Map<String, List<String>> cryptoConfig) {
+        this.cryptoConfig = cryptoConfig;
     }
 }

@@ -1,105 +1,67 @@
 package io.github.cuukenn.encryptor.web.filter;
 
-import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletRequestWrapper;
-import java.util.Collections;
+import javax.servlet.FilterChain;
+import javax.servlet.ServletRequest;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 请求体解密路径在认证之前，且原实现一次性把整个 body 读进内存：
- * 单个超大报文就能把堆打爆（open-issues.md P1-13）。过滤器必须按 maxRequestSize 回 413。
+ * v2 请求体视图过滤器：只装 WebContext.bodyPlaintext。
  *
  * @author changgg
  */
-public class EncryptorRequestBodyFilterTest {
-    private static final int MAX_REQUEST_SIZE = 5;
+class EncryptorRequestBodyFilterTest {
+    private final EncryptorRequestBodyFilter filter = new EncryptorRequestBodyFilter();
+    private final MockHttpServletResponse response = new MockHttpServletResponse();
 
     @AfterEach
-    public void tearDown() {
+    void tearDown() {
         WebContext.clear();
     }
 
-    private static WebEncryptorConfig config(int maxRequestSize) {
-        WebEncryptorConfig config = new WebEncryptorConfig();
-        config.setMaxRequestSize(maxRequestSize);
-        WebContext.current().setReqEncryptor(true);
-        WebContext.current().setConfig(config);
-        return config;
-    }
-
-    private static EncryptorRequestBodyFilter filter() {
-        return new EncryptorRequestBodyFilter(Collections.emptyList());
-    }
-
-    /**
-     * Content-Length 已知时直接判定：超限回 413，且不能进业务链。
-     */
     @Test
-    public void test_oversized_body_with_content_length_responds_413_and_skips_chain() throws Exception {
-        config(MAX_REQUEST_SIZE);
-
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/test/hello");
-        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        request.setContent(new byte[MAX_REQUEST_SIZE + 1]);
-
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        boolean[] chainCalled = {false};
-        filter().doFilterInternal(request, response, (req, res) -> chainCalled[0] = true);
-
-        Assertions.assertEquals(413, response.getStatus());
-        Assertions.assertFalse(chainCalled[0], "超限报文不能进入业务链");
-    }
-
-    /**
-     * chunked（没有 Content-Length）时退化为有界读取：读满 limit+1 即可判定超限，回 413。
-     */
-    @Test
-    public void test_oversized_chunked_body_responds_413_and_skips_chain() throws Exception {
-        config(MAX_REQUEST_SIZE);
-
-        MockHttpServletRequest raw = new MockHttpServletRequest("POST", "/test/hello");
-        raw.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        raw.setContent(new byte[MAX_REQUEST_SIZE + 1]);
-        // 模拟 chunked：Content-Length 未知
-        HttpServletRequest request = new HttpServletRequestWrapper(raw) {
-            @Override
-            public long getContentLengthLong() {
-                return -1;
+    void 解密后的请求体以明文流交付且长度正确() throws Exception {
+        byte[] plaintext = "{\"name\":\"alice\"}".getBytes(StandardCharsets.UTF_8);
+        WebContext ctx = WebContext.current();
+        ctx.setReqEncryptor(true);
+        ctx.setBodyPlaintext(plaintext);
+        FilterChain chain = (request, resp) -> {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[256];
+            // 流只能取一次：每轮 getInputStream() 会新建流导致死循环
+            java.io.InputStream stream = request.getInputStream();
+            int read;
+            while ((read = stream.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
             }
+            assertThat(out.toByteArray()).isEqualTo(plaintext);
+            assertThat(request.getContentLength()).isEqualTo(plaintext.length);
+            assertThat(request.getContentLengthLong()).isEqualTo(plaintext.length);
+            // getReader 走同一份明文
+            BufferedReader reader = new BufferedReader(new InputStreamReader(request.getInputStream(), StandardCharsets.UTF_8));
+            assertThat(reader.readLine()).isEqualTo("{\"name\":\"alice\"}");
         };
-
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        boolean[] chainCalled = {false};
-        filter().doFilterInternal(request, response, (req, res) -> chainCalled[0] = true);
-
-        Assertions.assertEquals(413, response.getStatus());
-        Assertions.assertFalse(chainCalled[0], "超限报文不能进入业务链");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+        filter.doFilter(request, response, chain);
     }
 
-    /**
-     * 未超限时过滤器仍要把请求交给下游链。
-     */
     @Test
-    public void test_within_limit_body_still_reaches_chain() throws Exception {
-        config(1024);
-
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/test/hello");
-        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        request.setContent(new byte[0]);
-
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        boolean[] chainCalled = {false};
-        filter().doFilterInternal(request, response, (req, res) -> chainCalled[0] = true);
-
-        Assertions.assertEquals(200, response.getStatus());
-        Assertions.assertTrue(chainCalled[0], "未超限时下游链必须被调用");
+    void 无密文请求原样透传() throws Exception {
+        AtomicReference<ServletRequest> seen = new AtomicReference<>();
+        FilterChain chain = (request, resp) -> seen.set(request);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/plain");
+        filter.doFilter(request, response, chain);
+        assertThat(seen.get()).isSameAs(request);
     }
 }

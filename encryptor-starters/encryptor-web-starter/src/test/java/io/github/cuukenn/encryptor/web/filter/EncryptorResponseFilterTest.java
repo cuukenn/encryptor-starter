@@ -1,116 +1,111 @@
 package io.github.cuukenn.encryptor.web.filter;
 
-import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.constant.CoreEncryptorConstant;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
+import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.web.JweTestSupport;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import javax.servlet.FilterChain;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Collections;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * black-res-content-type 必须等"响应产生之后"再判定：
- * 过滤器刚进入时响应还没有 Content-Type（handler 还没跑），那时判定等于永远不生效。
+ * v2 响应过滤器：按真实链序（参数 → body → 响应 → 门面 → 业务）集成验证。
+ * 响应过滤器 order -10 在门面过滤器 -3 外层，链后仍要读 WebContext —— 这正是 v1 的契约。
  *
  * @author changgg
  */
-public class EncryptorResponseFilterTest {
-    private static final String BLACK_CONTENT_TYPE = "application/octet-stream";
-    private static final byte[] BODY = "plain-body".getBytes(StandardCharsets.UTF_8);
+class EncryptorResponseFilterTest {
+    private final JweTestSupport support = new JweTestSupport();
+    private final WebEncryptorConfig webConfig = new WebEncryptorConfig();
+    private final EncryptorConfig protocolConfig = new EncryptorConfig();
+    private final EncryptorRequestParameterFilter parameterFilter = new EncryptorRequestParameterFilter();
+    private final EncryptorRequestBodyFilter bodyFilter = new EncryptorRequestBodyFilter();
+    private final EncryptorResponseFilter responseFilter = new EncryptorResponseFilter(protocolConfig, support.protocol);
+    private final EncryptorWebFilter webFilter =
+        new EncryptorWebFilter(webConfig, protocolConfig, support.protocol, support.protocol.runtime());
 
     @AfterEach
-    public void clearContext() {
+    void tearDown() {
         WebContext.clear();
     }
 
-    private static WebEncryptorConfig config(String... blackResContentType) {
-        WebEncryptorConfig config = new WebEncryptorConfig();
-        config.setBlackResContentType(Arrays.asList(blackResContentType));
-        return config;
-    }
-
-    private static void setUpContext(WebEncryptorConfig config, EncryptorFacade facade) {
-        WebContext.current().setEncryptor(true);
-        WebContext.current().setReqEncryptor(true);
-        WebContext.current().setConfig(config);
-        WebContext.current().setEncryptorFacade(facade);
-    }
-
     /**
-     * @param result 非 null 时返回固定结果；null 表示"一旦被调用就失败"（黑名单响应不该走加密）
+     * 链序与生产一致：门面(-12 决策+解密) → 参数(-11) → body(-10) → 响应(-3) → 业务。
      */
-    private static EncryptorFacade facade(EncryptorDataWrapper result) {
-        return new EncryptorFacade(null, null, null, null) {
-            @Override
-            public EncryptorDataWrapper encrypt(byte[] data, String key) {
-                if (result == null) {
-                    throw new AssertionError("black-res-content-type 命中的响应不允许被加密");
-                }
-                return result;
-            }
-        };
+    private void runRealChain(MockHttpServletRequest request, MockHttpServletResponse response, FilterChain business) throws Exception {
+        webFilter.doFilter(request, response, (req1, resp1) ->
+            parameterFilter.doFilter(req1, resp1, (req2, resp2) ->
+                bodyFilter.doFilter(req2, resp2, (req3, resp3) ->
+                    responseFilter.doFilter(req3, resp3, business))));
     }
 
     @Test
-    public void test_blacklisted_response_content_type_is_not_encrypted() throws Exception {
-        setUpContext(config(BLACK_CONTENT_TYPE), facade(null));
-        EncryptorResponseFilter filter = new EncryptorResponseFilter(Collections.emptyList());
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/test/hello");
+    void 加密请求的响应被加密且可用请求CEK解开() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/a");
+        request.setParameter("jwe", support.seal("a=1", "/api/a", "POST"));
         MockHttpServletResponse response = new MockHttpServletResponse();
-
-        filter.doFilterInternal(request, response, (req, res) -> {
-            res.setContentType(BLACK_CONTENT_TYPE);
-            res.getOutputStream().write(BODY);
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        runRealChain(request, response, (req, resp) -> {
+            // 业务视角：参数已是明文
+            assertThat(((HttpServletRequest) req).getParameter("a")).isEqualTo("1");
+            cek.set(WebContext.current().getJweContext().cek());
+            ((HttpServletResponse) resp).setContentType("application/json");
+            resp.getWriter().write("{\"ok\":true}");
         });
-
-        // 响应体必须原样放行，且不能是空响应
-        Assertions.assertEquals("plain-body", new String(response.getContentAsByteArray(), StandardCharsets.UTF_8));
+        String payload = response.getContentAsString();
+        assertThat(response.getContentType()).contains("application/json");
+        assertThat(payload).contains("\"jwe\"");
+        assertThat(JweTestSupport.decryptResponse(payload, cek.get()))
+            .isEqualTo("{\"ok\":true}".getBytes(StandardCharsets.UTF_8));
+        // 响应必须是 dir=res（用请求 CEK 直接加密）
+        assertThat(JweTestSupport.responseHeaderJson(payload)).contains("\"dir\":\"res\"");
     }
 
     @Test
-    public void test_encryptable_response_content_type_is_still_encrypted() throws Exception {
-        EncryptorDataWrapper wrapper = new EncryptorDataWrapper("nonce", 1L, "sig", "key", "data");
-        setUpContext(config(BLACK_CONTENT_TYPE), facade(wrapper));
-        EncryptorResponseFilter filter = new EncryptorResponseFilter(Collections.emptyList());
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/test/hello");
-        // 响应加密的前提：这次请求协商出过 key（加密请求里由解密过滤器写入 x-key 属性）
-        request.setAttribute(CoreEncryptorConstant.KEY, "key");
+    void 明文请求不包装不缓冲() throws Exception {
+        protocolConfig.setRequireEncrypted(false);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/plain");
         MockHttpServletResponse response = new MockHttpServletResponse();
-
-        filter.doFilterInternal(request, response, (req, res) -> {
-            res.setContentType("application/json");
-            res.getOutputStream().write(BODY);
-        });
-
-        Assertions.assertEquals(JSONUtil.toJsonStr(wrapper),
-                new String(response.getContentAsByteArray(), StandardCharsets.UTF_8));
+        runRealChain(request, response, (req, resp) -> resp.getWriter().write("plain"));
+        assertThat(response.getContentAsString()).isEqualTo("plain");
     }
 
-    /**
-     * 请求方向开着加密、但这次请求没有协商出 key（例如明文 GET：没有 data/key 参数，就没有 {@code x-key} attribute）：
-     * 此时响应不能尝试加密 —— key 为 null 时 RSA 解不开，客户端会拿到 500。
-     */
     @Test
-    public void test_response_without_negotiated_key_is_passed_through() throws Exception {
-        setUpContext(config(), facade(null));
-        EncryptorResponseFilter filter = new EncryptorResponseFilter(Collections.emptyList());
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/test/hello");
+    void 黑名单响应contentType原样放行() throws Exception {
+        webConfig.setBlackResContentType(java.util.Collections.singletonList("application/octet-stream"));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/dl");
+        request.setParameter("jwe", support.seal("f=1", "/api/dl", "POST"));
         MockHttpServletResponse response = new MockHttpServletResponse();
-
-        filter.doFilterInternal(request, response, (req, res) -> {
-            res.setContentType("application/json");
-            res.getOutputStream().write(BODY);
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        runRealChain(request, response, (req, resp) -> {
+            cek.set(WebContext.current().getJweContext().cek());
+            ((HttpServletResponse) resp).setContentType("application/octet-stream");
+            resp.getOutputStream().write(new byte[]{1, 2, 3});
         });
+        assertThat(response.getContentType()).contains("application/octet-stream");
+        assertThat(response.getContentAsByteArray()).containsExactly(1, 2, 3);
+    }
 
-        Assertions.assertEquals("plain-body", new String(response.getContentAsByteArray(), StandardCharsets.UTF_8));
-        Assertions.assertEquals(200, response.getStatus());
+    @Test
+    void 响应超限回500且不发明文() throws Exception {
+        protocolConfig.setMaxResponseSize(4);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/big");
+        request.setParameter("jwe", support.seal("x=1", "/api/big", "POST"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        runRealChain(request, response, (req, resp) -> {
+            byte[] big = new byte[16];
+            resp.getOutputStream().write(big);
+        });
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        assertThat(response.getContentAsByteArray()).isEmpty();
     }
 }
