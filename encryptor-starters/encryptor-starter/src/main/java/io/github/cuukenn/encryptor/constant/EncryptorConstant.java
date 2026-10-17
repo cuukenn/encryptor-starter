@@ -5,4 +5,8 @@ package io.github.cuukenn.encryptor.constant;
  */
 public class EncryptorConstant {
     public static final String DEFAULT_ENCRYPTOR_FACTORY = "default-encryptor-factory";
+    /**
+     * v2 报文载体字段名：请求 query/JSON/form 与响应 JSON 里唯一的参数名。
+     */
+    public static final String JWE_PARAM = "jwe";
 }

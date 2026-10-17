@@ -1,38 +1,33 @@
 package io.github.cuukenn.encryptor.configuration;
 
-import cn.hutool.crypto.asymmetric.RSA;
-import cn.hutool.crypto.digest.MD5;
-import cn.hutool.crypto.symmetric.AES;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
+import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.config.KeyMaterialConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.core.CheckerStrategy;
-import io.github.cuukenn.encryptor.core.EncoderStrategy;
-import io.github.cuukenn.encryptor.core.EncryptorStrategy;
-import io.github.cuukenn.encryptor.core.digester.HtlDigester;
-import io.github.cuukenn.encryptor.core.encoder.Base64Encoder;
-import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
-import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
-import io.github.cuukenn.encryptor.core.encryptor.HtlASymmetricCryptoEncryptor;
-import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
-import io.github.cuukenn.encryptor.core.signer.DigestWithEncryptSigner;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
 import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
+import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
+import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
+ * v2 协议的通用自动装配：两侧（servlet/reactive）只 {@code new} core 的 {@link DefaultProtocol}，
+ * 算法栈不再各写一份；所有非法配置在启动期 fail-fast。
+ *
  * @author changgg
  */
 @EnableConfigurationProperties(EncryptorConfig.class)
@@ -41,21 +36,95 @@ import java.util.function.Function;
 public class EncryptorAutoConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorAutoConfiguration.class);
 
+    /**
+     * v1 遗留工厂（过渡占位，T9/T10/T12 重接传输层后删除）：
+     * 算法栈已下沉到 {@link LegacyV1Support}，自动装配类自身不再携带任何算法。
+     */
+    @Deprecated
     @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
-    public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(List<CheckerStrategy> checkerStrategies) {
-        logger.info("register default encryptor factory, used checker:[{}]", checkerStrategies);
-        return config -> {
-            EncoderStrategy encoder = new Base64Encoder();
-            Function<String, EncryptorStrategy> strategyFunction = params -> {
-                JSONObject obj = JSONUtil.parseObj(params);
-                return new HtlSymmetricCryptoEncryptor(new AES(obj.getStr("mode"), obj.getStr("padding"), encoder.decode(obj.getStr("key")), Optional.ofNullable(obj.getStr("iv")).map(x -> x.getBytes(StandardCharsets.UTF_8)).orElse(null)));
-            };
-            return new EncryptorFacade(
-                    new EncryptorEncoder(new HtlASymmetricCryptoEncryptor(new RSA(config.getAlgorithm(), config.getPrivateKey(), config.getPublicKey())), encoder),
-                    params -> new EncryptorEncoder(strategyFunction.apply(params), encoder),
-                    params -> new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), strategyFunction.apply(params)), encoder),
-                    checkerStrategies
-            );
-        };
+    public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(ObjectProvider<CheckerStrategy> checkerStrategies) {
+        List<CheckerStrategy> checkers = checkerStrategies.orderedStream().collect(Collectors.toList());
+        logger.info("register legacy v1 encryptor factory (deprecated, removed after transport rewire), used checker:[{}]", checkers);
+        return LegacyV1Support.defaultFactory(checkers);
+    }
+
+    /**
+     * v2 协议栈（密钥库 + JWE 编解码 + 防重放 + 运行期开关）；非法密钥/白名单在这里启动即失败。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public DefaultProtocol defaultProtocol(EncryptorConfig config, ObjectProvider<EncryptorListener> listener) {
+        DefaultProtocol.Builder builder = DefaultProtocol.builder();
+        for (KeyMaterialConfig key : config.getKeys()) {
+            builder.key(new DefaultProtocol.KeyMaterial(key.getKid(), key.getType(), key.getPrivateKey(), key.getPublicKey()));
+        }
+        if (config.getActiveKid() != null && !config.getActiveKid().isEmpty()) {
+            builder.activeKid(config.getActiveKid());
+        }
+        if (!config.getAllowedAlgs().isEmpty()) {
+            builder.allowedAlgs(new LinkedHashSet<>(config.getAllowedAlgs()));
+        }
+        if (!config.getAllowedEncs().isEmpty()) {
+            builder.allowedEncs(new LinkedHashSet<>(config.getAllowedEncs()));
+        }
+        if (config.getTtl() != null) {
+            builder.ttlMillis(config.getTtl().toMillis());
+        }
+        if (config.getNonceRetention() != null) {
+            builder.nonceRetentionMillis(config.getNonceRetention().toMillis());
+        }
+        builder.nonceCapacity(config.getNonceCapacity());
+        EncryptorListener contextListener = listener.getIfAvailable();
+        if (contextListener != null) {
+            builder.listener(contextListener);
+        }
+        DefaultProtocol protocol = builder.build();
+        protocol.runtime().setBypass(config.getBypass().isRequest(), config.getBypass().isResponse());
+        logSummary(config, protocol);
+        return protocol;
+    }
+
+    /**
+     * 运行期开关（bypass 热改入口）；使用方注册同类型 bean 即可整体替换。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public EncryptorRuntime encryptorRuntime(DefaultProtocol protocol) {
+        return protocol.runtime();
+    }
+
+    private static void logSummary(EncryptorConfig config, DefaultProtocol protocol) {
+        StringBuilder kids = new StringBuilder();
+        for (KeyMaterialConfig key : config.getKeys()) {
+            if (kids.length() > 0) {
+                kids.append(", ");
+            }
+            kids.append(key.getKid())
+                .append('(').append(key.getType())
+                .append(", fp=").append(fingerprint(protocol.keys().spkiBase64(key.getKid())))
+                .append(')');
+        }
+        logger.info("encryptor v2 协议生效: activeKid={}, keys=[{}], allowedAlgs={}, allowedEncs={}, ttlMs={}, "
+                + "requireEncrypted={}, failureStatus={}, maxRequestSize={}, maxResponseSize={}, "
+                + "bypass(req={}, res={}), discovery(enable={}, path={})",
+            protocol.keys().activeKid(), kids, protocol.allowedAlgs(), protocol.allowedEncs(), protocol.ttlMillis(),
+            config.isRequireEncrypted(), config.getFailureStatus(), config.getMaxRequestSize(), config.getMaxResponseSize(),
+            config.getBypass().isRequest(), config.getBypass().isResponse(),
+            config.getDiscovery().isEnable(), config.getDiscovery().getPath());
+    }
+
+    /** 公钥指纹（SPKI 的 SHA-256 前 6 字节 hex），用于启动摘要与运维核对。 */
+    private static String fingerprint(String spkiBase64) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(spkiBase64.getBytes(StandardCharsets.US_ASCII));
+            StringBuilder hex = new StringBuilder(12);
+            for (int i = 0; i < 6; i++) {
+                hex.append(String.format("%02x", digest[i]));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("计算公钥指纹失败", e);
+        }
     }
 }
