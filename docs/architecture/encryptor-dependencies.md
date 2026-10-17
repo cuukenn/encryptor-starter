@@ -1,5 +1,9 @@
 # encryptor-dependencies
 
+> ⚠️ **本文是 v1 协议时代的架构记录（2026-10-16）；v2 JWE 协议重做（2026-10-17）后大部分内容已失效。**
+> 当前事实以源码为准：入口 `AGENTS.md`，协议定义 `docs/superpowers/specs/2026-10-16-payload-security-protocol-design.md`，v1→v2 处置见 `open-issues.md`/`security-review.md` 顶部状态表。
+
+
 > 纯 BOM 模块：集中管理本项目与三方库的版本，不产出任何代码。
 
 | 项 | 值 |

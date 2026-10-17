@@ -1,5 +1,9 @@
 # encryptor-starter（artifactId: `encryptor-spring-boot-starter`）
 
+> ⚠️ **本文是 v1 协议时代的架构记录（2026-10-16）；v2 JWE 协议重做（2026-10-17）后大部分内容已失效。**
+> 当前事实以源码为准：入口 `AGENTS.md`，协议定义 `docs/superpowers/specs/2026-10-16-payload-security-protocol-design.md`，v1→v2 处置见 `open-issues.md`/`security-review.md` 顶部状态表。
+
+
 > **servlet 侧**的 Spring Boot 通用装配：注册"默认门面工厂"，并声明 `encryptor.config.*` 配置属性。不含任何 Filter、不感知 HTTP。
 
 | 项 | 值 |

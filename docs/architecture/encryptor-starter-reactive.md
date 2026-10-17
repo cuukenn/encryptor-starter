@@ -1,5 +1,9 @@
 # encryptor-starter-reactive（artifactId: `encryptor-spring-boot-starter-reactive`）
 
+> ⚠️ **本文是 v1 协议时代的架构记录（2026-10-16）；v2 JWE 协议重做（2026-10-17）后大部分内容已失效。**
+> 当前事实以源码为准：入口 `AGENTS.md`，协议定义 `docs/superpowers/specs/2026-10-16-payload-security-protocol-design.md`，v1→v2 处置见 `open-issues.md`/`security-review.md` 顶部状态表。
+
+
 > **reactive 侧**的 Spring Boot 通用装配。结构与 `encryptor-starter` 一一对应，只是包名和 bean 名不同——**这是一份被复制的代码**。
 
 | 项 | 值 |
