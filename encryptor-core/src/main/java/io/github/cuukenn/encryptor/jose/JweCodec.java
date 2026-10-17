@@ -129,6 +129,9 @@ public class JweCodec {
         byte[] cek;
         try {
             cek = unwrapSuite.unwrapCek(keys, kid, alg, jwe.getEncryptedKey().decode());
+        } catch (EncryptorException e) {
+            // 套件已经给出精确分类（如密钥类型与 alg 不匹配 ⇒ ALG_NOT_ALLOWED），不得退化成笼统的解密失败
+            throw e;
         } catch (Exception e) {
             throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "CEK 解封失败", e);
         }

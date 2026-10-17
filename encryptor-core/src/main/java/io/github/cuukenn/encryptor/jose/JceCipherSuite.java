@@ -60,6 +60,11 @@ public class JceCipherSuite implements CipherSuite {
         if (!ALG.equals(alg)) {
             throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED, "套件不支持的解封算法: " + alg);
         }
+        KeyType type = keys.keyType(kid);
+        if (type != KeyType.RSA) {
+            throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
+                "kid=" + kid + " 的密钥类型是 " + type + "，alg=" + ALG + " 需要 RSA 密钥");
+        }
         Cipher cipher = Cipher.getInstance(RSA_TRANSFORMATION);
         cipher.init(Cipher.DECRYPT_MODE, keys.privateKey(kid), OAEP_SPEC);
         return cipher.doFinal(encryptedKey);
