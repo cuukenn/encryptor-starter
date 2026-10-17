@@ -1,7 +1,6 @@
 package io.github.cuukenn.encryptor.config;
 
 import io.github.cuukenn.encryptor.configuration.EncryptorAutoConfiguration;
-import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import org.bouncycastle.asn1.ASN1Encoding;
@@ -82,8 +81,6 @@ class EncryptorConfigBindingTest {
             .run(context -> {
                 assertThat(context).hasSingleBean(DefaultProtocol.class);
                 assertThat(context).hasSingleBean(EncryptorRuntime.class);
-                // v1 工厂 bean 在 T9/T10 重接传输层前必须保留（web-starter 的 Map 注入依赖它）
-                assertThat(context).hasSingleBean(IEncryptorFacadeFactory.class);
                 DefaultProtocol protocol = context.getBean(DefaultProtocol.class);
                 assertThat(protocol.keys().activeKid()).isEqualTo("k1");
                 assertThat(protocol.allowedAlgs()).containsExactly("RSA-OAEP-256");

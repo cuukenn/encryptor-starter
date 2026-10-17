@@ -1,12 +1,9 @@
 package io.github.cuukenn.encryptor.configuration;
 
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
-import io.github.cuukenn.encryptor.config.CryptoConfig;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.config.KeyMaterialConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
-import io.github.cuukenn.encryptor.core.CheckerStrategy;
-import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import org.slf4j.Logger;
@@ -21,8 +18,6 @@ import org.springframework.context.annotation.Configuration;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * v2 协议的通用自动装配：两侧（servlet/reactive）只 {@code new} core 的 {@link DefaultProtocol}，
@@ -35,18 +30,6 @@ import java.util.stream.Collectors;
 @Configuration(proxyBeanMethods = false)
 public class EncryptorAutoConfiguration {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorAutoConfiguration.class);
-
-    /**
-     * v1 遗留工厂（过渡占位，T9/T10/T12 重接传输层后删除）：
-     * 算法栈已下沉到 {@link LegacyV1Support}，自动装配类自身不再携带任何算法。
-     */
-    @Deprecated
-    @Bean(EncryptorConstant.DEFAULT_ENCRYPTOR_FACTORY)
-    public IEncryptorFacadeFactory<CryptoConfig> encryptorFacadeFactory(ObjectProvider<CheckerStrategy> checkerStrategies) {
-        List<CheckerStrategy> checkers = checkerStrategies.orderedStream().collect(Collectors.toList());
-        logger.info("register legacy v1 encryptor factory (deprecated, removed after transport rewire), used checker:[{}]", checkers);
-        return LegacyV1Support.defaultFactory(checkers);
-    }
 
     /**
      * v2 协议栈（密钥库 + JWE 编解码 + 防重放 + 运行期开关）；非法密钥/白名单在这里启动即失败。

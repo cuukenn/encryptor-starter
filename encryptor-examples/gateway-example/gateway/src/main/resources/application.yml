@@ -4,15 +4,19 @@ spring:
     cloud:
         gateway:
             routes:
-                -   id: test
-                    uri: http://127.0.0.1:8081
-                    predicates:
-                        - Path=/test/**
+                # 网关下游是普通应用（不引入 encryptor-starter），网关解密后转发明文
+                - id: web
+                  uri: http://127.0.0.1:8082
+                  predicates:
+                      - Path=/test/**
 encryptor:
     config:
         reactive:
-            crypto-config:
-                private-key: MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAKlPT4bCuAmY7vPxJjXnU9hACtV2VfrxvY8tcfuzQJs8ipSoBmKDAPYPlCIAhZDMtartp/gvnVm9iflUk8hwo5Cpfzp7dZ+gGePT5HoT1Fs5AS6+Rq1mf+tfRZY2o6Er5TqBrdhYR8A15P2AYBp/ckfto4zrYFB3WB2woqdwt5jtAgMBAAECgYABSsnUa/ZZRbxbypUxknSOhnKZYsqmMc5yDMqSvVv6s1FqxVuDHfUrFj8EVr+uNWRqNl/H955k+cWB9yDHm1XMOM01iOBevXdWOW2OGeYB/IsPmpwnkK5frjU5FNxWAe96C/7btJLV2YmVo/bcTkYk+6Oyzh//h/SZdHNdJ13vAQJBAO0VSe73QzQ6z0wwcFy+E/G/mLCD+YK4vJRKRadO3EBGXByMxTMF5bxyKbwPRve9TQPaIcKScaC6HT5MI6DQ14ECQQC20as8yEK+PI/qg5HitRb4PVS1QJu/TH/2HC339QoMjmn30SBnF38B4nxN6XgZhLyUpRtnhMUDwxHok/deD1dtAkA0MpS1jTD5pd0QHDYQ5TSE7DcU3emoUz4JtBSD0oQBjrwm+QNNyYWcKNJxejeYwc/cAkGekhl8Vp2rop3RgUmBAkBkw6fYNqDi7cp8/cu44wsoA9XemR+/DtEwu1Ny6bKCPTSXDMMJT2AHj+fnoZk6p3ixjVdPdVSJwEjsojGjvFz5AkEAmoSHxY23ytLrkMggR1c9SQ4O0rZfURLRYTGG2t4EutQzpLmwalye8vvUOKKNWk4GauH085FvFw4iFhVAnRl71A==
-                public-key: MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCpT0+GwrgJmO7z8SY151PYQArVdlX68b2PLXH7s0CbPIqUqAZigwD2D5QiAIWQzLWq7af4L51ZvYn5VJPIcKOQqX86e3WfoBnj0+R6E9RbOQEuvkatZn/rX0WWNqOhK+U6ga3YWEfANeT9gGAaf3JH7aOM62BQd1gdsKKncLeY7QIDAQAB
+            # v2 协议：JWE（RSA-OAEP-256 + A256GCM），报文载体是单个 jwe 字段
+            keys:
+                - kid: "gw-2026"
+                    private-key: MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCyNwTczy873qKNYcGCbBUsyjAdKtlEi44XPMZCRwJyS7aK7umhjqLK++azXK+aHAks8iYHtHs0XZQepRVrnotH+81POnwRz0hWqvfD1Su7+emqdvc4cHYrKxm3DxLK91vvsVEAC1Tr3OPWPQMvrvZkLZl8YshPHnvuiFCNMxGfDyMSupAjN3FzJDDcyUNDKaHnOLjd2HexC2GqebTgKhvFEkNhiMBtbjn6O1HmAeBb6RCX4zbUZGhdClQ8bo2/oDm4cLmt8+7qL99ekxRitZGRrbvu3/kmy3MBtUyUdGC/1cBH5S18mJRbBbLUshu+K/agBtfuTePQ49JfGNanqonpAgMBAAECggEABAe72CRmOPq1jwOAThGhaQ8RlDrhnIJLuYsOBtYgacMJHjGqgY6uSaKb3DlhZIq6Hhf3FyeRCmiMDSVDO4XJ+GjLFj3FEnaI2C8bQnFpGo7ITRFBN6R0cBC6rvgvOIn5D5qhRMipnposoid+UYcpt4izKHWhhvq4oQOLnDI+bzJz0+NjoKo3RG08NU+UISlVuoiAq/8CiGjLMxZvRfsSCAOpsH80CPjbsVl+dmgy5X7pRp+6AKmzBgeibULV7yhFiHglrn9qgA++PjE5TMbeSkcJAQ0wtFLdjbDmxogzYzzHw8gjuisEK4Nx8oNlQ3f/gUIbt5UxFnwNuagG54mm0QKBgQDxgcatd8u2wBu6DaE1rL3QQQuhq8z2LaJgRuADTaPIQbTJlyeKAWnIKKxboGHpv8ZlzP/pGIu9EEzzIS2ypHYiHFSYx5FNbx1+TF1R2mh1Bjzk4BXwCrADxL8WPieNWQljIgPhRh11ohOGt4mycmlpel0I2UlAqRXZSm8s6R7vEQKBgQC86OZkdXX5raOdDorTlzIq3IiPL/4bCrFSa5ihI4DIpzZMvIGjJJlCHQJxgsqLkLQg8ErWlfzeAizALIdRYn4bF4ZuY0qpEUixkPLFnHozL6SX6OFNKLRW+zX/tr5/HGievYqRaWqCe3fu5YtJU0fHYvReO/r3FLGCco30hoydWQKBgCdx2tFaT5t5pQ2uTDZIEHiDJzMwrDlJGsw+xzfC5o0+rhh+56ZStMRMYFpWx6c1+2GFKgcYSzqF/wt2z8/trJ3FosuRTNoo29hVAKjt00HJ0whO0UZzeGwlJlCrtioP8MiQNbIFkao03puSPps2tKDVq3xWgPBerYLf9WiQas0BAoGAdyu5Q8BxtxtZ7pcg7tAfvrg2kZWmCGsbZ7Imq+iYsnwBnjEA2ukYoYNpajAnFBop9+l+XJZr2aWnk2fDyYyHnxGdJYAPtk4H/LRC4nSPBkFU5NvtXV6DPafl7bXbwJYsTY+mnYrRvRSkmRlHX+9ghaCgJd5SuJHeVTts38gNZqkCgYA5atJoHqAKQwC3MIaYuSUyYPFC1302IVWBfme+G8yO6AW1y5lFcloceIh8OmtxdfK3TytWlTl+Sj0SLwOoTikSmEIpUsxFBPKEJXREFBT4KEswfPida3uTiavBP8cPdt7v89nDdeWjKh4CVOb1voGg3NKTuduCmSPyKuREbd0FIg==
+                    public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsjcE3M8vO96ijWHBgmwVLMowHSrZRIuOFzzGQkcCcku2iu7poY6iyvvms1yvmhwJLPImB7R7NF2UHqUVa56LR/vNTzp8Ec9IVqr3w9Uru/npqnb3OHB2KysZtw8Syvdb77FRAAtU69zj1j0DL672ZC2ZfGLITx577ohQjTMRnw8jErqQIzdxcyQw3MlDQymh5zi43dh3sQthqnm04CobxRJDYYjAbW45+jtR5gHgW+kQl+M21GRoXQpUPG6Nv6A5uHC5rfPu6i/fXpMUYrWRka277t/5JstzAbVMlHRgv9XAR+UtfJiUWwWy1LIbviv2oAbX7k3j0OPSXxjWp6qJ6QIDAQAB
+            active-kid: "gw-2026"
             gateway:
-                skip-able: false
+                enable: true

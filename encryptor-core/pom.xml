@@ -28,19 +28,13 @@
             <version>9.37.3</version>
         </dependency>
         <!--
-            必须保留：core 里没有任何源码直接引用 BouncyCastle，但 hutool 的 SM2/SM4（国密）实现
-            依赖 BC 提供的 JCA provider（如 SM4 的 KeyGenerator.getInstance("SM4")），
-            缺了它 SM2/SM4 用例会在类初始化时就抛 CryptoException/NoClassDefFoundError。
+            国密（SM2/SM4-GCM）与 RSA 的轻量级 API 直接由 SmCipherSuite/JceCipherSuite 使用
+            （SM2Engine/SM4Engine/GCMBlockCipher/PrivateKeyFactory…），不注册全局 JCA Provider。
             版本由 encryptor-dependencies BOM 管理。
         -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>

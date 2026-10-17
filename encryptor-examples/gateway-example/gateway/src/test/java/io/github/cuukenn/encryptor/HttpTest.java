@@ -1,144 +1,166 @@
 package io.github.cuukenn.encryptor;
 
-import cn.hutool.core.util.IdUtil;
-import cn.hutool.core.util.RandomUtil;
-import cn.hutool.crypto.Mode;
-import cn.hutool.crypto.Padding;
-import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.facade.IEncryptorFacadeFactory;
-import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
-import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
-import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
+import com.nimbusds.jose.EncryptionMethod;
+import com.nimbusds.jose.JWEAlgorithm;
+import com.nimbusds.jose.JWEHeader;
+import com.nimbusds.jose.util.Base64URL;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.test.web.reactive.server.WebTestClient;
-import reactor.core.publisher.Mono;
 
-import java.net.URI;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
+import javax.crypto.spec.SecretKeySpec;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.spec.MGF1ParameterSpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
+ * v2 协议网关端到端脚本（需先启动 gateway-example:8080 与其下游 web:8082；surefire 已排除，不进 CI）。
+ *
+ * <p>网关解密后转发明文给下游，响应再由网关用请求 CEK 加密（alg=dir）。</p>
+ *
  * @author changgg
  */
 public class HttpTest {
     private static final Logger logger = LoggerFactory.getLogger(HttpTest.class);
-    private static final String privateKey = "MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAKlPT4bCuAmY7vPxJjXnU9hACtV2VfrxvY8tcfuzQJs8ipSoBmKDAPYPlCIAhZDMtartp/gvnVm9iflUk8hwo5Cpfzp7dZ+gGePT5HoT1Fs5AS6+Rq1mf+tfRZY2o6Er5TqBrdhYR8A15P2AYBp/ckfto4zrYFB3WB2woqdwt5jtAgMBAAECgYABSsnUa/ZZRbxbypUxknSOhnKZYsqmMc5yDMqSvVv6s1FqxVuDHfUrFj8EVr+uNWRqNl/H955k+cWB9yDHm1XMOM01iOBevXdWOW2OGeYB/IsPmpwnkK5frjU5FNxWAe96C/7btJLV2YmVo/bcTkYk+6Oyzh//h/SZdHNdJ13vAQJBAO0VSe73QzQ6z0wwcFy+E/G/mLCD+YK4vJRKRadO3EBGXByMxTMF5bxyKbwPRve9TQPaIcKScaC6HT5MI6DQ14ECQQC20as8yEK+PI/qg5HitRb4PVS1QJu/TH/2HC339QoMjmn30SBnF38B4nxN6XgZhLyUpRtnhMUDwxHok/deD1dtAkA0MpS1jTD5pd0QHDYQ5TSE7DcU3emoUz4JtBSD0oQBjrwm+QNNyYWcKNJxejeYwc/cAkGekhl8Vp2rop3RgUmBAkBkw6fYNqDi7cp8/cu44wsoA9XemR+/DtEwu1Ny6bKCPTSXDMMJT2AHj+fnoZk6p3ixjVdPdVSJwEjsojGjvFz5AkEAmoSHxY23ytLrkMggR1c9SQ4O0rZfURLRYTGG2t4EutQzpLmwalye8vvUOKKNWk4GauH085FvFw4iFhVAnRl71A==";
-    private static final String publicKey = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCpT0+GwrgJmO7z8SY151PYQArVdlX68b2PLXH7s0CbPIqUqAZigwD2D5QiAIWQzLWq7af4L51ZvYn5VJPIcKOQqX86e3WfoBnj0+R6E9RbOQEuvkatZn/rX0WWNqOhK+U6ga3YWEfANeT9gGAaf3JH7aOM62BQd1gdsKKncLeY7QIDAQAB";
+    private static final String BASE = "http://127.0.0.1:8080";
+    /** 与 gateway/src/main/resources/application.yml 的 {@code keys[0]}（gw-2026）一致。 */
+    private static final String KID = "gw-2026";
+    private static final String PUBLIC_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsjcE3M8vO96ijWHBgmwVLMowHSrZRIuOFzzGQkcCcku2iu7poY6iyvvms1yvmhwJLPImB7R7NF2UHqUVa56LR/vNTzp8Ec9IVqr3w9Uru/npqnb3OHB2KysZtw8Syvdb77FRAAtU69zj1j0DL672ZC2ZfGLITx577ohQjTMRnw8jErqQIzdxcyQw3MlDQymh5zi43dh3sQthqnm04CobxRJDYYjAbW45+jtR5gHgW+kQl+M21GRoXQpUPG6Nv6A5uHC5rfPu6i/fXpMUYrWRka277t/5JstzAbVMlHRgv9XAR+UtfJiUWwWy1LIbviv2oAbX7k3j0OPSXxjWp6qJ6QIDAQAB";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     @Test
     public void test_get() {
-        String body = test_get_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
-        // 网关把 /test/** 路由到下游（127.0.0.1:8081），下游 GET /test/hello 返回 "Hello, " + name
-        Assertions.assertTrue(body.contains("Hello"), "响应应包含下游返回的 Hello，实际为: " + body);
-        Assertions.assertTrue(body.contains("小明"), "响应应回显请求参数 name=小明，实际为: " + body);
+        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        Sealed sealed = seal(plaintext, "/test/hello", "GET");
+        HttpResponse response = HttpRequest.get(BASE + "/test/hello?jwe=" + url(sealed.compact)).execute();
+        Assertions.assertEquals(200, response.getStatus(), "GET /test/hello 应返回 200");
+        String body = decryptResponse(response.body(), sealed.cek);
+        logger.info("decrypted: {}", body);
+        Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
+        Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
     }
 
     @Test
     public void test_post() {
-        String body = test_post_all_in_one("http://127.0.0.1:8080/test/hello", Collections.singletonMap("name", "小明"));
-        // 下游 POST /test/hello(JSON) 返回 "Hello, " + data（data 是 {name=小明}）
-        Assertions.assertTrue(body.contains("Hello"), "响应应包含下游返回的 Hello，实际为: " + body);
-        Assertions.assertTrue(body.contains("小明"), "响应应回显请求体中的 name=小明，实际为: " + body);
+        Sealed sealed = seal("{\"name\":\"小明\"}", "/test/hello", "POST");
+        HttpResponse response = HttpRequest.post(BASE + "/test/hello")
+                .header("Content-Type", "application/json")
+                .body("{\"jwe\":\"" + sealed.compact + "\"}").execute();
+        Assertions.assertEquals(200, response.getStatus(), "POST /test/hello 应返回 200");
+        String body = decryptResponse(response.body(), sealed.cek);
+        logger.info("decrypted: {}", body);
+        Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
+        Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
     }
 
-    @SuppressWarnings("SameParameterValue")
-    private String test_get_all_in_one(String url, Map<String, Object> params) {
-        EncryptorReactiveAutoConfiguration configuration = new EncryptorReactiveAutoConfiguration();
-        IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
-        CryptoConfig cryptoConfig = new CryptoConfig();
-        cryptoConfig.setPublicKey(publicKey);
-        cryptoConfig.setPrivateKey(privateKey);
-        EncryptorFacade facade = facadeFactory.apply(cryptoConfig);
+    @Test
+    public void test_tampered_rejected() {
+        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        Sealed sealed = seal(plaintext, "/test/hello", "GET");
+        // 篡改密文段首字符 → GCM tag 校验失败 → 400
+        String[] parts = sealed.compact.split("\\.");
+        char first = parts[3].charAt(0);
+        parts[3] = (first == 'A' ? 'B' : 'A') + parts[3].substring(1);
+        HttpResponse response = HttpRequest.get(BASE + "/test/hello?jwe=" + url(String.join(".", parts))).execute();
+        logger.info("tampered status: {}, body: {}", response.getStatus(), response.body());
+        Assertions.assertEquals(400, response.getStatus(), "篡改报文应被拒（400）");
+    }
 
-        //加密及签名
-        final String key = IdUtil.fastSimpleUUID();
-        Map<String, String> keyParams = new LinkedHashMap<>();
-        keyParams.put("key", key);
-        keyParams.put("mode", Mode.CBC.name());
-        keyParams.put("padding", Padding.PKCS5Padding.name());
-        keyParams.put("iv", (RandomUtil.randomString(16)));
-        final String xKey = facade.getNegotiateEncoder().encrypt(JSONUtil.toJsonStr(keyParams).getBytes());
-        logger.info("xKey: {}, decryptKey: {}", xKey, new String(facade.getNegotiateEncoder().decrypt(xKey)));
+    // ==================== 构造/解密工具（与 web-example/HttpTest 同构） ====================
 
-        EncryptorDataWrapper encrypt = facade.encrypt(JSONUtil.toJsonStr(params).getBytes(), xKey);
-        logger.info(JSONUtil.toJsonStr(encrypt));
+    private static final class Sealed {
+        final String compact;
+        final byte[] cek;
 
-        logger.info("localDecrypted:{}", new String(facade.decrypt(encrypt)));
-
-        // WebTestClient 会把 URI 当成已编码串直接发送，所以这里自己严格 URL 编码：
-        // base64 里的 '+' 若不编码成 %2B，网关侧 getQueryParams() 会把它解成空格 -> 解密失败
-        Map<String, Object> query = new LinkedHashMap<>();
-        query.put("nonce", encrypt.getNonce());
-        query.put("timestamp", encrypt.getTimestamp());
-        query.put("signature", encrypt.getSignature());
-        query.put("key", encrypt.getKey());
-        query.put("data", encrypt.getData());
-        StringBuilder fullUrl = new StringBuilder(url);
-        boolean first = true;
-        for (Map.Entry<String, Object> entry : query.entrySet()) {
-            fullUrl.append(first ? '?' : '&');
-            first = false;
-            fullUrl.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
-                    .append('=')
-                    .append(URLEncoder.encode(String.valueOf(entry.getValue()), StandardCharsets.UTF_8));
+        Sealed(String compact, byte[] cek) {
+            this.compact = compact;
+            this.cek = cek;
         }
-        URI uri = URI.create(fullUrl.toString());
-
-        final String[] plaintext = new String[1];
-        WebTestClient client = WebTestClient.bindToServer().build();
-        client.get().uri(uri).exchange()
-                .expectStatus().isOk()
-                .expectBody(byte[].class).consumeWith(res -> {
-                    byte[] raw = Objects.requireNonNull(res.getResponseBody());
-                    logger.info("raw:{}", new String(raw));
-                    plaintext[0] = new String(facade.decrypt(JSONUtil.toBean(new String(raw), EncryptorDataWrapper.class)));
-                    logger.info("decryptedData:{}", plaintext[0]);
-                });
-        return plaintext[0];
     }
 
-    @SuppressWarnings("SameParameterValue")
-    private String test_post_all_in_one(String url, Map<String, Object> data) {
-        EncryptorReactiveAutoConfiguration configuration = new EncryptorReactiveAutoConfiguration();
-        IEncryptorFacadeFactory<CryptoConfig> facadeFactory = configuration.encryptorFacadeFactory(Collections.emptyList());
-        CryptoConfig cryptoConfig = new CryptoConfig();
-        cryptoConfig.setPublicKey(publicKey);
-        cryptoConfig.setPrivateKey(privateKey);
-        EncryptorFacade facade = facadeFactory.apply(cryptoConfig);
+    private static Sealed seal(String plaintext, String uri, String method) {
+        try {
+            byte[] cek = new byte[32];
+            RANDOM.nextBytes(cek);
+            Map<String, Object> claims = new LinkedHashMap<>();
+            claims.put("uri", uri);
+            claims.put("m", method);
+            claims.put("dir", "req");
+            claims.put("ts", System.currentTimeMillis());
+            claims.put("nonce", Base64URL.encode(randomBytes(12)).toString());
+            JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.RSA_OAEP_256, EncryptionMethod.A256GCM)
+                    .keyID(KID).customParams(claims).build();
+            String headerSegment = header.toBase64URL().toString();
+            Cipher rsa = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+            rsa.init(Cipher.ENCRYPT_MODE, publicKey(),
+                    new OAEPParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT));
+            byte[] encryptedKey = rsa.doFinal(cek);
+            byte[] iv = randomBytes(12);
+            Cipher gcm = Cipher.getInstance("AES/GCM/NoPadding");
+            gcm.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(cek, "AES"), new GCMParameterSpec(128, iv));
+            gcm.updateAAD(headerSegment.getBytes(StandardCharsets.US_ASCII));
+            byte[] ctTag = gcm.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            byte[] ct = Arrays.copyOfRange(ctTag, 0, ctTag.length - 16);
+            byte[] tag = Arrays.copyOfRange(ctTag, ctTag.length - 16, ctTag.length);
+            String compact = headerSegment + '.'
+                    + Base64URL.encode(encryptedKey) + '.'
+                    + Base64URL.encode(iv) + '.'
+                    + Base64URL.encode(ct) + '.'
+                    + Base64URL.encode(tag);
+            return new Sealed(compact, cek);
+        } catch (Exception e) {
+            throw new IllegalStateException("构造请求 JWE 失败", e);
+        }
+    }
 
-        //加密及签名
-        final String key = IdUtil.fastSimpleUUID();
-        Map<String, String> keyParams = new LinkedHashMap<>();
-        keyParams.put("key", key);
-        keyParams.put("mode", Mode.CBC.name());
-        keyParams.put("padding", Padding.PKCS5Padding.name());
-        keyParams.put("iv", (RandomUtil.randomString(16)));
-        final String xKey = facade.getNegotiateEncoder().encrypt(JSONUtil.toJsonStr(keyParams).getBytes());
-        logger.info("xKey: {}, decryptKey: {}", xKey, new String(facade.getNegotiateEncoder().decrypt(xKey)));
+    private static PublicKey publicKey() throws Exception {
+        return KeyFactory.getInstance("RSA")
+                .generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(PUBLIC_KEY)));
+    }
 
-        EncryptorDataWrapper encrypt = facade.encrypt(JSONUtil.toJsonStr(data).getBytes(), xKey);
-        logger.info(JSONUtil.toJsonStr(encrypt));
+    private static byte[] randomBytes(int n) {
+        byte[] bytes = new byte[n];
+        RANDOM.nextBytes(bytes);
+        return bytes;
+    }
 
-        logger.info("localDecrypted:{}", new String(facade.decrypt(encrypt)));
+    private static String url(String compact) {
+        return URLEncoder.encode(compact, StandardCharsets.UTF_8);
+    }
 
-        final String[] plaintext = new String[1];
-        WebTestClient client = WebTestClient.bindToServer().build();
-        client.post().uri(url)
-                .header(HttpHeaders.CONTENT_TYPE, "application/json")
-                .body((clientHttpRequest, context) -> clientHttpRequest.writeWith(Mono.just(clientHttpRequest.bufferFactory().wrap(JSONUtil.toJsonStr(encrypt).getBytes())))).exchange()
-                .expectStatus().isOk()
-                .expectBody(byte[].class).consumeWith(res -> {
-                    byte[] raw = Objects.requireNonNull(res.getResponseBody());
-                    logger.info("raw:{}", new String(raw));
-                    plaintext[0] = new String(facade.decrypt(JSONUtil.toBean(new String(raw), EncryptorDataWrapper.class)));
-                    logger.info("decryptedData:{}", plaintext[0]);
-                });
-        return plaintext[0];
+    private static String decryptResponse(String body, byte[] cek) {
+        try {
+            // body = {"jwe":"<compact>"}；响应 alg=dir，CEK 复用请求的
+            String compact = body.substring(body.indexOf('"') + 1);
+            compact = compact.substring(compact.indexOf('"') + 1, compact.lastIndexOf('"'));
+            String[] parts = compact.split("\\.");
+            byte[] iv = Base64.getUrlDecoder().decode(parts[2]);
+            byte[] ct = Base64.getUrlDecoder().decode(parts[3]);
+            byte[] tag = Base64.getUrlDecoder().decode(parts[4]);
+            byte[] ctTag = new byte[ct.length + tag.length];
+            System.arraycopy(ct, 0, ctTag, 0, ct.length);
+            System.arraycopy(tag, 0, ctTag, ct.length, tag.length);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(cek, "AES"), new GCMParameterSpec(128, iv));
+            cipher.updateAAD(parts[0].getBytes(StandardCharsets.US_ASCII));
+            return new String(cipher.doFinal(ctTag), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new IllegalStateException("解响应失败: " + body, e);
+        }
     }
 }

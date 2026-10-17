@@ -71,12 +71,6 @@ public class EncryptorConfig {
      */
     @NestedConfigurationProperty
     private DiscoveryConfig discovery = new DiscoveryConfig();
-    /**
-     * v1 遗留配置，仅在 T9/T10 重接传输层前占位；新协议不再读取。
-     */
-    @Deprecated
-    @NestedConfigurationProperty
-    private CryptoConfig cryptoConfig = new CryptoConfig();
 
     public List<KeyMaterialConfig> getKeys() {
         return keys;
@@ -180,15 +174,5 @@ public class EncryptorConfig {
 
     public void setDiscovery(DiscoveryConfig discovery) {
         this.discovery = discovery;
-    }
-
-    @Deprecated
-    public CryptoConfig getCryptoConfig() {
-        return cryptoConfig;
-    }
-
-    @Deprecated
-    public void setCryptoConfig(CryptoConfig cryptoConfig) {
-        this.cryptoConfig = cryptoConfig;
     }
 }
