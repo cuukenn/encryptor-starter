@@ -40,7 +40,7 @@ async function main() {
             {...currentKey(keys), uri: '/test/hello', method: 'GET'});
         const res = await axios.get(BASE + '/test/hello', {params: {jwe: compact}});
         const plain = await jwe.decrypt(res?.data?.jwe, cek);
-        check('get: 200 且解回明文含 name=1', plain.includes('name=1'), plain);
+        check('get: 200 且解回明文含 Hello, 1（下游回显）', plain.includes('Hello, 1'), plain);
     }
 
     // 3. POST json
@@ -60,7 +60,7 @@ async function main() {
         const res = await axios.post(BASE + '/test/hello', qs.stringify({jwe: compact}),
             {headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
         const plain = await jwe.decrypt(res?.data?.jwe, cek);
-        check('post-form: 200 且解回明文含 name=1', plain.includes('name=1'), plain);
+        check('post-form: 200 且解回明文含 name=[1]（表单被解析）', plain.includes('name=[1]'), plain);
     }
 
     // 5. 篡改任一字节必须 400（防篡改可执行断言）

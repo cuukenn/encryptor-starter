@@ -6,10 +6,12 @@ import io.github.cuukenn.encryptor.reactive.config.DiscoveryConfig;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.security.KeyPair;
@@ -53,7 +55,7 @@ class GatewayJwksTest {
 
     private MockServerWebExchange invoke(JwksEndpointFilter filter, MockServerHttpRequest.BaseBuilder<?> request) {
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
-        GatewayFilterChain downstream = ex -> {
+        WebFilterChain downstream = ex -> {
             forwarded.incrementAndGet();
             ex.getResponse().setStatusCode(HttpStatus.OK);
             return ex.getResponse().setComplete();
@@ -111,5 +113,21 @@ class GatewayJwksTest {
     void 其他路径不拦截() {
         invoke(newFilter(), MockServerHttpRequest.get("/api/other"));
         assertThat(forwarded.get()).isEqualTo(1);
+    }
+
+    /**
+     * 回归（T16-R2）：真实网关里发现路径**没有路由** —— GlobalFilter 在路由匹配之后才执行，
+     * 用 GlobalFilter 时该请求直接 404。这里用一个"其余全 404"的 handler 模拟无路由场景，
+     * 断言 WebFilter 依然能响应。
+     */
+    @Test
+    void 无路由时也能响应_WebFilter先于路由执行() {
+        WebTestClient client = WebTestClient.bindToWebHandler(exchange -> {
+            exchange.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
+            return exchange.getResponse().setComplete();
+        }).webFilter(newFilter()).build();
+        client.get().uri(DISCOVERY_PATH).exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON);
     }
 }

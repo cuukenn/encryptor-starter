@@ -4,9 +4,6 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.jose.PublicKeyInfo;
 import io.github.cuukenn.encryptor.jose.ServerKeyStore;
 import io.github.cuukenn.encryptor.reactive.config.DiscoveryConfig;
-import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
-import org.springframework.cloud.gateway.filter.GatewayFilterChain;
-import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
@@ -26,12 +25,16 @@ import java.util.Map;
 /**
  * 网关侧 JWKS 只读发现端点：{@code GET ${discovery.path}} → 只含公钥的 JWKS，网关自己响应、不转发下游。
  *
+ * <p><b>必须是 {@link WebFilter} 而不是 GlobalFilter</b>：GlobalFilter 只在"路由已匹配"之后才进入
+ * 过滤器链，而发现路径通常没有（也不该有）路由 ⇒ 用 GlobalFilter 时真实网关会直接 404
+ * （实测如此，见 ledger T16-R2）。WebFilter 在路由之前执行，无需任何路由即可响应。</p>
+ *
  * <p>order 最外层（先于加密过滤器）；enable=false / 非 GET / 路径不匹配时原样放行。密钥库不可变 ⇒
  * JWKS 与 ETag 在构造期定型（换 active-kid = 换密钥库 = 换实例）。</p>
  *
  * @author changgg
  */
-public class JwksEndpointFilter implements GlobalFilter, Ordered {
+public class JwksEndpointFilter implements WebFilter, Ordered {
 
     private final String path;
     private final boolean enable;
@@ -54,7 +57,7 @@ public class JwksEndpointFilter implements GlobalFilter, Ordered {
     }
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         if (!enable || !"GET".equals(exchange.getRequest().getMethodValue())
             || !path.equals(exchange.getRequest().getPath().value())) {
             return chain.filter(exchange);

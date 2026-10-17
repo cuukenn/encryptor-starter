@@ -41,6 +41,8 @@ public class GatewayEncryptorConfiguration {
 
     /**
      * JWKS 只读发现端点（网关自己响应、不转发下游）；order 取 filterConfig.jwksFilterOrder。
+     *
+     * <p>是 {@link JwksEndpointFilter WebFilter}（先于路由执行），不是 GlobalFilter —— 发现路径没有路由。</p>
      */
     @Bean
     public JwksEndpointFilter gatewayJwksEndpointFilter(GatewayEncryptorConfig config,

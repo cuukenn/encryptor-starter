@@ -111,8 +111,24 @@ encryptor:
 ## 代码示例
 
 - JS 客户端（WebCrypto）：`encryptor-examples/web-example/front/encryptor/jwe.js`（`encrypt`/`decrypt`/`fetchKeys`）。
-- 端到端示例：`encryptor-examples/`（web-example: 8081；gateway-example: 8080，下游用普通应用 `gateway-example/web`）。
+- 端到端示例：`encryptor-examples/`（web-example: 8081；gateway-example: 8080，下游用普通应用 `gateway-example/web`，端口 8082）。
 - 设计文档：`docs/superpowers/specs/2026-10-16-payload-security-protocol-design.md`。
+
+### 跑起来（本地验证）
+
+```bash
+# 服务端（Maven 不在 PATH 时用全路径；示例未配 repackage，只能用插件全坐标）
+mvn -B -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+# 网关两个进程：先下游（8082），再网关（8080）
+mvn -B -pl encryptor-examples/gateway-example/web     org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+mvn -B -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+
+# 客户端（Node ≥16；本仓库实测 Node 16，用 npm 而不是 pnpm）
+cd encryptor-examples/web-example/front && npm install && node test.js     # 6 条断言
+cd encryptor-examples/gateway-example/gateway/front && npm install && node test.js
+```
+
+`test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、篡改 IV 必须 400；全过 `exit 0`。
 
 ## v1 → v2 迁移
 
