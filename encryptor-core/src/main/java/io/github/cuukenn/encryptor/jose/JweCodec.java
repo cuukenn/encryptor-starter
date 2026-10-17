@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.jose;
 
+import io.github.cuukenn.encryptor.audit.EncryptorListener;
+
 import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
@@ -46,18 +48,25 @@ public class JweCodec {
     private final Set<String> allowedAlgs;
     private final Set<String> allowedEncs;
     private final SecureRandom random = new SecureRandom();
+    private final EncryptorListener listener;
 
     /** 仅装配 JCE 套件（RSA-OAEP-256 + AES-GCM）的便捷构造。 */
     public JweCodec(ServerKeyStore keys, Set<String> allowedAlgs, Set<String> allowedEncs) {
-        this(keys, Collections.singletonList(new JceCipherSuite()), allowedAlgs, allowedEncs);
+        this(keys, Collections.singletonList(new JceCipherSuite()), allowedAlgs, allowedEncs, EncryptorListener.NONE);
+    }
+
+    public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs) {
+        this(keys, suites, allowedAlgs, allowedEncs, EncryptorListener.NONE);
     }
 
     /**
      * @param suites      装配的算法套件（至少一个；白名单只允许取自这里声明的 alg/enc）
      * @param allowedAlgs 允许的封装算法；为空 = 协议默认
      * @param allowedEncs 允许的内容加密方法；为空 = 协议默认
+     * @param listener    可观测性回调（成功/失败），可为 {@link EncryptorListener#NONE}
      */
-    public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs) {
+    public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs,
+                    EncryptorListener listener) {
         if (suites == null || suites.isEmpty()) {
             throw new EncryptorException("必须装配至少一个 CipherSuite");
         }
@@ -65,6 +74,7 @@ public class JweCodec {
         this.suites = Collections.unmodifiableList(new ArrayList<>(suites));
         this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), installed(true), "alg");
         this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), installed(false), "enc");
+        this.listener = listener == null ? EncryptorListener.NONE : listener;
     }
 
     /**
@@ -76,6 +86,20 @@ public class JweCodec {
      * @throws EncryptorException 带 {@link EncryptorFailure} 分类
      */
     public JweContext decryptRequest(String compact, String uri, String method) {
+        try {
+            JweContext context = doDecryptRequest(compact, uri, method);
+            listener.onDecryptSuccess(context);
+            return context;
+        } catch (EncryptorException e) {
+            listener.onDecryptFailure(e.failure(), e);
+            throw e;
+        } catch (RuntimeException e) {
+            listener.onDecryptFailure(EncryptorFailure.INTERNAL, e);
+            throw e;
+        }
+    }
+
+    private JweContext doDecryptRequest(String compact, String uri, String method) {
         if (compact == null || compact.trim().isEmpty()) {
             throw fail(EncryptorFailure.MISSING, "命中加密范围但报文缺少 jwe 字段");
         }
@@ -155,10 +179,16 @@ public class JweCodec {
      * 非 AES 套件（例如国密）必须用带 {@code enc} 的重载，显式传入请求协商出的 {@code enc}。
      */
     public String encryptResponse(byte[] body, byte[] cek, String uri, String method, long ts, String nonce) {
-        if (cek == null) {
-            throw fail(EncryptorFailure.ENCRYPT_FAILED, "缺少 CEK");
+        try {
+            String enc = cek == null ? null : encOf(cek.length);
+            return doEncryptResponse(body, cek, enc, uri, method, ts, nonce);
+        } catch (EncryptorException e) {
+            listener.onEncryptFailure(e.failure(), e);
+            throw e;
+        } catch (RuntimeException e) {
+            listener.onEncryptFailure(EncryptorFailure.INTERNAL, e);
+            throw e;
         }
-        return encryptResponse(body, cek, encOf(cek.length), uri, method, ts, nonce);
     }
 
     /**
@@ -169,6 +199,19 @@ public class JweCodec {
      */
     public String encryptResponse(byte[] body, byte[] cek, String enc, String uri, String method, long ts,
                                   String nonce) {
+        try {
+            return doEncryptResponse(body, cek, enc, uri, method, ts, nonce);
+        } catch (EncryptorException e) {
+            listener.onEncryptFailure(e.failure(), e);
+            throw e;
+        } catch (RuntimeException e) {
+            listener.onEncryptFailure(EncryptorFailure.INTERNAL, e);
+            throw e;
+        }
+    }
+
+    private String doEncryptResponse(byte[] body, byte[] cek, String enc, String uri, String method, long ts,
+                                     String nonce) {
         if (cek == null) {
             throw fail(EncryptorFailure.ENCRYPT_FAILED, "缺少 CEK");
         }
