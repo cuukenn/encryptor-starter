@@ -1,21 +1,89 @@
-const aes = require('./encryptor/aes')
-const rsa = require('./encryptor/rsa')
+'use strict';
+/**
+ * 端到端断言脚本：GET / POST(json) / POST(form) / JWKS 四条，全过 exit 0，任一失败 exit 1。
+ * 需先启动 gateway-example 网关（8080）。跑法：node front/test.js
+ *
+ * @author changgg
+ */
+const jwe = require('./encryptor/jwe')
+const axios = require('axios');
+const qs = require('qs');
 
-//测试aes
-{
-    const key = "e10adc3949ba59abbe56e057f20f883e";
-    const options = {
-        iv: key.substring(0, 16),
-        mode: 'CBC', padding: 'PKCS5Padding',
-    };
-    const decrypt = aes.encrypt_base64({'a': 1, 'b': 2}, key, options);
-    console.log(decrypt);
-    console.log(aes.decrypt_base64(decrypt, key, options));
+const BASE = 'http://127.0.0.1:8080';
+const JWKS_URL = BASE + '/.well-known/encryptor-keys';
+
+let failed = 0;
+
+function check(name, ok, detail) {
+    if (ok) {
+        console.log('PASS ' + name);
+    } else {
+        failed++;
+        console.error('FAIL ' + name + (detail ? ' — ' + detail : ''));
+    }
 }
-{
-    const publicKey = "MIGeMA0GCSqGSIb3DQEBAQUAA4GMADCBiAKBgGNChr14yXkgoXSOdrHXsTx24DfK/eUbduu05ooN9xijYKN5lLDNOpdtKKIpTszSGWxMlrdCZVVI6nOUYiyEWBmdwS0+crSPD3ukEqMc0jkoDtpRXi23tv1ssyjzewf+dtphieyrggaGM9CKVGSP1ZbYQoQ4daWf/tB8SdimM/4FAgMBAAE=";
-    const privateKey = "MIICWgIBAAKBgGNChr14yXkgoXSOdrHXsTx24DfK/eUbduu05ooN9xijYKN5lLDNOpdtKKIpTszSGWxMlrdCZVVI6nOUYiyEWBmdwS0+crSPD3ukEqMc0jkoDtpRXi23tv1ssyjzewf+dtphieyrggaGM9CKVGSP1ZbYQoQ4daWf/tB8SdimM/4FAgMBAAECgYBin647QnGE7dwecJMU/4g12LPOG96Lru9JIdRS5a9XhrW1mE8aIMCPxsEx5rNKJZNnHO4/pjQDOlDhiFTHgLP7ewMcXVLkob0Vy5X6En1wJk5fHo2x17NZ1k254ZPii9FX0mZ5w4ky45SeKgSqk+KMjNFIOjEsG5JVIsrUJyIUQQJBAKJ+Vq4Gw1wSmZXc3qRwNCfu6YQ4bDCarKQ64Kh6JXLdXMyRegftUFWNhi58Vo9H3o8GJgTIaAsNr5dmyNWxUzUCQQCcYPN5Tdj8ulujiWayb4Z3R3EHF8hCvDXy5ShOWJb4M1nEnB9dRaxm2X5rarZxscXcFeMs16ez41adsJE5WwmRAkBbKwszBLRjWkQ1owB/vjxlE1SNTKLW+lFWq3oUzMNqGOzSEeUnwWxLM+ZO+pAOP8KM+GQoVtCZMwqLpa2Ux7LpAkAPLs6U2X0W1JUvJJkG/BMHI7WSpbl42UM3qQ4nxSwrPvkZQLs+2BPsDHPcxAigs0ztmGZtJScQLSNsvgbrla4xAkAf3vRDITNBLo2Vr9BmjCHDoIjAxkKt71NoS+S+MZWayHJ4LxAnbcSXKsziQ2tlCjR3MkNRiBFZnsqkUH6/5cJs";
-    const decrypt = rsa.encrypt_base64({'a': 1, 'b': 2}, publicKey);
-    console.log(decrypt);
-    console.log(rsa.decrypt_base64(decrypt, privateKey));
+
+function currentKey(keys) {
+    return {kid: keys.activeKid, publicKeyJwk: keys.byKid.get(keys.activeKid)};
 }
+
+async function main() {
+    // 1. JWKS：activeKid 可解析出 jwk，且不含私钥成员 d
+    const keys = await jwe.fetchKeys(JWKS_URL);
+    const jwk = keys.byKid.get(keys.activeKid);
+    check('jwks: activeKid 有对应 jwk', !!jwk, 'activeKid=' + keys.activeKid);
+    check('jwks: jwk 不含私钥 d', !jwk || !('d' in jwk));
+
+    // 2. GET
+    {
+        const {jwe: compact, cek} = await jwe.encrypt(qs.stringify({name: '1'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'GET'});
+        const res = await axios.get(BASE + '/test/hello', {params: {jwe: compact}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('get: 200 且解回明文含 name=1', plain.includes('name=1'), plain);
+    }
+
+    // 3. POST json
+    {
+        const {jwe: compact, cek} = await jwe.encrypt(JSON.stringify({name: '1'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'POST'});
+        const res = await axios.post(BASE + '/test/hello', {jwe: compact},
+            {headers: {'Content-Type': 'application/json'}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('post-json: 200 且解回明文含 name', plain.includes('name'), plain);
+    }
+
+    // 4. POST form
+    {
+        const {jwe: compact, cek} = await jwe.encrypt(qs.stringify({name: '1'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'POST'});
+        const res = await axios.post(BASE + '/test/hello', qs.stringify({jwe: compact}),
+            {headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('post-form: 200 且解回明文含 name=1', plain.includes('name=1'), plain);
+    }
+
+    // 5. 篡改任一字节必须 400（防篡改可执行断言）
+    {
+        const {jwe: compact} = await jwe.encrypt(qs.stringify({name: '1'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'GET'});
+        const parts = compact.split('.');
+        const iv = Buffer.from(parts[2], 'base64url');
+        iv[0] ^= 0xff;
+        parts[2] = iv.toString('base64url');
+        try {
+            await axios.get(BASE + '/test/hello', {params: {jwe: parts.join('.')}});
+            check('tamper: 篡改 iv 后必须非 200', false);
+        } catch (err) {
+            check('tamper: 篡改 iv 后必须 400', err?.response?.status === 400,
+                'status=' + err?.response?.status);
+        }
+    }
+
+    process.exitCode = failed === 0 ? 0 : 1;
+}
+
+main().catch(err => {
+    console.error(err?.response?.status, err?.response?.data || err?.message);
+    process.exitCode = 1;
+});
