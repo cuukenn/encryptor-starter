@@ -17,6 +17,18 @@ public class GatewayFilterConfig {
      * 响应过滤器（加密回写）order，包住业务、在 NettyWrite 之内。
      */
     private int encryptorResFilterOrder = NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
+    /**
+     * JWKS 发现端点 order，比请求过滤器更外层（免加密路径先于一切加密逻辑）。
+     */
+    private int jwksFilterOrder = -14;
+
+    public int getJwksFilterOrder() {
+        return jwksFilterOrder;
+    }
+
+    public void setJwksFilterOrder(int jwksFilterOrder) {
+        this.jwksFilterOrder = jwksFilterOrder;
+    }
 
     public int getEncryptorFilterOrder() {
         return encryptorFilterOrder;

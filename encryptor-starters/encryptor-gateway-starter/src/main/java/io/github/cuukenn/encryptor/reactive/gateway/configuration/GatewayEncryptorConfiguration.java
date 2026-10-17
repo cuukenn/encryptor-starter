@@ -3,6 +3,7 @@ package io.github.cuukenn.encryptor.reactive.gateway.configuration;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.gateway.discovery.JwksEndpointFilter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorGatewayFilter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorResponseFilter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -36,5 +37,16 @@ public class GatewayEncryptorConfiguration {
                                                            EncryptorConfig reactiveConfig,
                                                            DefaultProtocol protocol) {
         return new EncryptorResponseFilter(config, reactiveConfig, protocol);
+    }
+
+    /**
+     * JWKS 只读发现端点（网关自己响应、不转发下游）；order 取 filterConfig.jwksFilterOrder。
+     */
+    @Bean
+    public JwksEndpointFilter gatewayJwksEndpointFilter(GatewayEncryptorConfig config,
+                                                        EncryptorConfig reactiveConfig,
+                                                        DefaultProtocol protocol) {
+        return new JwksEndpointFilter(protocol.keys(), reactiveConfig.getDiscovery(),
+            config.getFilterConfig().getJwksFilterOrder());
     }
 }
