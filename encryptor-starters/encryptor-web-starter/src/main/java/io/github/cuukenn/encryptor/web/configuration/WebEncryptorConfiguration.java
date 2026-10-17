@@ -4,6 +4,7 @@ import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
+import io.github.cuukenn.encryptor.web.discovery.JwksEndpointFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestBodyFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestParameterFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorResponseFilter;
@@ -74,6 +75,18 @@ public class WebEncryptorConfiguration {
         Builder<Filter> binder = new Builder<>(registrationBean);
         binder.filterConfiguration(new EncryptorWebFilter(config, encryptorConfig, protocolStack, runtime),
                 config.getFilterConfig().getEncryptorFilterOrder(), false);
+        return registrationBean;
+    }
+
+    @ConditionalOnClass(FilterRegistrationBean.class)
+    @ConditionalOnMissingBean(name = "defaultJwksDiscoveryFilter")
+    @Bean("defaultJwksDiscoveryFilter")
+    public FilterRegistrationBean<? extends Filter> jwksDiscoveryFilter(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack) {
+        logger.info("register jwks discovery endpoint, path: {}", encryptorConfig.getDiscovery().getPath());
+        FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
+        Builder<Filter> binder = new Builder<>(registrationBean);
+        binder.filterConfiguration(new JwksEndpointFilter(protocolStack.keys(), encryptorConfig.getDiscovery()),
+                config.getFilterConfig().getJwksFilterOrder(), false);
         return registrationBean;
     }
 

@@ -5,6 +5,10 @@ package io.github.cuukenn.encryptor.web.config;
  */
 public class WebFilterConfig {
     /**
+     * JWKS 发现端点顺序（最外层，先于全部加密过滤器）
+     */
+    private int jwksFilterOrder = -13;
+    /**
      * 门面过滤器顺序
      */
     private int encryptorFilterOrder = -12;
@@ -20,6 +24,14 @@ public class WebFilterConfig {
      * 响应体过滤器顺序
      */
     private int encryptorResFilterOrder = -3;
+
+    public int getJwksFilterOrder() {
+        return jwksFilterOrder;
+    }
+
+    public void setJwksFilterOrder(int jwksFilterOrder) {
+        this.jwksFilterOrder = jwksFilterOrder;
+    }
 
     public int getEncryptorFilterOrder() {
         return encryptorFilterOrder;
