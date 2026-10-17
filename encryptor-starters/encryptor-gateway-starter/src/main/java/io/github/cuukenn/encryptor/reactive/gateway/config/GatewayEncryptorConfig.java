@@ -1,7 +1,5 @@
 package io.github.cuukenn.encryptor.reactive.gateway.config;
 
-import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
-import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
@@ -11,64 +9,48 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 网关侧 v2 配置（前缀 {@code encryptor.config.reactive.gateway}）。
+ *
+ * <p>failureStatus / maxRequestSize / maxResponseSize / require-encrypted / bypass / discovery
+ * 统一读 {@code reactive.config.EncryptorConfig}（reactive 前缀），此处不再重复声明（双写警告）。</p>
+ *
  * @author changgg
  */
-@ConfigurationProperties(prefix = EncryptorConfig.PREFIX + ".gateway")
+@ConfigurationProperties(prefix = GatewayEncryptorConfig.PREFIX)
 public class GatewayEncryptorConfig {
+    public static final String PREFIX = "encryptor.config.reactive.gateway";
+
     /**
-     * 是否开启加密逻辑
-     */
-    private boolean enable = true;
-    /**
-     * 是否允许在加密开启的情况下通过前端配置来跳过加密处理
-     * 主要用于测试联调， 真是发版不应该信任客户端任何设置
+     * skip 开关：为 true 时带 {@code x-skip-encryptor} 头的请求全程透传；
+     * 只允许内网/共享密钥部署，启动时会告警。
      */
     private boolean skipAble;
     /**
-     * 过滤器配置
+     * 两个过滤器的 order（v1 的 skip/params/body 三 order 已随架构合并删除）。
      */
     @NestedConfigurationProperty
     private GatewayFilterConfig filterConfig = new GatewayFilterConfig();
     /**
-     * 加密配置
-     */
-    private Map<String, CryptoConfig> cryptoConfig = new LinkedHashMap<>();
-    /**
-     * 白名单地址
+     * 跳过加密的 uri 名单（正则整串匹配）。
      */
     private List<String> blackUris = new ArrayList<>();
     /**
-     * 白名单请求类型
-     */
-    private List<String> blackReqContentType = new ArrayList<>();
-    /**
-     * 白名单响应类型
-     */
-    private List<String> blackResContentType = new ArrayList<>();
-    /**
-     * 白名单方法
+     * 跳过加密的方法名单。
      */
     private List<String> blackMethods = new ArrayList<>();
     /**
-     * 报文非法（解不开 / 验签失败）时返回的 HTTP 状态码
-     * 默认 400（客户端问题），而不是让异常冒泡成 500
+     * 请求方向：命中该 content-type 名单则请求不解密（响应也不加密）。
      */
-    private int failureStatus = 400;
+    private List<String> blackReqContentType = new ArrayList<>();
     /**
-     * 请求体大小上限（字节），默认 1MiB。
-     *
-     * <p>请求体解密发生在认证之前，单个超大报文即可打爆堆（见 open-issues.md P1-13）。
-     * {@code <= 0} 表示不限制。</p>
+     * 响应方向：命中该 content-type 名单则响应不包装（组装响应时判断）。
      */
-    private int maxRequestSize = 1048576;
-
-    public boolean isEnable() {
-        return enable;
-    }
-
-    public void setEnable(boolean enable) {
-        this.enable = enable;
-    }
+    private List<String> blackResContentType = new ArrayList<>();
+    /**
+     * uri 级 kid 白名单：正则 → 该 uri 允许的 kid 集合；空 = 全部允许。
+     * 正则 key 含 {@code .} 时必须用 {@code [key]} 括号写法，否则 Spring 会静默改坏 key。
+     */
+    private Map<String, List<String>> cryptoConfig = new LinkedHashMap<>();
 
     public boolean isSkipAble() {
         return skipAble;
@@ -86,20 +68,20 @@ public class GatewayEncryptorConfig {
         this.filterConfig = filterConfig;
     }
 
-    public Map<String, CryptoConfig> getCryptoConfig() {
-        return cryptoConfig;
-    }
-
-    public void setCryptoConfig(Map<String, CryptoConfig> cryptoConfig) {
-        this.cryptoConfig = cryptoConfig;
-    }
-
     public List<String> getBlackUris() {
         return blackUris;
     }
 
     public void setBlackUris(List<String> blackUris) {
         this.blackUris = blackUris;
+    }
+
+    public List<String> getBlackMethods() {
+        return blackMethods;
+    }
+
+    public void setBlackMethods(List<String> blackMethods) {
+        this.blackMethods = blackMethods;
     }
 
     public List<String> getBlackReqContentType() {
@@ -118,27 +100,11 @@ public class GatewayEncryptorConfig {
         this.blackResContentType = blackResContentType;
     }
 
-    public List<String> getBlackMethods() {
-        return blackMethods;
+    public Map<String, List<String>> getCryptoConfig() {
+        return cryptoConfig;
     }
 
-    public void setBlackMethods(List<String> blackMethods) {
-        this.blackMethods = blackMethods;
-    }
-
-    public int getFailureStatus() {
-        return failureStatus;
-    }
-
-    public void setFailureStatus(int failureStatus) {
-        this.failureStatus = failureStatus;
-    }
-
-    public int getMaxRequestSize() {
-        return maxRequestSize;
-    }
-
-    public void setMaxRequestSize(int maxRequestSize) {
-        this.maxRequestSize = maxRequestSize;
+    public void setCryptoConfig(Map<String, List<String>> cryptoConfig) {
+        this.cryptoConfig = cryptoConfig;
     }
 }

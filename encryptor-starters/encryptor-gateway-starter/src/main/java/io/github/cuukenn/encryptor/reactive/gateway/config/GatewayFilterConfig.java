@@ -1,39 +1,22 @@
 package io.github.cuukenn.encryptor.reactive.gateway.config;
 
+import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.NettyWriteResponseFilter;
 
 /**
+ * 两个 {@link GlobalFilter} 的 order（v1 五过滤器合并为二后只剩两条）。
+ *
  * @author changgg
  */
 public class GatewayFilterConfig {
     /**
-     * 门面加密过滤器顺序
+     * 请求过滤器（决策 + 一次解密）order，最外层。
      */
     private int encryptorFilterOrder = -13;
     /**
-     * 跳过加密逻辑
-     */
-    private int encryptorSkipFilterOrder = -12;
-    /**
-     * 请求参数过滤器顺序
-     */
-    private int encryptorReqParamsFilterOrder = -11;
-    /**
-     * 请求体过滤器顺序
-     */
-    private int encryptorReqBodyFilterOrder = -10;
-    /**
-     * 响应体过滤器顺序
+     * 响应过滤器（加密回写）order，包住业务、在 NettyWrite 之内。
      */
     private int encryptorResFilterOrder = NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1;
-
-    public int getEncryptorSkipFilterOrder() {
-        return encryptorSkipFilterOrder;
-    }
-
-    public void setEncryptorSkipFilterOrder(int encryptorSkipFilterOrder) {
-        this.encryptorSkipFilterOrder = encryptorSkipFilterOrder;
-    }
 
     public int getEncryptorFilterOrder() {
         return encryptorFilterOrder;
@@ -41,22 +24,6 @@ public class GatewayFilterConfig {
 
     public void setEncryptorFilterOrder(int encryptorFilterOrder) {
         this.encryptorFilterOrder = encryptorFilterOrder;
-    }
-
-    public int getEncryptorReqParamsFilterOrder() {
-        return encryptorReqParamsFilterOrder;
-    }
-
-    public void setEncryptorReqParamsFilterOrder(int encryptorReqParamsFilterOrder) {
-        this.encryptorReqParamsFilterOrder = encryptorReqParamsFilterOrder;
-    }
-
-    public int getEncryptorReqBodyFilterOrder() {
-        return encryptorReqBodyFilterOrder;
-    }
-
-    public void setEncryptorReqBodyFilterOrder(int encryptorReqBodyFilterOrder) {
-        this.encryptorReqBodyFilterOrder = encryptorReqBodyFilterOrder;
     }
 
     public int getEncryptorResFilterOrder() {

@@ -3,9 +3,14 @@ package io.github.cuukenn.encryptor.reactive.gateway.constant;
 /**
  * @author changgg
  */
-public final class GatewayConstant {
-    public static final String GATEWAY_ENCRYPTOR_CONFIG = "x-gateway-encryptor-config";
-    public static final String GATEWAY_ENCRYPTOR_ENABLE = "x-gateway-encryptor-enable";
-    public static final String GATEWAY_ENCRYPTOR_REQUEST_ENABLE = "x-gateway-encryptor-req-enable";
-    public static final String GATEWAY_ENCRYPTOR_BEAN = "x-gateway-encryptor-bean";
+public class GatewayConstant {
+    /**
+     * 跳过加密的请求头（仅 {@code skip-able=true} 时生效）。
+     */
+    public static final String SKIP_HEADER = "x-skip-encryptor";
+    /**
+     * 本次请求加解密上下文在 exchange attribute 里的键。
+     */
+    public static final String GATEWAY_CONTEXT_ATTR = "encryptor.gateway.context";
+    public static final String JWE_PARAM = "jwe";
 }

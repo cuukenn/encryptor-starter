@@ -1,61 +1,82 @@
 package io.github.cuukenn.encryptor.reactive.configuration;
 
-import cn.hutool.core.codec.Base64;
-import cn.hutool.crypto.asymmetric.KeyType;
-import cn.hutool.crypto.asymmetric.RSA;
-import cn.hutool.crypto.digest.MD5;
-import cn.hutool.crypto.symmetric.AES;
-import io.github.cuukenn.encryptor.core.digester.HtlDigester;
-import io.github.cuukenn.encryptor.core.encoder.Base64Encoder;
-import io.github.cuukenn.encryptor.core.encoder.EncryptorEncoder;
-import io.github.cuukenn.encryptor.core.encoder.SignerEncoder;
-import io.github.cuukenn.encryptor.core.encryptor.HtlSymmetricCryptoEncryptor;
-import io.github.cuukenn.encryptor.core.signer.DigestWithEncryptSigner;
-import io.github.cuukenn.encryptor.facade.EncryptorFacade;
-import io.github.cuukenn.encryptor.kit.EncryptorKit;
-import io.github.cuukenn.encryptor.pojo.EncryptorDataWrapper;
-import io.github.cuukenn.encryptor.reactive.config.CryptoConfig;
-import org.junit.jupiter.api.Assertions;
+import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
+import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 校验 reactive 侧默认工厂与"前端契约"一致：key 字段是 16 字节 AES 密钥的 Base64 文本，
- * iv 是 16 字符原文 —— 也就是 servlet 侧与 encryptor-examples 前端 JS 共同遵循的约定。
+ * v2 协议的 reactive 侧自动装配回归测试（镜像 servlet 侧 EncryptorConfigBindingTest）。
  *
  * @author changgg
  */
-public class EncryptorReactiveAutoConfigurationTest {
-    private static final String ALGORITHM = "RSA/ECB/PKCS1Padding";
-    private static final String MODE = "CBC";
-    private static final String PADDING = "PKCS5Padding";
+class EncryptorReactiveAutoConfigurationTest {
+
+    private final ApplicationContextRunner runner = new ApplicationContextRunner()
+        .withConfiguration(AutoConfigurations.of(EncryptorReactiveAutoConfiguration.class));
+
+    private static String[] rsaKeyProps(String kid) {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            KeyPair pair = generator.generateKeyPair();
+            String priv = Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded());
+            String pub = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
+            return new String[]{
+                "encryptor.config.reactive.keys[0].kid=" + kid,
+                "encryptor.config.reactive.keys[0].private-key=" + priv,
+                "encryptor.config.reactive.keys[0].public-key=" + pub,
+            };
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     @Test
-    public void test_decrypt_payload_built_by_front_end() {
-        RSA keyPair = new RSA();
-        CryptoConfig config = new CryptoConfig();
-        config.setAlgorithm(ALGORITHM);
-        config.setPrivateKey(keyPair.getPrivateKeyBase64());
-        config.setPublicKey(keyPair.getPublicKeyBase64());
+    void 密钥绑定后产出DefaultProtocol与Runtime() {
+        runner.withPropertyValues(rsaKeyProps("rk1"))
+            .run(context -> {
+                assertThat(context).hasSingleBean(DefaultProtocol.class);
+                assertThat(context).hasSingleBean(EncryptorRuntime.class);
+                DefaultProtocol protocol = context.getBean(DefaultProtocol.class);
+                assertThat(protocol.keys().activeKid()).isEqualTo("rk1");
+                assertThat(protocol.allowedAlgs()).containsExactly("RSA-OAEP-256");
+            });
+    }
 
-        EncryptorFacade facade = new EncryptorReactiveAutoConfiguration()
-                .encryptorFacadeFactory(Collections.emptyList())
-                .apply(config);
+    @Test
+    void 没有密钥时启动失败() {
+        runner.run(context -> {
+            assertThat(context).hasFailed();
+            Throwable t = context.getStartupFailure();
+            while (t.getCause() != null) {
+                t = t.getCause();
+            }
+            assertThat(t).hasMessageContaining("没有配置任何密钥");
+        });
+    }
 
-        // 前端 encryptor/aes.js：generateBase64Key(128)=btoa(16 字符)，取用时 CryptoJS.enc.Base64.parse(key) 还原成 16 字节
-        byte[] key = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
-        String iv = "abcdefghijklmnop";
-        String params = "{\"mode\":\"" + MODE + "\",\"padding\":\"" + PADDING + "\",\"key\":\"" + Base64.encode(key) + "\",\"iv\":\"" + iv + "\"}";
-        String keyField = new RSA(ALGORITHM, null, keyPair.getPublicKeyBase64()).encryptBase64(params, KeyType.PublicKey);
-
-        // 客户端按同一契约加密业务数据并对 (nonce + timestamp + data) 签名
-        HtlSymmetricCryptoEncryptor crypto = new HtlSymmetricCryptoEncryptor(new AES(MODE, PADDING, key, iv.getBytes(StandardCharsets.UTF_8)));
-        EncryptorEncoder encryptorEncoder = new EncryptorEncoder(crypto, new Base64Encoder());
-        SignerEncoder signerEncoder = new SignerEncoder(new DigestWithEncryptSigner(new HtlDigester(new MD5()), crypto), new Base64Encoder());
-        EncryptorDataWrapper wrapper = EncryptorKit.encrypt(encryptorEncoder, signerEncoder, "hello".getBytes(StandardCharsets.UTF_8), keyField);
-
-        Assertions.assertArrayEquals("hello".getBytes(StandardCharsets.UTF_8), facade.decrypt(wrapper));
+    @Test
+    void 默认值符合设计文档() {
+        runner.withPropertyValues(rsaKeyProps("rk1"))
+            .run(context -> {
+                EncryptorConfig config = context.getBean(EncryptorConfig.class);
+                assertThat(config.isRequireEncrypted()).isTrue();
+                assertThat(config.getFailureStatus()).isEqualTo(400);
+                assertThat(config.getMaxRequestSize()).isEqualTo(1048576L);
+                assertThat(config.getMaxResponseSize()).isEqualTo(4194304L);
+                assertThat(config.getDiscovery().isEnable()).isTrue();
+                assertThat(config.getDiscovery().getPath()).isEqualTo("/.well-known/encryptor-keys");
+                assertThat(config.getBypass().isRequest()).isFalse();
+                assertThat(config.getBypass().isResponse()).isFalse();
+            });
     }
 }
