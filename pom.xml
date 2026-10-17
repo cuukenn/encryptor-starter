@@ -98,6 +98,7 @@
                 <module>encryptor-core</module>
                 <module>encryptor-starters</module>
                 <module>encryptor-examples</module>
+                <module>encryptor-bench</module>
             </modules>
         </profile>
         <profile>
