@@ -428,3 +428,35 @@
 | P1-13、P2-7 | S17（无大小上限 + 每请求强制 RSA 私钥运算 + 事件循环阻塞） |
 | — | S1（无客户端身份认证）、S7（签名覆盖面）、S9（跳过开关）、S11（错误处理）、S13（响应方向） |
 | — | S14（示例前端跨请求复用同一 K/IV）、S16（网关把明文参数写回下游 URI） |
+
+## v2 整分支评审修复（2026-10-18，commit `8a3e065`）
+
+> 来源：`feat/jwe-protocol` 整分支复核（对照设计文档 `## Review Focus` 五条 + 逐文件阅读）。
+> 分级：Critical 3 / Important ~15 / Minor 若干。全部 Critical 与 Important 已修，Minor 逐条裁定见下。
+> 修复后单测：core 70→**79**、web 26→**31**、gateway 19→**23**（全量 **145 绿**）。
+
+### 已修（按簇）
+
+| 簇 | 修法 | 回归 |
+| --- | --- | --- |
+| core | `InMemoryNonceStore` 改 FIFO 淘汰（插入序队列 + 序号比较，驱逐确定性）+ `evictedCount()`；`DefaultProtocol.builder().nonceChecker(...)` 注入缝；`enc` 白名单与密钥类型联动（SM2 密钥缺 `SM4-GCM` 启动期 fail-fast） | `InMemoryNonceStoreTest`(4)、`SmCipherSuiteTest` 响应 header 断言 |
+| web | 响应缓冲有界（`BoundedContentCachingResponseWrapper`，超限 500 不发明文）；响应 `enc` 显式取协商值；失败面统一 `fail()`（8 个早退口 + trace 头 + `WebContext.clear()`）；5 个过滤器注册 `asyncSupported=true` | `ResponseFilterHardeningTest`(5)、`SmJweTestSupport` |
+| gateway | 响应 `enc` 显式取协商值；`onErrorResume` 把非法 JSON 信封归 `failure-status`、执行器队列满归 **503**；封装时 `HttpHeaders.remove(CONTENT_ENCODING)`；`black-methods` 与 ct 匹配语义与 servlet 侧一致化（整串正则 + ct 小写）；失败响应带 trace 头 | `GatewayJweTest` 13→17 |
+| 自动装配 | 两侧 `ObjectProvider<NonceChecker>` → `builder.nonceChecker(...)`（换 Redis 不必覆盖整个 `DefaultProtocol`）；危险开关启动告警（`require-encrypted=false` / `bypass.*` / `max-response-size<=0` / 网关 `skip-able=true`） | `EncryptorReactiveAutoConfigurationTest` |
+| 文档 | README 新增「运行须知（部署前必读）」；轮换 SOP 改写为**必须重启**；设计文档 §3.8/§3.9 加「实现校正」 | — |
+
+### 裁定记录
+
+- **RF-1**：`setHeader(name, null)` 在 Spring 的 `MockHttpServletResponse` 直接抛 `IllegalArgumentException` ⇒ servlet 侧改用 `Content-Encoding: identity` 覆盖（仅当原头存在），网关侧用 `HttpHeaders.remove()`。
+- **RF-2**：响应缓冲溢出 ⇒ **500 且不发明文**（不是截断透传）。大响应/流式接口的正确姿势：content-type 进 `black-res-content-type` 且 `max-response-size<=0`。
+- **RF-3**：网关密码学执行器队列满 ⇒ **503**（有意偏离评审建议的 `failure-status`：服务端过载不应伪装成客户端错误）。
+
+### 明确推迟（Minor）
+
+| 编号 | 内容 | 推迟理由 |
+| --- | --- | --- |
+| D1 | 无 Micrometer 适配器（只有 `EncryptorListener` SPI） | 避免把 metrics 依赖塞进 core/starter 依赖面 |
+| D2 | 204/重定向等空响应两侧行为不对称 | 语义一致（都不包装）；改齐需动 `NettyWriteResponseFilter` 时序，风险 > 收益 |
+| D3 | 网关有界执行器无队列深度指标 | 与 D1 同源，等 metrics 适配器一起做 |
+| D4 | servlet 侧 `max-request-size` 只对 JSON 载体是真上限 | FORM 走容器 `getParameter()`（Tomcat `maxPostSize`）、QUERY 受 `maxHttpHeaderSize`；已在 README 写明边界，不改容器语义 |
+| D5 | JS 参考客户端只覆盖 RSA/AES | WebCrypto 无 SM，`sm-crypto` 只有 SM4-ECB/CBC（无 GCM）；国密由 core/web/gateway 三层 Java 测试覆盖 |

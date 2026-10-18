@@ -100,6 +100,9 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 | `encryptor-starter/.../configuration/EncryptorAutoConfiguration.java` | `encryptor-starter-reactive/.../reactive/configuration/EncryptorReactiveAutoConfiguration.java` |
 | `encryptor-starter/.../config/EncryptorConfig.java`（+ KeyMaterial/Discovery/BypassConfig） | `encryptor-starter-reactive/.../reactive/config/EncryptorConfig.java`（同三件套） |
 | `encryptor-web-starter/.../filter/*`、`.../discovery/JwksEndpointFilter` | `encryptor-gateway-starter/.../gateway/filter/*`、`.../discovery/JwksEndpointFilter` |
+| `encryptor-starter/.../constant/EncryptorConstant.java`（`JWE_PARAM`/`TRACE_HEADER`） | `encryptor-starter-reactive/.../reactive/constant/EncryptorConstant.java`（同名同值） |
+| `encryptor-web-starter/src/test/.../SmJweTestSupport.java`（国密手拼客户端） | `encryptor-gateway-starter/src/test/.../SmGatewayTestSupport.java`（成对副本） |
+| `encryptor-web-starter/src/test/.../filter/ResponseFilterHardeningTest.java` | `encryptor-gateway-starter/src/test/.../filter/GatewayJweTest.java`（同名用例族） |
 | `encryptor-examples/web-example/front/encryptor/jwe.js` | `encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js` |
 
 **协议变更（JWE 头字段、AAD claims、载体字段名 `jwe`、`kid` 语义）还要同步：** 两份 `HttpTest.java`（`encryptor-examples/*/src/test/**/HttpTest.java`，里面手工拼 compact 与解析逻辑）、两份 front 的 `jwe.js`、设计文档。
@@ -135,5 +138,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 
 ## 构建状态（v2 分支 `feat/jwe-protocol`）
 
-- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 70 + starter 9 + reactive 3 + web 26 + gateway 18 + 两示例）。
-- 全量单测 **132 绿**；JMH：RSA 并行度 3.83×（阈值 2.5×），bytes/op 基线 72792。
+- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 79 + starter 9 + reactive 3 + web 31 + gateway 23 + 两示例）。
+- 全量单测 **145 绿**（评审修复后：core 70→79、web 26→31、gateway 19→23）；JMH：RSA 并行度 3.83×（阈值 2.5×），bytes/op 基线 72792。
+- 真实端到端已复验：web-example(8081) 与 gateway-example(8080→8082) 的 `node front/test.js` 各 6/6 PASS；两个 JWKS 端点 200 + ETag。
+- 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues.md` 文末「v2 整分支评审修复」章节。

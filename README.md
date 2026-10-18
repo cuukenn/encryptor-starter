@@ -123,6 +123,7 @@ encryptor:
   ```
   两侧自动装配都会用它替换内存实现（无需覆盖整个 `DefaultProtocol`）。`ttl` 与这里的 TTL 要对齐（存储 TTL ≥ `ttl`，否则过期 nonce 会被重新接受）。
 - **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `black-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
+- **请求上限的实际边界**：`max-request-size` 在 servlet 侧只对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体经容器 `getParameter()` 解析，字节上限由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
 - **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
 - **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 core/web/gateway 三层测试覆盖。浏览器 WebCrypto **没有** SM 算法，仓库内的 JS 参考实现只覆盖 RSA 路径；国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可直接用 `encryptor-core` 的 `JweCodec`。
 - **网关下游**：网关转发出去的是**已解密的明文**，下游服务**不要**再引入 encryptor starter（否则会被二次解密 → 400）。参考 `encryptor-examples/gateway-example/web`（普通应用）。
