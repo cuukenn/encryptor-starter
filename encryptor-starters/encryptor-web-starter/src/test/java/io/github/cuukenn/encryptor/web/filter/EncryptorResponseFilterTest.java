@@ -18,8 +18,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * v2 响应过滤器：按真实链序（参数 → body → 响应 → 门面 → 业务）集成验证。
- * 响应过滤器 order -10 在门面过滤器 -3 外层，链后仍要读 WebContext —— 这正是 v1 的契约。
+ * v2 响应过滤器：按真实链序（门面 → 参数 → body → 响应 → 业务）集成验证。
+ * 响应过滤器在门面**内层**，业务写完响应后才回加密，此时仍要读 {@code WebContext} 里的同一把 CEK。
+ * （把链序钉死的是 {@link FilterChainOrderTest}，本类只验响应过滤器自身行为。）
  *
  * @author changgg
  */

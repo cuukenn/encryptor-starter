@@ -141,9 +141,9 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 
 ## 构建状态（`master`）
 
-- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 33 + gateway 27 + 两示例 + JMH bench）。
-- 全量单测 **164 绿**（core 92、starter 9、reactive 3、web 33、gateway 27），fail/err 均 0。其中 web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例。
-- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）已按同命令在本地 1.8.0_461 复跑：`mvn -B -Pmain-module clean install` **164 绿**（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
+- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 40 + gateway 27 + 两示例 + JMH bench）。
+- 全量单测 **171 绿**（core 92、starter 9、reactive 3、web 40、gateway 27），fail/err 均 0。其中 web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web 再 +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）。
+- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）已按同命令在本地 1.8.0_461 复跑：`mvn -B -Pmain-module clean install` **171 绿**（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
 - ⚠️ **示例测试源码必须能编过 JDK 8**（`mvn -Pall-modules` 会编 examples 的 test 源码）：`HttpTest.java` 曾用 `URLEncoder.encode(String, Charset)`（**Java 10+** 才有）→ JDK 8 下编译失败；已改为自带 `enc(String)` helper（`URLEncoder.encode(s, "UTF-8")` 包一层）。两份 `HttpTest.java` 是成对文件，改一处必须同步另一处。
 - P3-4（`skip-*` 正名 + 旧名 alias）：⚠️ 新旧名单**不能共用同一个 list**——Spring Boot 对集合属性是"就地绑定（clear + 回填到 getter 返回的 list）"，共用时后绑定的会把先绑定的清掉。现为「旧名独立字段 + `InitializingBean.afterPropertiesSet()` 合并去重」。
 - JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。

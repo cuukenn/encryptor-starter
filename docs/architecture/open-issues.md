@@ -282,10 +282,12 @@
   - 空输入返回 `""` / `new byte[0]`；顺带把 `groupSize <= 0` 的校验补进三参数构造器（原来只有两参数构造器校验）。
   - ⚠️ 未经 `mvn` 验证。这个类目前**没有任何生产代码在用**，属于补全公开 API。
 
-### P2-5 两种承载形态（参数 / 请求体）耦合脆弱 🟨
+### P2-5 两种承载形态（参数 / 请求体）耦合脆弱 🟩（2026-10-18 已锁）
 
-- web 侧 `EncryptorRequestParameterFilter`（order `-11`，读 `getParameterMap()`）与 `EncryptorRequestBodyFilter`（`-10`）共享同一请求；form 请求的 body 会被容器解析掉。调整 order 或增删过滤器会**静默**改变行为。
-- 建议：补注释/文档说明该耦合，并加集成测试锁住行为。
+- **v1 前提已不成立**：v2 里**只有门面过滤器** `EncryptorWebFilter` 读请求（`getParameter*` / `getInputStream`），一次性识别载体、解密并把结果装进 `WebContext`；`EncryptorRequestParameterFilter`(-11) 与 `EncryptorRequestBodyFilter`(-10) 只把结果包装成请求视图，**不再各自读请求**——"两个过滤器抢同一个请求体"的耦合随 v2 重写消失（状态表早已记为 🟩）。
+- **已做（2026-10-18）**：新增 `encryptor-web-starter/src/test/.../filter/FilterChainOrderTest`（7 例）——不手抄链序，而是向 `WebEncryptorConfiguration` 取**生产注册的 `FilterRegistrationBean`**、按 `getOrder()` 排序组装链，再跑三载体往返 + 响应回加密 + 链尾不残留 ThreadLocal。**验证过它会红**：把 `encryptorReqParamsFilterOrder` 默认值从 `-11` 改成 `-9`，7 例中 2 例失败（`生产注册的链序与文档约定一致` + `顺序默认值保持门面最外响应最内`），改回即绿。
+- 同时在 `WebFilterConfig` 类头写明整条链的不变式与每段理由，并修掉 `EncryptorResponseFilterTest` 类头那句与自身代码矛盾的 v1 描述（原写"参数 → body → 响应 → 门面"，还称响应过滤器在门面**外层**）。
+- 网关侧不存在该耦合：WebFlux 没有参数 map 解析，query / 表单体都由 `EncryptorGatewayFilter` 从 `ServerWebExchange` 单点读取。
 
 ### P2-6 JUnit5 测试其实从未被执行（根 POM 没有 surefire） 🟩（2026-10-16 已修）
 
@@ -404,7 +406,7 @@
 ### 第三批（2026-10-16 扫描 → **当批全部修完并验证**）
 
 - ✅ **已修 + `mvn` 验证（第三批当批完成的）**：**P0-2**（网关 key 编码对齐）、**P0-6**（常量撞值导致 `black-req-content-type` 失效）、**P0-7**（缺字段 NPE）、**P1-9**（`black-res-content-type` 求值时机）、**P1-10**（表单 content-type 识别）、**P1-11**（参数 wrapper 三个视图）、**P1-12**（错误面统一 + `failure-status`）、**P1-13**（报文大小上限 + 网关切 `boundedElastic`）、**P2-1**（两个 `HttpTest` 加断言并真跑通，顺带修掉 3 个示例真 bug）、**P2-7**（facade/params 缓存）、**P2-8**（GroupEncryptor 不再泄漏）、**P2-9**（死代码清理，并**更正** bcpkix 结论）、**P2-10**（去掉 `@ComponentScan`）、**P3-6**（StrKit 契约显式化）、**P3-7**（uri 级 `crypto-config` 括号写法 + 样例 + 绑定/端到端证据）、**P3-8**（pom `<name>` + enforcer）。每一项都带"先红后绿"用例（少数例外在各自条目里注明）。
-- 🟥 **确实仍未修**：各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）。
+- 🟥 **确实仍未修**：各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）——**2026-10-18 逐条复核，绝大多数随 v2 重写已消失**：`WebContext.resEncryptor` 已删（现存 `protocol` 字段只被写入、无读取方，但作为下游过滤器可读的公开上下文保留，不算死代码）；`反射推泛型`/`失败计数` 随 v1 策略栈删除；**「示例前端复用 IV」不成立**——`jwe.js` 每次都新取随机量（`:103` CEK、`:137` 12 字节 IV、`:138` 16 字节 nonce）。真正仍开放的只有 **失败指标/告警（D1/D3）** 与 **响应方向的全量缓冲（D2）**。
 - 🧪 **验证资产**：
   - `encryptor-core/src/test/java/.../audit/CryptoMechanismAuditTest.java`（5 条，机制行为：签名输入歧义(S7)、CBC 确定性(S14)、篡改可检出、畸形签名逃逸(S15)、GroupEncryptor 不再泄漏(P2-8)）；
   - `encryptor-core/src/test/java/.../audit/ClientAuthAuditTest.java`（2 条，**S1** 任何人拿公钥即可伪造合法请求、**S3** 服务端接受任意客户端自选算法）；

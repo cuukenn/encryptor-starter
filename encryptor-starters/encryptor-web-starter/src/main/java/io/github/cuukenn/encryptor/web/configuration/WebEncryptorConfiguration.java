@@ -23,7 +23,11 @@ import javax.servlet.Filter;
 import java.util.Locale;
 
 /**
- * web 侧（servlet）装配：四个过滤器 + v2 协议栈注入。
+ * web 侧（servlet）装配：五个过滤器 + v2 协议栈注入。
+ *
+ * <p>链序取自 {@code WebFilterConfig}（<b>顺序是载荷契约</b>：门面过滤器在参数/请求体视图过滤器之外，
+ * 响应过滤器在门面内层），见 {@code FilterChainOrderTest}——那里直接取本类的注册 bean 按 order 组装链，
+ * 钉死顺序，改默认值即红。</p>
  *
  * @author changgg
  */
