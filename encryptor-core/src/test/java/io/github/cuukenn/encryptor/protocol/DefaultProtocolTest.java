@@ -119,4 +119,43 @@ class DefaultProtocolTest {
             .build();
         assertEquals(60_000L, explicit.ttlMillis());
     }
+
+    @Test
+    void 只有RSA密钥时默认enc白名单不含SM4GCM() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(rsaKey("k1")).build();
+        assertTrue(protocol.allowedEncs().contains("A256GCM"), "RSA 默认应接受 A256GCM");
+        assertFalse(protocol.allowedEncs().contains("SM4-GCM"), "无 SM2 密钥时默认不应接受 SM4-GCM");
+    }
+
+    @Test
+    void SM2密钥默认enc白名单联动含SM4GCM() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(sm2Key("k1")).build();
+        assertTrue(protocol.allowedEncs().contains("SM4-GCM"), "有 SM2 密钥时默认可接受 SM4-GCM");
+    }
+
+    @Test
+    void 混钥默认enc白名单含两套() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(rsaKey("k1")).key(sm2Key("k2")).build();
+        assertTrue(protocol.allowedEncs().contains("A256GCM"));
+        assertTrue(protocol.allowedEncs().contains("SM4-GCM"));
+    }
+
+    @Test
+    void SM2密钥但显式enc白名单缺SM4GCM时构造期失败() throws Exception {
+        EncryptorException e = assertThrows(EncryptorException.class, () -> DefaultProtocol.builder()
+            .key(sm2Key("k1"))
+            .allowedEncs(Collections.singleton("A256GCM"))
+            .build());
+        assertTrue(e.getMessage().contains("SM4-GCM"), "错误信息应点明缺失的 enc: " + e.getMessage());
+    }
+
+    @Test
+    void 可注入自定义NonceChecker() throws Exception {
+        io.github.cuukenn.encryptor.jose.NonceChecker custom = nonce -> true;
+        DefaultProtocol protocol = DefaultProtocol.builder()
+            .key(rsaKey("k1"))
+            .nonceChecker(custom)
+            .build();
+        assertSame(custom, protocol.nonceChecker());
+    }
 }

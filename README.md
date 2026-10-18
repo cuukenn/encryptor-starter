@@ -15,11 +15,11 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
 
 - **协议**：JWE Compact 单字段载体（query 参数 / JSON `{"jwe":…}` / form 字段 `jwe`），响应复用请求 CEK（`alg=dir`，客户端不需密钥对）。
 - **算法**：请求 `alg=RSA-OAEP-256` + `enc=A256GCM`（默认）；国密 `alg=SM2` + `enc=SM4-GCM`（BC 轻量级 API，不注册 Provider）。算法白名单服务端强制，客户端不可自选。
-- **防重放**：服务端强制时间窗（`ttl`，默认 5 分钟）+ nonce 一次性消费（内存实现，可换 Redis）。
+- **防重放**：服务端强制时间窗（`ttl`，默认 5 分钟）+ nonce 一次性消费。默认内存实现**只在本进程内有效**，多实例部署必须注册自己的 `NonceChecker` bean（Redis 等共享存储），见「运行须知」。
 - **上下文绑定**：AAD 绑定 `uri/method/方向/ts/nonce`，密文不能跨接口/跨方向搬运。
 - **密钥轮换**：多 kid 并存，JWKS 只读发现端点（`/.well-known/encryptor-keys`，免加密、只含公钥、ETag/缓存）。
-- **失败面**：所有失败统一为 `failure-status`（默认 400）+ `traceId`，对内有分类日志。
-- **上限**：请求 `max-request-size`（默认 1MiB，超限 413）；响应 `max-response-size`（默认 4MiB，超限 500 且不发明文）。
+- **失败面**：解密/上下文/防重放失败统一回 `failure-status`（默认 400）；请求超限 413、响应超限 500（不发明文）、网关密码学执行器饱和 503。失败响应带 `X-Encryptor-Trace` 头，其值与服务端日志里的 trace 同值，可直接对号排障。
+- **上限**：请求 `max-request-size`（默认 1MiB，超限 413）；响应 `max-response-size`（默认 4MiB）—— servlet 侧是**有界缓冲**（超限即停止缓冲并回 500，绝不半截明文透传），网关侧在组装响应时判定（超限回 500，不发明文）。
 - **可运维**：运行期旁路开关（`EncryptorRuntime.setBypass`，无需重启）；启动期生效配置摘要 + 公钥指纹；非法配置启动即失败（fail-fast）。
 - **uri 级 kid 白名单**：`crypto-config` 可按 uri 正则限定"这条路由只接受哪几把 kid"（密钥轮换/灰度）。
 
@@ -102,11 +102,30 @@ encryptor:
 
 ## 密钥轮换 SOP
 
+**前提**：密钥库（`ServerKeyStore`）在**启动期**构建、运行期不可变；JWKS 的 ETag 也是启动期算好的。所以**增删 kid 必须重启**（滚动重启即可），不存在"改配置立刻生效"。
+
 1. 生成新密钥对，追加为新的一条 `keys[]`（新 kid），**不要**立刻改 `active-kid`。
-2. 发布服务端：旧 kid 与新 kid 并存，旧客户端不受影响（客户端自选 kid）。
-3. 客户端改造：从 JWKS 端点取公钥（`fetchKeys`），改用新 kid 加密。
+2. 发布服务端（滚动重启）：重启后的实例同时持有新旧 kid。**注意顺序**——尚未重启的实例不认识新 kid，客户端必须等所有实例都升级完才开始用新 kid。
+3. 客户端改造：从 JWKS 端点取公钥（`fetchKeys`），改用新 kid 加密（客户端自选 kid，服务端只按白名单校验）。
 4. 客户端全部切换后，改 `active-kid` 为新 kid（供新接入方默认使用）；旧 kid 保留"只解不封"直到流量归零。
-5. 移除旧 kid。
+5. 移除旧 kid（再次重启）。
+
+## 运行须知（部署前必读）
+
+- **时钟**：`ttl` 时间窗比较的是**客户端与服务端各自的时钟**。两侧必须 NTP 同步，且 `ttl` 要大于最大时钟偏移（默认 5 分钟足够覆盖常见偏移）。客户端时钟快/慢超过窗口 ⇒ 报文一律 `EXPIRED` → `failure-status`。排查这类问题先看两侧 `date`。
+- **多实例的 nonce**：默认 `InMemoryNonceStore` 只在单进程内消费 nonce。请求经负载均衡打到不同实例时，同一个 nonce 不会被识别为重放。多实例部署请注册自己的 `NonceChecker` bean（Redis 的 `SETNX + TTL` 即可）：
+  ```java
+  @Bean
+  public NonceChecker nonceChecker(StringRedisTemplate redis) {
+      return nonce -> Boolean.TRUE.equals(
+          redis.opsForValue().setIfAbsent("enc:nonce:" + nonce, "1", Duration.ofMinutes(10)));
+  }
+  ```
+  两侧自动装配都会用它替换内存实现（无需覆盖整个 `DefaultProtocol`）。`ttl` 与这里的 TTL 要对齐（存储 TTL ≥ `ttl`，否则过期 nonce 会被重新接受）。
+- **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `black-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
+- **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
+- **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 core/web/gateway 三层测试覆盖。浏览器 WebCrypto **没有** SM 算法，仓库内的 JS 参考实现只覆盖 RSA 路径；国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可直接用 `encryptor-core` 的 `JweCodec`。
+- **网关下游**：网关转发出去的是**已解密的明文**，下游服务**不要**再引入 encryptor starter（否则会被二次解密 → 400）。参考 `encryptor-examples/gateway-example/web`（普通应用）。
 
 ## 代码示例
 

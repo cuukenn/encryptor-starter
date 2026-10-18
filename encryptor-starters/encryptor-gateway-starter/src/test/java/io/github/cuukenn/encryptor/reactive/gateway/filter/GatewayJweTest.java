@@ -11,9 +11,12 @@ import io.github.cuukenn.encryptor.jose.Direction;
 import io.github.cuukenn.encryptor.jose.KeyType;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
+import io.github.cuukenn.encryptor.reactive.gateway.SmGatewayTestSupport;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -317,5 +320,72 @@ class GatewayJweTest {
         };
         response().filter(exchange, inner).block(TIMEOUT);
         assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEqualTo("plain-text");
+    }
+
+    /**
+     * 国密路径专属回归（评审 C2）：SM4-GCM 的 CEK 是 16 字节，"按 CEK 长度猜 enc" 会封成 A128GCM，
+     * RSA 路径下猜与不猜结果相同，只有这条用例能区分。
+     */
+    @Test
+    void 国密请求的响应enc仍是SM4GCM() {
+        SmGatewayTestSupport sm = new SmGatewayTestSupport();
+        SmGatewayTestSupport.Sealed sealed = sm.seal("{\"name\":\"x\"}", "/api/a", "POST");
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/a")
+            .contentType(MediaType.APPLICATION_JSON).body("{\"jwe\":\"" + sealed.compact + "\"}"));
+        EncryptorGatewayFilter smGateway = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, sm.protocol);
+        EncryptorResponseFilter smResponse = new EncryptorResponseFilter(gatewayConfig, reactiveConfig, sm.protocol);
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap("hello-sm".getBytes(StandardCharsets.UTF_8))));
+        };
+        smGateway.filter(exchange, e -> smResponse.filter(e, inner)).block(TIMEOUT);
+
+        String payload = exchange.getResponse().getBodyAsString().block(TIMEOUT);
+        String headerJson = SmGatewayTestSupport.responseHeaderJson(payload);
+        cn.hutool.json.JSONObject header = JSONUtil.parseObj(headerJson);
+        assertThat(header.getStr("alg")).isEqualTo("dir");
+        assertThat(header.getStr("enc")).isEqualTo("SM4-GCM");
+        assertThat(new String(SmGatewayTestSupport.sm4DecryptResponse(payload, sealed.cek), StandardCharsets.UTF_8))
+            .isEqualTo("hello-sm");
+    }
+
+    /** 非法 JSON 信封必须按 failure-status 收口（评审 I5）：不能让 hutool JSONException 冒泡成 500。 */
+    @Test
+    void 非法JSON信封回failureStatus而不是500() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/a")
+            .contentType(MediaType.APPLICATION_JSON).body("{not-a-json-envelope"));
+        AtomicBoolean chained = new AtomicBoolean();
+        gateway().filter(exchange, e -> {
+            chained.set(true);
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat(chained.get()).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    /** 失败响应带排障 trace 头（评审 I11）。 */
+    @Test
+    void 失败响应带trace头() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/a")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("{\"jwe\":\"" + tamper(seal("{\"name\":\"x\"}", "/api/a", "POST")) + "\"}"));
+        gateway().filter(exchange, e -> Mono.empty()).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(exchange.getResponse().getHeaders().getFirst(EncryptorConstant.TRACE_HEADER)).isNotBlank();
+    }
+
+    /** body 已被换成 JWE JSON：下游声明的 Content-Encoding 必须去掉（评审 I18），否则客户端按 gzip 解出乱码。 */
+    @Test
+    void 下游声明ContentEncoding时封装后必须去掉() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/a")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}"));
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            resp.getHeaders().set(HttpHeaders.CONTENT_ENCODING, "gzip");
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap("gz".getBytes(StandardCharsets.UTF_8))));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        assertThat(exchange.getResponse().getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING)).isNull();
     }
 }

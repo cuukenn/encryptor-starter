@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.reactive.configuration;
 
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
+import io.github.cuukenn.encryptor.jose.NonceChecker;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.config.KeyMaterialConfig;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -35,7 +36,8 @@ public class EncryptorReactiveAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public DefaultProtocol defaultProtocol(EncryptorConfig config, ObjectProvider<EncryptorListener> listener) {
+    public DefaultProtocol defaultProtocol(EncryptorConfig config, ObjectProvider<EncryptorListener> listener,
+                                           ObjectProvider<NonceChecker> nonceChecker) {
         DefaultProtocol.Builder builder = DefaultProtocol.builder();
         for (KeyMaterialConfig key : config.getKeys()) {
             builder.key(new DefaultProtocol.KeyMaterial(key.getKid(), key.getType(), key.getPrivateKey(), key.getPublicKey()));
@@ -56,14 +58,39 @@ public class EncryptorReactiveAutoConfiguration {
             builder.nonceRetentionMillis(config.getNonceRetention().toMillis());
         }
         builder.nonceCapacity(config.getNonceCapacity());
+        // 多实例网关：注册自己的 NonceChecker bean（如 Redis 共享存储）即可替换内存实现，
+        // 无需覆盖整个 DefaultProtocol（否则连密钥库一起换掉）
+        NonceChecker sharedNonceChecker = nonceChecker.getIfAvailable();
+        if (sharedNonceChecker != null) {
+            builder.nonceChecker(sharedNonceChecker);
+        }
         EncryptorListener contextListener = listener.getIfAvailable();
         if (contextListener != null) {
             builder.listener(contextListener);
         }
         DefaultProtocol protocol = builder.build();
         protocol.runtime().setBypass(config.getBypass().isRequest(), config.getBypass().isResponse());
+        warnRiskyConfig(config);
         logSummary(config, protocol);
         return protocol;
+    }
+
+    /**
+     * 危险开关启动期告警：这些开关都会直接削弱报文安全，误配后运行时没有任何提示。
+     */
+    private static void warnRiskyConfig(EncryptorConfig config) {
+        if (!config.isRequireEncrypted()) {
+            logger.warn("encryptor.config.reactive.require-encrypted=false：未带 jwe 载体的请求会被明文放行，"
+                + "加密范围出现缺口，请确认是有意为之（默认 true = 未加密请求直接回 failure-status）");
+        }
+        if (config.getBypass().isRequest() || config.getBypass().isResponse()) {
+            logger.warn("encryptor.config.reactive.bypass.request/response 已开启：这是运行期止血开关，"
+                + "长期开启等同于关闭报文加密");
+        }
+        if (config.getMaxResponseSize() <= 0) {
+            logger.warn("encryptor.config.reactive.max-response-size<=0：响应缓冲不设上限，"
+                + "大响应会全量驻留内存（请配合 black-res-content-type 使用）");
+        }
     }
 
     /**

@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 门面过滤器（v2）：统一识别 jwe 载体（query / JSON / form）、一次性解密并装载 {@link WebContext}；
@@ -91,16 +92,16 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             carrier = Carrier.JSON;
             long max = WebContext.maxRequestSize();
             if (max > 0 && request.getContentLengthLong() > max) {
-                response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+                fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
                 return;
             }
             byte[] raw = max > 0 ? readBounded(request.getInputStream(), max) : IoUtil.readBytes(request.getInputStream());
             if (raw == null) {
-                response.setStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+                fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
                 return;
             }
             if (raw.length == 0) {
-                response.setStatus(WebContext.failureStatus());
+                fail(response, WebContext.failureStatus());
                 return;
             }
             JSONObject envelope;
@@ -108,7 +109,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
                 envelope = JSONUtil.parseObj(new String(raw, StandardCharsets.UTF_8));
             } catch (RuntimeException e) {
                 logger.warn("request body is not a valid json envelope, uri: {}", uri, e);
-                response.setStatus(WebContext.failureStatus());
+                fail(response, WebContext.failureStatus());
                 return;
             }
             compact = envelope.getStr(EncryptorConstant.JWE_PARAM);
@@ -117,7 +118,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         if (compact == null || compact.isEmpty()) {
             if (WebContext.requireEncrypted()) {
-                response.setStatus(WebContext.failureStatus());
+                fail(response, WebContext.failureStatus());
                 return;
             }
             filterChain.doFilter(request, response);
@@ -128,14 +129,14 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             jweCtx = protocolStack.openRequest(compact, uri, method);
         } catch (EncryptorException e) {
             logger.warn("decrypt request failed, uri: {}, failure: {}", uri, e.failure(), e);
-            response.setStatus(WebContext.failureStatus());
+            fail(response, WebContext.failureStatus());
             return;
         }
         // uri 级 kid 白名单（Ruling 8b-R4）：该 uri 只接受配置列出的 kid，空列表 = 不限
         List<String> accepted = acceptedKid(uri);
         if (accepted != null && !accepted.isEmpty() && !accepted.contains(jweCtx.kid())) {
             logger.warn("kid not accepted for uri: {}, kid: {}", uri, jweCtx.kid());
-            response.setStatus(WebContext.failureStatus());
+            fail(response, WebContext.failureStatus());
             return;
         }
         ctx.setJweContext(jweCtx);
@@ -146,7 +147,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
                 ctx.setParameters(parseQuery(new String(jweCtx.plaintext(), StandardCharsets.UTF_8)));
             } catch (RuntimeException e) {
                 logger.warn("decrypted parameters are not urlencoded text, uri: {}", uri, e);
-                response.setStatus(WebContext.failureStatus());
+                fail(response, WebContext.failureStatus());
                 return;
             }
         }
@@ -154,6 +155,16 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             ctx.setBodyPlaintext(jweCtx.plaintext());
         }
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * 失败面统一出口：清上下文（提前 return 时最外层参数过滤器的 finally 不会执行，
+     * 必须在这里清，否则 ThreadLocal/bodyPlaintext 会滞留到该线程的下一个请求）+ traceId 响应头 + 状态码。
+     */
+    private static void fail(HttpServletResponse response, int status) {
+        response.setHeader(EncryptorResponseFilter.TRACE_HEADER, UUID.randomUUID().toString());
+        response.setStatus(status);
+        WebContext.clear();
     }
 
     private List<String> acceptedKid(String uri) {

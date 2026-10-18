@@ -39,6 +39,7 @@ public class DefaultProtocol {
     private static final String ALG_RSA = "RSA-OAEP-256";
     private static final String ALG_SM2 = "SM2";
     private static final String ENC_DEFAULT = "A256GCM";
+    private static final String ENC_SM4_GCM = "SM4-GCM";
 
     private final ServerKeyStore keys;
     private final JweCodec codec;
@@ -148,6 +149,7 @@ public class DefaultProtocol {
         private long ttlMillis = DEFAULT_TTL_MILLIS;
         private long nonceRetentionMillis = -1L;
         private int nonceCapacity = DEFAULT_NONCE_CAPACITY;
+        private NonceChecker nonceChecker;
         private EncryptorListener listener = EncryptorListener.NONE;
         private EncryptorRuntime runtime = new EncryptorRuntime();
 
@@ -191,6 +193,14 @@ public class DefaultProtocol {
             return this;
         }
 
+        /**
+         * 自定义 nonce 存储（多实例部署换共享存储，如 Redis）；不设置则用单机内存实现。
+         */
+        public Builder nonceChecker(NonceChecker nonceChecker) {
+            this.nonceChecker = nonceChecker;
+            return this;
+        }
+
         public Builder listener(EncryptorListener listener) {
             this.listener = listener == null ? EncryptorListener.NONE : listener;
             return this;
@@ -223,12 +233,16 @@ public class DefaultProtocol {
 
             ServerKeyStore.Builder keys = ServerKeyStore.builder();
             Set<String> algs = new LinkedHashSet<>();
+            boolean hasRsa = false;
+            boolean hasSm2 = false;
             for (KeyMaterial material : materials) {
                 keys.add(material.kid(), material.privateKeyB64(), material.publicKeyB64(), material.type());
                 if (material.type() == KeyType.RSA) {
                     algs.add(ALG_RSA);
+                    hasRsa = true;
                 } else {
                     algs.add(ALG_SM2);
+                    hasSm2 = true;
                 }
             }
             keys.activeKid(active);
@@ -236,15 +250,33 @@ public class DefaultProtocol {
 
             Set<String> effectiveAlgs = allowedAlgs == null || allowedAlgs.isEmpty()
                 ? Collections.unmodifiableSet(algs) : Collections.unmodifiableSet(new LinkedHashSet<>(allowedAlgs));
-            Set<String> effectiveEncs = allowedEncs == null || allowedEncs.isEmpty()
-                ? Collections.singleton(ENC_DEFAULT) : Collections.unmodifiableSet(new LinkedHashSet<>(allowedEncs));
+            Set<String> effectiveEncs;
+            if (allowedEncs == null || allowedEncs.isEmpty()) {
+                // 默认 enc 跟密钥类型联动：有 SM2 密钥就必须接受 SM4-GCM，
+                // 否则国密请求每个都 DECRYPT_FAILED（CEK 16B ≠ A256GCM 需要的 32B）
+                Set<String> defaults = new LinkedHashSet<>();
+                if (hasRsa || !hasSm2) {
+                    defaults.add(ENC_DEFAULT);
+                }
+                if (hasSm2) {
+                    defaults.add(ENC_SM4_GCM);
+                }
+                effectiveEncs = Collections.unmodifiableSet(defaults);
+            } else {
+                effectiveEncs = Collections.unmodifiableSet(new LinkedHashSet<>(allowedEncs));
+                if (hasSm2 && !effectiveEncs.contains(ENC_SM4_GCM)) {
+                    throw new EncryptorException("配置了 SM2 密钥但 allowed-encs 不含 " + ENC_SM4_GCM
+                        + "，国密请求必然解密失败（当前: " + effectiveEncs + "）");
+                }
+            }
 
             JweCodec codec = new JweCodec(store, Arrays.asList(new JceCipherSuite(), new SmCipherSuite()),
                 effectiveAlgs, effectiveEncs, listener);
             long retention = nonceRetentionMillis <= 0 ? ttlMillis : nonceRetentionMillis;
-            NonceChecker nonceChecker = new InMemoryNonceStore(retention, nonceCapacity);
-            ReplayGuard guard = new ReplayGuard(ttlMillis, nonceChecker);
-            return new DefaultProtocol(this, store, codec, guard, nonceChecker, runtime, effectiveAlgs, effectiveEncs);
+            NonceChecker effectiveNonceChecker = nonceChecker != null
+                ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
+            ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);
+            return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, effectiveAlgs, effectiveEncs);
         }
     }
 }

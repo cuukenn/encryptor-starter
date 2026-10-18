@@ -3,9 +3,12 @@ package io.github.cuukenn.encryptor.reactive.gateway.configuration;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.discovery.JwksEndpointFilter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorGatewayFilter;
 import io.github.cuukenn.encryptor.reactive.gateway.filter.EncryptorResponseFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -25,10 +28,17 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class GatewayEncryptorConfiguration {
 
+    private static final Logger logger = LoggerFactory.getLogger(GatewayEncryptorConfiguration.class);
+
     @Bean
     public EncryptorGatewayFilter encryptorGatewayFilter(GatewayEncryptorConfig config,
                                                          EncryptorConfig reactiveConfig,
                                                          DefaultProtocol protocol) {
+        if (config.isSkipAble()) {
+            logger.warn("encryptor.config.reactive.gateway.skip-able=true：带 {} 头的请求会完全绕过解密与加密，"
+                    + "该头就是事实上的共享密钥，请确保只有可信来源能设置它（网关前的 TLS/代理必须剥离外部同名头）",
+                GatewayConstant.SKIP_HEADER);
+        }
         return new EncryptorGatewayFilter(config, reactiveConfig, protocol);
     }
 

@@ -40,7 +40,7 @@ public class WebEncryptorConfiguration {
         logger.info("register request parameter encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(new EncryptorRequestParameterFilter(), config.getFilterConfig().getEncryptorReqParamsFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorRequestParameterFilter(), config.getFilterConfig().getEncryptorReqParamsFilterOrder(), true);
         return registrationBean;
     }
 
@@ -51,18 +51,18 @@ public class WebEncryptorConfiguration {
         logger.info("register request body encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(new EncryptorRequestBodyFilter(), config.getFilterConfig().getEncryptorReqBodyFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorRequestBodyFilter(), config.getFilterConfig().getEncryptorReqBodyFilterOrder(), true);
         return registrationBean;
     }
 
     @ConditionalOnClass(FilterRegistrationBean.class)
     @ConditionalOnMissingBean(name = "defaultResponseEncryptorFilter")
     @Bean("defaultResponseEncryptorFilter")
-    public FilterRegistrationBean<? extends Filter> encryptorResponseFilterFilterRegistrationBean(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack) {
+    public FilterRegistrationBean<? extends Filter> encryptorResponseFilterFilterRegistrationBean(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack, EncryptorRuntime runtime) {
         logger.info("register response encryptor");
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
-        binder.filterConfiguration(new EncryptorResponseFilter(encryptorConfig, protocolStack), config.getFilterConfig().getEncryptorResFilterOrder(), false);
+        binder.filterConfiguration(new EncryptorResponseFilter(encryptorConfig, protocolStack, runtime), config.getFilterConfig().getEncryptorResFilterOrder(), true);
         return registrationBean;
     }
 
@@ -74,7 +74,7 @@ public class WebEncryptorConfiguration {
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
         binder.filterConfiguration(new EncryptorWebFilter(config, encryptorConfig, protocolStack, runtime),
-                config.getFilterConfig().getEncryptorFilterOrder(), false);
+                config.getFilterConfig().getEncryptorFilterOrder(), true);
         return registrationBean;
     }
 
@@ -86,7 +86,7 @@ public class WebEncryptorConfiguration {
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
         binder.filterConfiguration(new JwksEndpointFilter(protocolStack.keys(), encryptorConfig.getDiscovery()),
-                config.getFilterConfig().getJwksFilterOrder(), false);
+                config.getFilterConfig().getJwksFilterOrder(), true);
         return registrationBean;
     }
 

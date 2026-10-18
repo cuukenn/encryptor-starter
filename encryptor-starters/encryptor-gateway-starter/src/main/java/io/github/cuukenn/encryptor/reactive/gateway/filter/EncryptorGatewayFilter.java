@@ -7,6 +7,7 @@ import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
@@ -35,6 +36,9 @@ import reactor.core.scheduler.Schedulers;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 网关请求过滤器：决策（skip/黑名单/bypass/ct 黑名单）+ 三载体识别 + 一次解密 + query/body 改写。
@@ -72,9 +76,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         }
         String uri = request.getURI().getPath();
         String method = request.getMethodValue();
-        // 2. uri/method 黑名单透传
-        if (StrKit.anyMatch(uri, config.getBlackUris())
-            || (method != null && config.getBlackMethods().contains(method))) {
+        // 2. uri/method 黑名单透传（与 servlet 侧同一语义：整串正则匹配）
+        if (StrKit.anyMatch(uri, config.getBlackUris()) || StrKit.anyMatch(method, config.getBlackMethods())) {
             return chain.filter(exchange);
         }
         // 3. 运行期旁路透传
@@ -83,7 +86,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         }
         // 4. 请求方向 content-type 黑名单透传（不请求解密 ⇒ 也不响应加密）
         MediaType contentType = request.getHeaders().getContentType();
-        String contentTypeValue = contentType == null ? "" : contentType.toString();
+        String contentTypeValue = contentType == null ? "" : contentType.toString().toLowerCase(Locale.ROOT);
         if (StrKit.anyMatch(contentTypeValue, config.getBlackReqContentType())) {
             return chain.filter(exchange);
         }
@@ -143,6 +146,11 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             .onErrorResume(EncryptorException.class, e -> {
                 logger.warn("decrypt request failed, uri: {}, failure: {}", uri, e.failure());
                 return fail(exchange, reactiveConfig.getFailureStatus());
+            })
+            .onErrorResume(RejectedExecutionException.class, e -> {
+                // 专用密码学执行器队列已满：服务端过载，不能把 5xx 伪装成客户端错误
+                logger.error("crypto executor rejected task, uri: {}", uri, e);
+                return fail(exchange, HttpStatus.SERVICE_UNAVAILABLE.value());
             });
     }
 
@@ -211,7 +219,12 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         if (bytes.length == 0) {
             return null;
         }
-        return JSONUtil.parseObj(new String(bytes, StandardCharsets.UTF_8)).getStr(GatewayConstant.JWE_PARAM);
+        try {
+            return JSONUtil.parseObj(new String(bytes, StandardCharsets.UTF_8)).getStr(GatewayConstant.JWE_PARAM);
+        } catch (RuntimeException e) {
+            // 非法 JSON 信封：与 servlet 侧一致按 failure-status 处理，不能让 JSONException 冒泡成 500
+            throw new EncryptorException(EncryptorFailure.BAD_HEADER, "request body is not a valid json envelope");
+        }
     }
 
     private String jweFromForm(byte[] bytes) {
@@ -239,6 +252,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> fail(ServerWebExchange exchange, int status) {
         ServerHttpResponse response = exchange.getResponse();
+        response.getHeaders().set(EncryptorConstant.TRACE_HEADER, UUID.randomUUID().toString());
         response.setStatusCode(HttpStatus.valueOf(status));
         return response.setComplete();
     }

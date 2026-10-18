@@ -4,6 +4,7 @@ import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
@@ -15,6 +16,7 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -77,24 +79,40 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                         if (max > 0 && bytes.length > max) {
                             logger.error("响应体超过 max-response-size: {}, 不发明文, uri: {}",
                                 bytes.length, exchange.getRequest().getURI().getPath());
-                            setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-                            return setComplete();
+                            return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                         }
                         String uri = exchange.getRequest().getURI().getPath();
                         String method = exchange.getRequest().getMethodValue();
                         JweContext jweContext = ctx.getJweContext();
+                        // 显式带上请求协商出的 enc（C2）：SM4-GCM 的 CEK 是 16B，按长度猜会封成 A128GCM
                         return Mono.fromCallable(() -> protocol.codec().encryptResponse(
-                                bytes, jweContext.cek(), uri, method,
+                                bytes, jweContext.cek(), jweContext.enc(), uri, method,
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
                             .subscribeOn(CRYPTO)
                             .flatMap(jwe -> {
                                 byte[] payload = ("{\"jwe\":\"" + jwe + "\"}")
                                     .getBytes(StandardCharsets.UTF_8);
                                 getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                                // body 已被换成 JWE JSON：下游若声明 Content-Encoding（如 gzip）必须去掉，
+                                // 否则客户端按 gzip 解压 JWE JSON 得到乱码
+                                getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
                                 getHeaders().setContentLength(payload.length);
                                 return super.writeWith(Mono.just(getDelegate().bufferFactory().wrap(payload)));
+                            })
+                            .onErrorResume(Throwable.class, e -> {
+                                logger.error("响应加密失败, uri: {}", uri, e);
+                                return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                             });
                     });
+            }
+
+            /** 失败面统一出口：body 清空、去 Content-Encoding、带 trace 头与状态码（不发明文）。 */
+            private Mono<Void> fail(HttpStatus status) {
+                getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
+                getHeaders().set(HttpHeaders.CONTENT_LENGTH, "0");
+                getHeaders().set(EncryptorConstant.TRACE_HEADER, UUID.randomUUID().toString());
+                setStatusCode(status);
+                return setComplete();
             }
         };
         return chain.filter(exchange.mutate().response(decorated).build());

@@ -286,6 +286,11 @@ class SmCipherSuiteTest {
             sm2Context.enc(), "/api/x", "POST", 1729100006000L, "n-4");
         String[] responseParts = response.split("\\.", -1);
         assertEquals(5, responseParts.length);
+        JWEHeader responseHeader = JWEHeader.parse(new Base64URL(responseParts[0]));
+        assertEquals(JWEAlgorithm.parse("dir"), responseHeader.getAlgorithm(), "响应 alg 必须是 dir");
+        assertEquals("SM4-GCM", responseHeader.getEncryptionMethod().getName(),
+            "响应 enc 必须是请求协商出的 SM4-GCM：按 CEK 长度猜会把它错封成 A128GCM（客户端按 SM4-GCM 解才通，"
+                + "但 header 已经说谎，其它客户端实现会解失败）");
         assertEquals("", responseParts[1], "alg=dir 的 encrypted_key 段必须为空");
         byte[] responseAad = responseParts[0].getBytes(StandardCharsets.US_ASCII);
         byte[] responseIv = Base64.getUrlDecoder().decode(responseParts[2]);
