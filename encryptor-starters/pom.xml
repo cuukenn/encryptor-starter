@@ -8,6 +8,10 @@
     </parent>
     <artifactId>encryptor-starters</artifactId>
     <packaging>pom</packaging>
+    <!-- Maven Central 校验要求每个发布的 POM 自带 name/description；
+         url/licenses/developers/scm 由父 pom（encryptor-parent）继承 -->
+    <name>encryptor-starters</name>
+    <description>Encryptor starters</description>
     <modules>
         <module>encryptor-starter</module>
         <module>encryptor-starter-reactive</module>
