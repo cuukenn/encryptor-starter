@@ -44,6 +44,7 @@ java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rf
 | `encryptor-starters/encryptor-starter-reactive/` | `encryptor-spring-boot-starter-reactive` | jar |
 | `encryptor-starters/encryptor-web-starter/` | `encryptor-web-spring-boot-starter` | jar |
 | `encryptor-starters/encryptor-gateway-starter/` | `encryptor-gateway-spring-boot-starter` | jar |
+| `encryptor-starters/encryptor-micrometer-starter/` | `encryptor-micrometer-spring-boot-starter` | jar（可选：Micrometer 指标适配） |
 | `encryptor-examples/web-example/` | `web-example` | jar |
 | `encryptor-examples/gateway-example/gateway/` | `gateway-example` | jar |
 | `encryptor-examples/gateway-example/web/` | `gateway-example-web` | jar（普通下游，**不引入 encryptor**） |
@@ -58,6 +59,10 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
         ├── encryptor-spring-boot-starter ──── encryptor-web-spring-boot-starter   (servlet)
         └── encryptor-spring-boot-starter-reactive ── encryptor-gateway-spring-boot-starter (reactive)
                                                         └── encryptor-examples
+
+encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optional ┈┈ encryptor-micrometer-spring-boot-starter
+        （可选模块：依赖 core + micrometer-core，并 optional 依赖 gateway-starter 仅为读 CryptoExecutor；
+          servlet 应用引它不会被拖进 Spring Cloud Gateway；core/两个 starter 的依赖面保持零 metrics）
 ```
 
 ## 核心数据流（v2）
@@ -86,6 +91,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 | 改 servlet 侧过滤器链/三载体/失败面/JWKS 端点 | `encryptor-web-starter/.../filter/`、`discovery/` |
 | 改网关链路/有界执行器/响应改写/JWKS | `encryptor-gateway-starter/.../gateway/` |
 | 改配置形态/自动装配/启动摘要 | 两侧 `EncryptorAutoConfiguration` + `config/EncryptorConfig` |
+| 改指标/监听器适配（可选） | `encryptor-starters/encryptor-micrometer-starter/.../micrometer/`（读 `EncryptorListener` SPI + `CryptoExecutor`） |
 | 改默认算法组合/加 CipherSuite | `encryptor-core/.../jose/`（CipherSuite SPI + JceCipherSuite/SmCipherSuite/EcCipherSuite + ConcatKdf） |
 | 跑起来验证/改示例/前端 JS | `encryptor-examples/`（front/encryptor/jwe.js 是 JS 客户端参考实现） |
 | 性能回归 | `encryptor-bench/` + `check-thresholds.sh` |
@@ -130,6 +136,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 7. ⚠️ 防重放 `ReplayGuard.verify` 必须在 **GCM tag 校验之后**调用（未认证输入不得污染 nonce 存储）。
 8. ⚠️ 流式响应（SSE/下载）**不包装**：响应过滤器先判 content-type 黑名单再加密；不要无脑全量缓冲。
 9. 🟩 设计文档里的“已完成”状态：P0–P3 修复与 S1–S17 处置见 `docs/architecture/open-issues.md` / `security-review.md` 顶部的状态表（v1 部分条目已随 v1 删除而消除）。
+10. ⚠️ 网关 `CryptoExecutor` 的队列深度**不能**读 Reactor 的 `Scannable.Attr.BUFFERED`（`BoundedElasticScheduler.estimateSize()`）——任务被派进执行器内部队列后即不可见，实测恒为 0；`pendingTasks()` 是自己在包装 `Scheduler` 里按「提交数 − 完成数」记的。另：Reactor 3.4.2 的 `Scheduler` 只 `extends Disposable`（**不是** `Scannable`），覆写 `scanUnsafe` 会编译失败。
 
 ## 约定
 
@@ -141,9 +148,9 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 
 ## 构建状态（`master`）
 
-- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 40 + gateway 27 + 两示例 + JMH bench）。
-- 全量单测 **171 绿**（core 92、starter 9、reactive 3、web 40、gateway 27），fail/err 均 0。其中 web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web 再 +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）。
-- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）已按同命令在本地 1.8.0_461 复跑：`mvn -B -Pmain-module clean install` **171 绿**（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
+- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 40 + gateway 30 + micrometer 8 + 两示例 + JMH bench）。
+- 全量单测 **182 绿**（core 92、starter 9、reactive 3、web 40、gateway 30、micrometer 8），fail/err 均 0。增量构成：web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）；gateway +3 来自 D3 的 `CryptoExecutorTest`；micrometer 8 是 D1/D3 新增的可选模块（监听器计数 3 + 自动装配条件 4 + 接线证明 1）。
+- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）已按同命令在本地 1.8.0_461 复跑：`mvn -B -Pmain-module clean install` **182 绿**（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
 - ⚠️ **示例测试源码必须能编过 JDK 8**（`mvn -Pall-modules` 会编 examples 的 test 源码）：`HttpTest.java` 曾用 `URLEncoder.encode(String, Charset)`（**Java 10+** 才有）→ JDK 8 下编译失败；已改为自带 `enc(String)` helper（`URLEncoder.encode(s, "UTF-8")` 包一层）。两份 `HttpTest.java` 是成对文件，改一处必须同步另一处。
 - P3-4（`skip-*` 正名 + 旧名 alias）：⚠️ 新旧名单**不能共用同一个 list**——Spring Boot 对集合属性是"就地绑定（clear + 回填到 getter 返回的 list）"，共用时后绑定的会把先绑定的清掉。现为「旧名独立字段 + `InitializingBean.afterPropertiesSet()` 合并去重」。
 - JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。

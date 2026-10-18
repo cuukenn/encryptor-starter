@@ -153,6 +153,33 @@ cd encryptor-examples/gateway-example/gateway/front && npm install && node test.
 
 `test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、ECDH-ES 往返（`alg=ECDH-ES` 且 `encrypted_key` 段为空）、uri 级 kid 绑定、未配置的 `enc` 被拒、篡改 IV 必须 400；全过 `exit 0`。
 
+## 可观测性（可选模块）
+
+默认零依赖：core 只暴露 `EncryptorListener` SPI（三个 no-op 回调），不引入任何指标库。要指标就加这个可选模块——**core 与两个 starter 的依赖面不变**：
+
+```xml
+<dependency>
+  <groupId>io.github.cuukenn</groupId>
+  <artifactId>encryptor-micrometer-spring-boot-starter</artifactId>
+  <version>版本</version>
+</dependency>
+```
+
+装配条件（条件装配，全部满足才生效）：应用里存在 `MeterRegistry`（如 actuator + 任一 registry）；且你**没有**自己注册 `EncryptorListener` bean（自定义优先）。网关队列指标只在网关 starter 在场、且存在 `CryptoExecutor`（网关自动装配提供，可自行覆盖）时出现。
+
+| 指标 | 类型 | 标签 | 含义 |
+| --- | --- | --- | --- |
+| `encryptor.decrypt` | Counter | `result=success`/`failure` | 请求解密总次数（成功/失败） |
+| `encryptor.decrypt.failures` | Counter | `failure=<分类>` | 按失败分类计数，取 `EncryptorFailure` 枚举名（`MISSING`/`BAD_HEADER`/`UNKNOWN_KID`/`ALG_NOT_ALLOWED`/`ENC_NOT_ALLOWED`/`AAD_MISMATCH`/`DECRYPT_FAILED`/`EXPIRED`/`REPLAY`/`TOO_LARGE`/`INTERNAL`） |
+| `encryptor.encrypt.failures` | Counter | `failure=<分类>` | 响应加密失败的分类计数 |
+| `encryptor.gateway.crypto.pending` | Gauge | - | 已提交未完成的密码学任务数（在跑 + 排队），**过载第一信号** |
+| `encryptor.gateway.crypto.rejected` | FunctionCounter | - | 因队列满被拒的累计数（每一次对应一次 503） |
+| `encryptor.gateway.crypto.threads`、`encryptor.gateway.crypto.queue.capacity` | Gauge | - | 执行器容量常量，便于算利用率 |
+
+- 所有分类在注册时一次性预建（未出现过的分类也有 0 值），便于直接做面板；分类为 null 或未知时归入 `INTERNAL`（宁可少一个分类，也不丢一次失败）。
+- **不记耗时**：`EncryptorListener` 回调只在请求结束时触发，没有"开始"钩子——要加计时段得改 core 热路径，收益配不上风险。
+- 网关的 `pending` 是**自己记账**（提交数 − 完成数）：Reactor 的 `Scannable.Attr.BUFFERED`（`estimateSize()`）只反映它自己的待派发队列，任务一旦被派进执行器内部队列就看不见了（实测恒为 0）。
+
 ## 性能基准（JMH）
 
 基准代码在 `encryptor-bench/`。下表是**同一台机器上三次独立运行的中位数**（轮间偏差 <1%）：

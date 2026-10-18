@@ -16,6 +16,7 @@ import io.github.cuukenn.encryptor.reactive.gateway.SmGatewayTestSupport;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
+import io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +64,9 @@ class GatewayJweTest {
     private DefaultProtocol protocol;
     private GatewayEncryptorConfig gatewayConfig;
     private EncryptorConfig reactiveConfig;
+
+    /** 测试共用一个有界执行器（生产由 GatewayEncryptorConfiguration 提供同一实例）。 */
+    private static final CryptoExecutor CRYPTO = CryptoExecutor.create();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -126,11 +130,11 @@ class GatewayJweTest {
     }
 
     private EncryptorGatewayFilter gateway() {
-        return new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, protocol);
+        return new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, protocol, CRYPTO);
     }
 
     private EncryptorResponseFilter response() {
-        return new EncryptorResponseFilter(gatewayConfig, reactiveConfig, protocol);
+        return new EncryptorResponseFilter(gatewayConfig, reactiveConfig, protocol, CRYPTO);
     }
 
     @Test
@@ -332,8 +336,8 @@ class GatewayJweTest {
         SmGatewayTestSupport.Sealed sealed = sm.seal("{\"name\":\"x\"}", "/api/a", "POST");
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/a")
             .contentType(MediaType.APPLICATION_JSON).body("{\"jwe\":\"" + sealed.compact + "\"}"));
-        EncryptorGatewayFilter smGateway = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, sm.protocol);
-        EncryptorResponseFilter smResponse = new EncryptorResponseFilter(gatewayConfig, reactiveConfig, sm.protocol);
+        EncryptorGatewayFilter smGateway = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, sm.protocol, CRYPTO);
+        EncryptorResponseFilter smResponse = new EncryptorResponseFilter(gatewayConfig, reactiveConfig, sm.protocol, CRYPTO);
         GatewayFilterChain inner = e -> {
             ServerHttpResponse resp = e.getResponse();
             return resp.writeWith(Mono.just(resp.bufferFactory().wrap("hello-sm".getBytes(StandardCharsets.UTF_8))));

@@ -46,6 +46,11 @@
                 <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
                 <version>${revision}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-micrometer-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
             <!--third dependency-->
             <!--spring-cloud-starter-bootstrap-->
             <dependency>

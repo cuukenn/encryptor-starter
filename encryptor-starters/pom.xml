@@ -13,5 +13,6 @@
         <module>encryptor-starter-reactive</module>
         <module>encryptor-web-starter</module>
         <module>encryptor-gateway-starter</module>
+        <module>encryptor-micrometer-starter</module>
     </modules>
 </project>

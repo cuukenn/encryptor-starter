@@ -406,7 +406,7 @@
 ### 第三批（2026-10-16 扫描 → **当批全部修完并验证**）
 
 - ✅ **已修 + `mvn` 验证（第三批当批完成的）**：**P0-2**（网关 key 编码对齐）、**P0-6**（常量撞值导致 `black-req-content-type` 失效）、**P0-7**（缺字段 NPE）、**P1-9**（`black-res-content-type` 求值时机）、**P1-10**（表单 content-type 识别）、**P1-11**（参数 wrapper 三个视图）、**P1-12**（错误面统一 + `failure-status`）、**P1-13**（报文大小上限 + 网关切 `boundedElastic`）、**P2-1**（两个 `HttpTest` 加断言并真跑通，顺带修掉 3 个示例真 bug）、**P2-7**（facade/params 缓存）、**P2-8**（GroupEncryptor 不再泄漏）、**P2-9**（死代码清理，并**更正** bcpkix 结论）、**P2-10**（去掉 `@ComponentScan`）、**P3-6**（StrKit 契约显式化）、**P3-7**（uri 级 `crypto-config` 括号写法 + 样例 + 绑定/端到端证据）、**P3-8**（pom `<name>` + enforcer）。每一项都带"先红后绿"用例（少数例外在各自条目里注明）。
-- 🟥 **确实仍未修**：各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）——**2026-10-18 逐条复核，绝大多数随 v2 重写已消失**：`WebContext.resEncryptor` 已删（现存 `protocol` 字段只被写入、无读取方，但作为下游过滤器可读的公开上下文保留，不算死代码）；`反射推泛型`/`失败计数` 随 v1 策略栈删除；**「示例前端复用 IV」不成立**——`jwe.js` 每次都新取随机量（`:103` CEK、`:137` 12 字节 IV、`:138` 16 字节 nonce）。真正仍开放的只有 **失败指标/告警（D1/D3）** 与 **响应方向的全量缓冲（D2）**。
+- 🟥 **确实仍未修**：各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）——**2026-10-18 逐条复核，绝大多数随 v2 重写已消失**：`WebContext.resEncryptor` 已删（现存 `protocol` 字段只被写入、无读取方，但作为下游过滤器可读的公开上下文保留，不算死代码）；`反射推泛型`/`失败计数` 随 v1 策略栈删除；**「示例前端复用 IV」不成立**——`jwe.js` 每次都新取随机量（`:103` CEK、`:137` 12 字节 IV、`:138` 16 字节 nonce）。真正仍开放的只有 **响应方向的全量缓冲（D2）**（失败指标/告警 D1/D3 已于 2026-10-18 用可选模块落地）。
 - 🧪 **验证资产**：
   - `encryptor-core/src/test/java/.../audit/CryptoMechanismAuditTest.java`（5 条，机制行为：签名输入歧义(S7)、CBC 确定性(S14)、篡改可检出、畸形签名逃逸(S15)、GroupEncryptor 不再泄漏(P2-8)）；
   - `encryptor-core/src/test/java/.../audit/ClientAuthAuditTest.java`（2 条，**S1** 任何人拿公钥即可伪造合法请求、**S3** 服务端接受任意客户端自选算法）；
@@ -460,13 +460,13 @@
 - **RF-2**：响应缓冲溢出 ⇒ **500 且不发明文**（不是截断透传）。大响应/流式接口的正确姿势：content-type 进 `black-res-content-type` 且 `max-response-size<=0`。
 - **RF-3**：网关密码学执行器队列满 ⇒ **503**（有意偏离评审建议的 `failure-status`：服务端过载不应伪装成客户端错误）。
 
-### 明确推迟（Minor）
+### 明确推迟（Minor）——D1/D3 已于 2026-10-18 用可选模块落地（表内 🟩），本表保留原推迟理由以便追溯
 
 | 编号 | 内容 | 推迟理由 |
 | --- | --- | --- |
-| D1 | 无 Micrometer 适配器（只有 `EncryptorListener` SPI） | 避免把 metrics 依赖塞进 core/starter 依赖面 |
+| D1 🟩 | 无 Micrometer 适配器（只有 `EncryptorListener` SPI） | **2026-10-18 已实现（可选模块）**：新增 `encryptor-micrometer-spring-boot-starter`，metrics 依赖只在显式引入该模块时出现——core 与两个 starter 的依赖面仍为零 metrics |
 | D2 | 204/重定向等空响应两侧行为不对称 | 语义一致（都不包装）；改齐需动 `NettyWriteResponseFilter` 时序，风险 > 收益 |
-| D3 | 网关有界执行器无队列深度指标 | 与 D1 同源，等 metrics 适配器一起做 |
+| D3 🟩 | 网关有界执行器无队列深度指标 | **2026-10-18 已实现**：同模块导出 `encryptor.gateway.crypto.pending`/`rejected`/`threads`/`queue.capacity`；`pending` = 提交数 − 完成数（Reactor 的 `Scannable.Attr.BUFFERED` 实测恒为 0，不可用，故在 `CryptoExecutor` 内自行记账） |
 | D4 | servlet 侧 `max-request-size` 只对 JSON 载体是真上限 | FORM 走容器 `getParameter()`（Tomcat `maxPostSize`）、QUERY 受 `maxHttpHeaderSize`；已在 README 写明边界，不改容器语义 |
 | D5 | JS 参考客户端覆盖 RSA/AES 与 ECDH-ES(P-256)，仍不含 SM | WebCrypto 无 SM，`sm-crypto` 只有 SM4-ECB/CBC（无 GCM）；国密由 core/web/gateway 三层 Java 测试覆盖（2026-10-18 起 RSA+ECDH-ES 均有 JS 端到端用例） |
 
@@ -531,3 +531,27 @@
 - 影响：`-Pall-modules` 全量构建在 JDK 8 上是**红的**；是本轮新增的 CI 步骤 `mvn -B -Pall-modules -DskipTests package` 先把它暴露出来的（这正是那一步的价值）。
 - 修法：两个文件都加 `private static String enc(String s)`（`URLEncoder.encode(s, "UTF-8")`，受检异常包成 `IllegalStateException`），4 处调用改用它。
 - 证据：JDK 8 下 `mvn -B -Pall-modules clean install` → BUILD SUCCESS（含两示例与 bench）；CI 第二步 `mvn -B -Pall-modules -DskipTests package` → BUILD SUCCESS；`diff` 两份 `jwe.js` → exit 0。
+
+## D1/D3 落地：可选 Micrometer 模块（2026-10-18）
+
+**结论**：D1（无 Micrometer 适配器）与 D3（网关有界执行器无队列深度指标）都用**新的可选模块** `encryptor-micrometer-spring-boot-starter` 实现，core 与两个 starter 的依赖面**零变化**——这正是当初推迟这两项的唯一理由。
+
+**模块内容**（`encryptor-starters/encryptor-micrometer-starter/`，artifactId `encryptor-micrometer-spring-boot-starter`）：
+
+- `MicrometerEncryptorListener implements EncryptorListener`：`encryptor.decrypt{result=success|failure}`（Counter）、`encryptor.decrypt.failures{failure=<分类>}`、`encryptor.encrypt.failures{failure=<分类>}`；分类取 `EncryptorFailure` 枚举名，注册时遍历枚举一次性预建（未出现的分类也有 0 值），未知/null 归 `INTERNAL`。
+- `GatewayCryptoExecutorMetrics`：`encryptor.gateway.crypto.pending`（Gauge = 提交数 − 完成数）、`rejected`（FunctionCounter，每次被拒 +1，对应用户可见的一次 503）、`threads`/`queue.capacity`（Gauge 常量）。持 `CryptoExecutor` 强引用（Micrometer 的 Gauge 只弱引用）。
+- `EncryptorMicrometerAutoConfiguration`（`META-INF/spring.factories` 注册）：`@ConditionalOnClass(MeterRegistry)` + `@AutoConfigureAfter(name = "...MetricsAutoConfiguration")`（用字符串名避免硬依赖 actuator）；`EncryptorListener` bean 带 `@ConditionalOnBean(MeterRegistry)` + `@ConditionalOnMissingBean(EncryptorListener)`（用户自定义优先）；内部 `@ConditionalOnClass(CryptoExecutor)` 子配置导出网关指标（`CryptoExecutor` 属 gateway starter，而它是本模块的 **optional** 依赖，故 servlet 应用不会被拖进 Spring Cloud Gateway）。
+- pom：`encryptor-core` + `spring-boot-autoconfigure` + `micrometer-core`（版本由 spring-boot-dependencies 管）+ `encryptor-gateway-spring-boot-starter`（optional）+ `spring-boot-starter-test`。`encryptor-starters/pom.xml` 与 `encryptor-dependencies/pom.xml`（BOM）已登记。
+
+**为什么不记耗时**：`EncryptorListener` 只有"结束时"回调，没有开始钩子；要加计时段就得改 core 热路径（`JweCodec`），收益配不上风险。端到端 P99 用 HTTP 层指标（`http.server.requests`）即可覆盖。
+
+**D3 的记账方式（踩坑记录）**：最初想直接读 Reactor 的 `Scannable.Attr.BUFFERED`（`BoundedElasticScheduler.estimateSize()`），实测**恒为 0**——任务被 Reactor 从待派发队列抽进执行器内部队列后就不可见了。改为在 `CryptoExecutor` 内包一层记账 `Scheduler`：`submit` 成功才 `submitted++`、`count` 的 `finally` 里 `completed++`、`RejectedExecutionException` 时 `rejected++` 并原样抛出（不计入 pending）；`pendingTasks()` = submitted − completed。另一个 API 事实：Reactor 3.4.2 的 `Scheduler` 只 `extends Disposable`（**不是** `Scannable`），抽象方法仅 `schedule(Runnable)`/`createWorker()`，覆写 `scanUnsafe` 会编译失败。
+
+**同时改动的生产码（网关侧 D3 hook）**：新增 `reactive/gateway/runtime/CryptoExecutor`（`SCHEDULER_NAME`、`DEFAULT_QUEUE_CAPACITY=1000`、`create()`）；两个网关过滤器不再各自持有 `private static final Scheduler`，改为注入**同一个** `CryptoExecutor`（构造器 4 参）；`GatewayEncryptorConfiguration` 新增 `@Bean @ConditionalOnMissingBean CryptoExecutor`（两过滤器共用、指标模块读同一实例、用户可覆盖）。
+
+**证据**：
+
+- `JAVA_HOME=…jdk-1.8.0_461 mvn -B -Pall-modules clean install` → BUILD SUCCESS，**182 绿**（core 92、starter 9、reactive 3、web 40、gateway 30、micrometer 8），fail/err 均 0。
+- gateway 30 = 原 27 + `CryptoExecutorTest` 3（默认取值 / 待执行数记账 / 被拒记账）。
+- micrometer 8 = `MicrometerEncryptorListenerTest` 3（计数、分类预建、null→INTERNAL）+ `EncryptorMicrometerAutoConfigurationTest` 4（有/无 registry、用户监听器优先、网关指标导出）+ `MicrometerListenerWiringTest` 1（**接线证明**：真实 reactive starter 与本模块同时装配，`DefaultProtocol.openRequest("not-a-jwe", …)` 抛异常后 `encryptor.decrypt{result=failure}` == 1，且恰好一个分类被计数）。
+- 未做：Micrometer 的 Timer/耗时（理由见上）；D2 仍开放。

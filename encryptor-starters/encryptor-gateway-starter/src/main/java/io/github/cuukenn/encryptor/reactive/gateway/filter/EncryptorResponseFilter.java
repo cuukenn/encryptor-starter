@@ -8,6 +8,7 @@ import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
+import io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,9 +24,6 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.core.scheduler.Schedulers;
-
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -37,17 +35,18 @@ import java.util.UUID;
  */
 public class EncryptorResponseFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorResponseFilter.class);
-    private static final Scheduler CRYPTO =
-        Schedulers.newBoundedElastic(Runtime.getRuntime().availableProcessors(), 1000, "encryptor-crypto");
 
     private final GatewayEncryptorConfig config;
     private final EncryptorConfig reactiveConfig;
     private final DefaultProtocol protocol;
+    private final CryptoExecutor crypto;
 
-    public EncryptorResponseFilter(GatewayEncryptorConfig config, EncryptorConfig reactiveConfig, DefaultProtocol protocol) {
+    public EncryptorResponseFilter(GatewayEncryptorConfig config, EncryptorConfig reactiveConfig,
+                                   DefaultProtocol protocol, CryptoExecutor crypto) {
         this.config = config;
         this.reactiveConfig = reactiveConfig;
         this.protocol = protocol;
+        this.crypto = crypto;
     }
 
     @Override
@@ -88,7 +87,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                         return Mono.fromCallable(() -> protocol.codec().encryptResponse(
                                 bytes, jweContext.cek(), jweContext.enc(), uri, method,
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
-                            .subscribeOn(CRYPTO)
+                            .subscribeOn(crypto.scheduler())
                             .flatMap(jwe -> {
                                 byte[] payload = ("{\"jwe\":\"" + jwe + "\"}")
                                     .getBytes(StandardCharsets.UTF_8);

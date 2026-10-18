@@ -11,6 +11,7 @@ import io.github.cuukenn.encryptor.reactive.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
+import io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -30,9 +31,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.core.scheduler.Schedulers;
-
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -42,24 +40,25 @@ import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 网关请求过滤器：决策（skip/黑名单/bypass/ct 黑名单）+ 三载体识别 + 一次解密 + query/body 改写。
- * 密码学在专用有界执行器上执行（队列满/失败 → failure-status）。
+ * 密码学在共用的有界执行器（{@link CryptoExecutor}）上执行（队列满 → 503，其余失败 → failure-status）。
  *
  * @author changgg
  */
 public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorGatewayFilter.class);
     private static final byte[] EMPTY_BYTES = new byte[0];
-    private static final Scheduler CRYPTO =
-        Schedulers.newBoundedElastic(Runtime.getRuntime().availableProcessors(), 1000, "encryptor-crypto");
 
     private final GatewayEncryptorConfig config;
     private final EncryptorConfig reactiveConfig;
     private final DefaultProtocol protocol;
+    private final CryptoExecutor crypto;
 
-    public EncryptorGatewayFilter(GatewayEncryptorConfig config, EncryptorConfig reactiveConfig, DefaultProtocol protocol) {
+    public EncryptorGatewayFilter(GatewayEncryptorConfig config, EncryptorConfig reactiveConfig,
+                                  DefaultProtocol protocol, CryptoExecutor crypto) {
         this.config = config;
         this.reactiveConfig = reactiveConfig;
         this.protocol = protocol;
+        this.crypto = crypto;
     }
 
     @Override
@@ -124,7 +123,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
         return Mono.fromCallable(() -> protocol.openRequest(compact, uri, method))
-            .subscribeOn(CRYPTO)
+            .subscribeOn(crypto.scheduler())
             .flatMap(ctx -> {
                 // 6. uri 级 kid 白名单（正则→允许 kid 集；空=全允许）
                 String matched = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
@@ -148,7 +147,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 return fail(exchange, reactiveConfig.getFailureStatus());
             })
             .onErrorResume(RejectedExecutionException.class, e -> {
-                // 专用密码学执行器队列已满：服务端过载，不能把 5xx 伪装成客户端错误
+                // 共用密码学执行器队列已满：服务端过载，不能把 5xx 伪装成客户端错误
                 logger.error("crypto executor rejected task, uri: {}", uri, e);
                 return fail(exchange, HttpStatus.SERVICE_UNAVAILABLE.value());
             });
