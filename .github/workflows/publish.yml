@@ -1,19 +1,27 @@
-# 相当于脚本用途的一个声明
+# 发布到 Maven Central（Portal）。
+#
+# 触发：①发布（非 draft、非 pre-release）一个 Release 时自动跑；②Actions 页手动 workflow_dispatch 重跑。
+# 前置 secrets：OSSRH_USERNAME / OSSRH_TOKEN（Central Portal user token 的 username/password）、
+#              OSSRH_GPG_SECRET_KEY（ASCII-armored 私钥）、OSSRH_GPG_SECRET_KEY_PASSWORD（口令）。
+# 说明：pom 的 release profile 用 central-publishing-maven-plugin（autoPublish=false），
+#       所以本流水线只负责「构建 + 签名 + 上传 bundle 并通过校验」；最后一步要到
+#       https://central.sonatype.com/publishing/deployments 人工点 Publish 才会同步到中央仓库。
+#       旧 OSSRH（s01.oss.sonatype.org）staging 通道已下线，故这里走 Portal。
 name: Maven Central Repo Deployment
-# 触发脚本的事件  这里为发布release之后触发
+
 on:
   release:
-    types: [ released ]
-# 定义一个发行任务
+    types: [released]
+  # 发布失败后可直接重跑本流水线，不必重新发 Release
+  workflow_dispatch:
+
 jobs:
   publish:
-    # 任务运行的环境
     runs-on: ubuntu-latest
-    # 任务的步骤
     steps:
-      # 1. 声明 checkout 仓库代码到工作区
       - name: Checkout Git Repo
         uses: actions/checkout@v3
+
       - name: Cache local Maven repository
         uses: actions/cache@v3
         with:
@@ -21,26 +29,50 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-      # 2. 安装Java 环境 这里会用到的参数就是 Git Action secrets中配置的，
-      - name: Setup JDK
+
+      # server-id 对应 pom 里 distributionManagement/插件配置的 server id（这里是 central）；
+      # server-username / server-password 传的是「环境变量名」，真正的值在下面各步骤的 env 里。
+      - name: Setup JDK 8
         id: setup_jdk
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '8'
           cache: maven
-          server-id: sonatype
-          server-username: ${{ secrets.OSSRH_USERNAME }}
-          server-password: ${{ secrets.OSSRH_TOKEN }}
-          gpg-passphrase: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
-      # 3. 发布到Maven中央仓库
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+
+      # 显式导入签名私钥，并把口令缓存进 gpg-agent：
+      # ①maven-gpg-plugin 走 --pinentry-mode loopback，口令来自环境变量 MAVEN_GPG_PASSPHRASE
+      #   （插件 3.2+ 的 passphraseEnvName 默认值，官方推荐方式，不经 settings.xml）；
+      # ②自检签名失败时立刻报错，错误信息比 mvn 的 exit code 2 可读得多。
+      - name: Import GPG key & self-check signing
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gpg --version | head -1
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+          KEY_ID="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')"
+          if [ -z "$KEY_ID" ]; then
+            echo "::error::没找到可用的 GPG 私钥（检查 secrets.OSSRH_GPG_SECRET_KEY）"
+            exit 1
+          fi
+          echo "签名密钥: $KEY_ID"
+          echo "gpg-test" > /tmp/gpg-self-check.txt
+          printf '%s\n' "$MAVEN_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --local-user "$KEY_ID" --armor --detach-sign /tmp/gpg-self-check.txt
+          gpg --verify /tmp/gpg-self-check.txt.asc /tmp/gpg-self-check.txt
+          echo "GPG_KEY_ID=$KEY_ID" >> "$GITHUB_ENV"
+
       - name: Publish to Maven Central Repo
-        # 这里用到了其他人写的action脚本，详细可以去看他的文档。
-        uses: samuelmeuli/action-maven-publish@v1
-        with:
-          gpg_private_key: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
-          gpg_passphrase: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
-          nexus_username: ${{ secrets.OSSRH_USERNAME }}
-          nexus_password: ${{ secrets.OSSRH_TOKEN }}
-          server_id: sonatype
-          maven_args: -Dmaven.test.skip=true -P !all-modules,main-module,release
+        env:
+          CENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+        run: |
+          mvn -B -version
+          mvn -B -Dmaven.test.skip=true -Dgpg.keyname="$GPG_KEY_ID" \
+            -P '!all-modules,main-module,release' deploy

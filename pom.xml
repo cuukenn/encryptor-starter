@@ -126,9 +126,10 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
                     </plugin>
+                    <!-- 发布走 Maven Central Portal：旧 OSSRH（s01.oss.sonatype.org）staging 已下线 -->
                     <plugin>
-                        <groupId>org.sonatype.plugins</groupId>
-                        <artifactId>nexus-staging-maven-plugin</artifactId>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
                     </plugin>
                 </plugins>
             </build>
@@ -222,7 +223,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-gpg-plugin</artifactId>
-                    <version>3.0.1</version>
+                    <version>3.2.8</version>
                     <configuration>
                         <gpgArguments>
                             <argument>--pinentry-mode</argument>
@@ -239,15 +240,17 @@
                         </execution>
                     </executions>
                 </plugin>
+                <!--  Maven Central Portal 发布（取代已下线的 OSSRH staging） -->
                 <plugin>
-                    <groupId>org.sonatype.plugins</groupId>
-                    <artifactId>nexus-staging-maven-plugin</artifactId>
-                    <version>1.6.13</version>
+                    <groupId>org.sonatype.central</groupId>
+                    <artifactId>central-publishing-maven-plugin</artifactId>
+                    <version>0.12.0</version>
                     <extensions>true</extensions>
                     <configuration>
-                        <serverId>sonatype</serverId>
-                        <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                        <autoReleaseAfterClose>false</autoReleaseAfterClose>
+                        <!-- settings.xml 里 id=central 的 server（Portal user token） -->
+                        <publishingServerId>central</publishingServerId>
+                        <!-- 与旧 autoReleaseAfterClose=false 同义：上传+校验后留在 Portal，人工点 Publish -->
+                        <autoPublish>false</autoPublish>
                     </configuration>
                 </plugin>
             </plugins>
