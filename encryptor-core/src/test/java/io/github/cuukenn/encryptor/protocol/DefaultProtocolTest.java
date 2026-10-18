@@ -50,6 +50,32 @@ class DefaultProtocolTest {
             Base64.getEncoder().encodeToString(pubSpki));
     }
 
+    private static DefaultProtocol.KeyMaterial ecKey(String kid) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+        KeyPair keyPair = generator.generateKeyPair();
+        return new DefaultProtocol.KeyMaterial(kid, KeyType.EC,
+            Base64.getEncoder().encodeToString(keyPair.getPrivate().getEncoded()),
+            Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+    }
+
+    @Test
+    void EC密钥默认alg白名单含ECDHES() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(ecKey("ec1")).build();
+
+        assertTrue(protocol.allowedAlgs().contains("ECDH-ES"), "有 EC 密钥时默认可接受 ECDH-ES");
+        assertFalse(protocol.allowedAlgs().contains("RSA-OAEP-256"), "只有 EC 密钥时默认不接受 RSA");
+        assertTrue(protocol.allowedEncs().contains("A256GCM"), "EC 密钥默认走 AES-GCM");
+    }
+
+    @Test
+    void EC与SM2并存时enc白名单同时含AES与SM4GCM() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(ecKey("ec1")).key(sm2Key("sm1")).build();
+
+        assertTrue(protocol.allowedEncs().contains("A256GCM"), "有 EC 密钥时默认可接受 A256GCM");
+        assertTrue(protocol.allowedEncs().contains("SM4-GCM"), "有 SM2 密钥时默认可接受 SM4-GCM");
+    }
+
     @Test
     void 组装出可用的默认栈() throws Exception {
         DefaultProtocol protocol = DefaultProtocol.builder()

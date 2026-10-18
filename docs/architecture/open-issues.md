@@ -459,4 +459,29 @@
 | D2 | 204/重定向等空响应两侧行为不对称 | 语义一致（都不包装）；改齐需动 `NettyWriteResponseFilter` 时序，风险 > 收益 |
 | D3 | 网关有界执行器无队列深度指标 | 与 D1 同源，等 metrics 适配器一起做 |
 | D4 | servlet 侧 `max-request-size` 只对 JSON 载体是真上限 | FORM 走容器 `getParameter()`（Tomcat `maxPostSize`）、QUERY 受 `maxHttpHeaderSize`；已在 README 写明边界，不改容器语义 |
-| D5 | JS 参考客户端只覆盖 RSA/AES | WebCrypto 无 SM，`sm-crypto` 只有 SM4-ECB/CBC（无 GCM）；国密由 core/web/gateway 三层 Java 测试覆盖 |
+| D5 | JS 参考客户端覆盖 RSA/AES 与 ECDH-ES(P-256)，仍不含 SM | WebCrypto 无 SM，`sm-crypto` 只有 SM4-ECB/CBC（无 GCM）；国密由 core/web/gateway 三层 Java 测试覆盖（2026-10-18 起 RSA+ECDH-ES 均有 JS 端到端用例） |
+
+## ECDH-ES（P-256 直接密钥协商）新增与复查（2026-10-18）
+
+**范围**：在既有 `CipherSuite` SPI 上新增 `alg=ECDH-ES`（RFC 7518 §4.6 直接密钥协商），不改线格式（仍是单 `jwe` 字段的 compact）。
+
+### 已做
+- `ConcatKdf`（NIST SP 800-56A §5.8.1 / RFC 7518 §4.6.2，SHA-256）+ `EcCipherSuite`（仅 P-256；AEAD 复用 `JceCipherSuite`，每次新建 `Cipher`）。
+- `CipherSuite` 新增带 protected header 的 `unwrapCek` 重载（默认委托旧签名）；`JweCodec` 统一走带 header 入口，并把 `null`/空 `encrypted_key` 交给套件裁定（ECDH-ES/`dir` 该段为空）。
+- `KeyType.EC`：PKCS#8 + SPKI，启动期 fail-fast（曲线必须 P-256；公私钥必须成对，用自协商校验）；JWKS 输出 `kty=EC, crv=P-256, alg=ECDH-ES`。
+- `DefaultProtocol`：有 EC 密钥时默认加 `ECDH-ES`；**并修了一个联动缺陷**——只有 EC+SM2 密钥时（无 RSA）默认 `enc` 白名单原本不含 `A256GCM`，EC 请求会被 `ENC_NOT_ALLOWED` 误拒；现已用单测钉死（`EC与SM2并存时enc白名单同时含AES与SM4GCM`）。
+- 客户端：两份 front `jwe.js` 支持 ECDH-ES（WebCrypto `ECDH` + 手写 Concat KDF），并修掉"响应 `enc` 写死 A256GCM"的互通缺口（改以响应头为准，`enc` 支持 A128/A192/A256GCM）。
+
+### 证据
+- core 单测 92 绿（新增 `EcCipherSuiteTest` 11 条 + `DefaultProtocolTest` 2 条）；`EcCipherSuiteTest` 以 nimbus `ECDHEncrypter`（独立实现）当 oracle 双向互通，并覆盖 P-384 `epk`、缺 `epk`、`epk` 带 `d`、非空 `encrypted_key`、RSA 密钥配 ECDH-ES 等拒绝面。
+- 全 JIT 真实端到端：web-example 11/11（含 `/test/ec` 的 uri 级 EC 密钥绑定、A128GCM fail-closed）、gateway-example 10/10。
+
+### 过程中发现并修正的问题
+- ⚠️ `crypto-config` 的 uri 正则 key **不能嵌套括号**：`"[/]test[/]ec.*"` 被 Spring 的 key 解析静默改坏 → 规则整体失效、`/test/ec` 退回全局白名单（实测 RSA kid 被放行）。正确写法是整体包一层：`"[/test/ec.*]"`。已写进 `AGENTS.md` 坑清单；`P3-7` 的括号写法说明据此收紧。
+- ⚠️ ECDH-ES 的 `encrypted_key` 段为空属正常，`JweCodec` 原来的"结构不完整"判定会把合法报文判成 `BAD_HEADER`（该判定已放宽，失败分类改由套件给出：RSA 收到空段仍会 `DECRYPT_FAILED`）。
+
+### 明确不做（如需要请单独立项）
+- **其它曲线**（P-384/P-521/X25519）：只做 P-256 是刻意的——它是 WebCrypto/Java 8/nimbus 的共同交集；多曲线要同时扩配置、JWKS 与 JS 客户端。
+- **ECDH-ES+A128KW/A192KW/A256KW**（密钥包装模式，非直接协商）：与 `dir` 语义不同，需引入 CEK 包装层，收益不足。
+- **`apu`/`apv`**：不实现，Concat KDF 的 PartyU/VInfo 固定为空（已与 JS 客户端、nimbus oracle 对齐）。
+- **Java 手拼客户端的 ECDH-ES 用例**（两份 `HttpTest.java`）：JS 参考实现已覆盖端到端；`HttpTest` 要手拼 `epk`+Concat KDF，重复度高，暂不加。

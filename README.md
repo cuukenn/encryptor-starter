@@ -2,7 +2,7 @@
 
 ## 简介
 
-encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 HTTP 报文提供 **机密性 + 防篡改**（对齐 JOSE/JWE，RFC 7516），支持 servlet 与 Spring Cloud Gateway 两侧，支持国密（SM2/SM4-GCM）。
+encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 HTTP 报文提供 **机密性 + 防篡改**（对齐 JOSE/JWE，RFC 7516），支持 servlet 与 Spring Cloud Gateway 两侧，支持国密（SM2/SM4-GCM）与 ECDH-ES（P-256 直接密钥协商）。
 
 ## 安全边界（先读这一段）
 
@@ -14,7 +14,7 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
 ## 特性
 
 - **协议**：JWE Compact 单字段载体（query 参数 / JSON `{"jwe":…}` / form 字段 `jwe`），响应复用请求 CEK（`alg=dir`，客户端不需密钥对）。
-- **算法**：请求 `alg=RSA-OAEP-256` + `enc=A256GCM`（默认）；国密 `alg=SM2` + `enc=SM4-GCM`（BC 轻量级 API，不注册 Provider）。算法白名单服务端强制，客户端不可自选。
+- **算法**：请求 `alg=RSA-OAEP-256`（RSA 公钥）或 `alg=ECDH-ES`（P-256 公钥，直接密钥协商，`epk` 随 header 走、`encrypted_key` 段为空），`enc=A256GCM`（默认）；国密 `alg=SM2` + `enc=SM4-GCM`（BC 轻量级 API，不注册 Provider）。算法白名单服务端强制，客户端不可自选。
 - **防重放**：服务端强制时间窗（`ttl`，默认 5 分钟）+ nonce 一次性消费。默认内存实现**只在本进程内有效**，多实例部署必须注册自己的 `NonceChecker` bean（Redis 等共享存储），见「运行须知」。
 - **上下文绑定**：AAD 绑定 `uri/method/方向/ts/nonce`，密文不能跨接口/跨方向搬运。
 - **密钥轮换**：多 kid 并存，JWKS 只读发现端点（`/.well-known/encryptor-keys`，免加密、只含公钥、ETag/缓存）。
@@ -75,7 +75,7 @@ encryptor:
         private-key: <Base64 PKCS#8>
         public-key: <Base64 X.509/SPKI>
     active-kid: "2026-10"       # 不填取 keys 第一把
-    allowed-algs: []            # 空 = 按密钥类型联动(RSA→RSA-OAEP-256, SM2→SM2)
+    allowed-algs: []            # 空 = 按密钥类型联动(RSA→RSA-OAEP-256, EC→ECDH-ES, SM2→SM2)
     allowed-encs: []            # 空 = 默认 [A256GCM]
     ttl: 5m                     # 防重放时间窗
     failure-status: 400
@@ -125,7 +125,8 @@ encryptor:
 - **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `black-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
 - **请求上限的实际边界**：`max-request-size` 在 servlet 侧只对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体经容器 `getParameter()` 解析，字节上限由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
 - **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
-- **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 core/web/gateway 三层测试覆盖。浏览器 WebCrypto **没有** SM 算法，仓库内的 JS 参考实现只覆盖 RSA 路径；国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可直接用 `encryptor-core` 的 `JweCodec`。
+- **客户端**：JS 参考实现（`encryptor-examples/*/front/encryptor/jwe.js`）覆盖 RSA-OAEP-256 与 ECDH-ES（P-256，WebCrypto 原生 `ECDH` + 手写 Concat KDF），`enc` 支持 A128/A192/A256GCM，具体用哪个以服务端 `allowed-encs` 为准。浏览器 WebCrypto **没有** SM 算法，所以 JS 侧不含国密路径。
+- **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 core/web/gateway 三层测试覆盖。国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可直接用 `encryptor-core` 的 `JweCodec`。
 - **网关下游**：网关转发出去的是**已解密的明文**，下游服务**不要**再引入 encryptor starter（否则会被二次解密 → 400）。参考 `encryptor-examples/gateway-example/web`（普通应用）。
 
 ## 代码示例

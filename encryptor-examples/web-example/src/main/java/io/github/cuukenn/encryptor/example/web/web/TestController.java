@@ -29,6 +29,14 @@ public class TestController {
         return "Secret, " + name;
     }
 
+    /**
+     * uri 级 crypto-config 覆盖（{@code ^/test/ec.*}）的目标端点：只接受 ECDH-ES(P-256) 那把密钥。
+     */
+    @GetMapping("/ec")
+    public String ec(@RequestParam(name = "name", required = false) String name) {
+        return "EC, " + name;
+    }
+
     @PostMapping("/hello")
     public String hello(@RequestBody Map<String, Object> data) {
         return "Hello, " + data;

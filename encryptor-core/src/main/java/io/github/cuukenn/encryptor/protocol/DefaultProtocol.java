@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.protocol;
 
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
+import io.github.cuukenn.encryptor.jose.EcCipherSuite;
 import io.github.cuukenn.encryptor.jose.JceCipherSuite;
 import io.github.cuukenn.encryptor.jose.InMemoryNonceStore;
 import io.github.cuukenn.encryptor.jose.JweCodec;
@@ -38,6 +39,7 @@ public class DefaultProtocol {
 
     private static final String ALG_RSA = "RSA-OAEP-256";
     private static final String ALG_SM2 = "SM2";
+    private static final String ALG_ECDH_ES = "ECDH-ES";
     private static final String ENC_DEFAULT = "A256GCM";
     private static final String ENC_SM4_GCM = "SM4-GCM";
 
@@ -235,11 +237,15 @@ public class DefaultProtocol {
             Set<String> algs = new LinkedHashSet<>();
             boolean hasRsa = false;
             boolean hasSm2 = false;
+            boolean hasEc = false;
             for (KeyMaterial material : materials) {
                 keys.add(material.kid(), material.privateKeyB64(), material.publicKeyB64(), material.type());
                 if (material.type() == KeyType.RSA) {
                     algs.add(ALG_RSA);
                     hasRsa = true;
+                } else if (material.type() == KeyType.EC) {
+                    algs.add(ALG_ECDH_ES);
+                    hasEc = true;
                 } else {
                     algs.add(ALG_SM2);
                     hasSm2 = true;
@@ -255,7 +261,7 @@ public class DefaultProtocol {
                 // 默认 enc 跟密钥类型联动：有 SM2 密钥就必须接受 SM4-GCM，
                 // 否则国密请求每个都 DECRYPT_FAILED（CEK 16B ≠ A256GCM 需要的 32B）
                 Set<String> defaults = new LinkedHashSet<>();
-                if (hasRsa || !hasSm2) {
+                if (hasRsa || hasEc || !hasSm2) {
                     defaults.add(ENC_DEFAULT);
                 }
                 if (hasSm2) {
@@ -270,7 +276,8 @@ public class DefaultProtocol {
                 }
             }
 
-            JweCodec codec = new JweCodec(store, Arrays.asList(new JceCipherSuite(), new SmCipherSuite()),
+            JweCodec codec = new JweCodec(store,
+                Arrays.asList(new JceCipherSuite(), new EcCipherSuite(), new SmCipherSuite()),
                 effectiveAlgs, effectiveEncs, listener);
             long retention = nonceRetentionMillis <= 0 ? ttlMillis : nonceRetentionMillis;
             NonceChecker effectiveNonceChecker = nonceChecker != null

@@ -72,7 +72,7 @@
 { "alg": "RSA-OAEP-256", "enc": "A256GCM", "kid": "<服务端密钥标识>", "typ": "encryptor+jwe" }
 ```
 
-- `alg`：`RSA-OAEP-256`（默认）。`ECDH-ES` 为将来选项，**服务端白名单决定接受哪些**。
+- `alg`：`RSA-OAEP-256`（默认）或 `ECDH-ES`（P-256 直接密钥协商，见 §3.10）。**服务端白名单决定接受哪些**。
 - `enc`：`A256GCM`（默认；可配 `A128GCM`/`A192GCM`）。
 - `kid`：**服务端**持有的密钥对标识；服务端按 `kid` 选择私钥解封（多把并存 ⇒ 轮换不停机）。
 - **客户端不得自选 `alg`/`enc`/密钥长度**：服务端按白名单校验，不在白名单一律拒绝（消除今天的算法降级面）。
@@ -176,6 +176,18 @@
 
   > **实现校正（2026-10-18 评审）**：`sm-crypto` 只提供 SM4-ECB/CBC，**没有** SM4-GCM，不能直接用于本协议的 `enc=SM4-GCM`。当前两份 front 参考实现只演示 RSA 路径；国密路径由 core（`SmCipherSuiteTest`）、web（`SmJweTestSupport`）、gateway（`SmGatewayTestSupport`）三层 Java 测试覆盖。要在浏览器跑国密，需要引入具备 SM4-GCM 能力的 JS 实现（或走 WASM），属后续独立任务。
 - **抽象**：SM 与 RSA/AES 在"CEK 封装 + 内容加密"两侧都不同，抽出 `CipherSuite` SPI（`algorithms`/`encryptionMethods`/`unwrapCek`/`aeadEncrypt`/`aeadDecrypt`/`keyLength`）；JCE 实现 `JceCipherSuite`、国密实现 `SmCipherSuite`；`JweCodec` 按 `alg`/`enc` 分派，白名单仍在本类内部强制。
+
+### 3.10 ECDH-ES（P-256 直接密钥协商）—— 已实现（2026-10-18）
+
+- **算法**：`alg=ECDH-ES`（RFC 7518 §4.6 直接密钥协商）+ `enc=A128/A192/A256GCM`。`encrypted_key` 段**为空**（与 `alg=dir` 一样），CEK 由双方协商派生。
+- **`epk`**：客户端每次请求生成**临时** P-256 密钥对，把公钥以 JWK（`kty=EC, crv=P-256, x, y`）放进 protected header 的 `epk`；`epk` 属于 protected header，天然参与 AAD 校验。`epk` 携带私钥参数 `d` 一律拒绝。
+- **KDF**：`CEK = ConcatKDF-SHA256(Z, enc, keydatalen)`，`K = SHA-256(counter=1 || Z || OtherInfo)`，`OtherInfo = AlgorithmID(=enc) || PartyUInfo(空) || PartyVInfo(空) || SuppPubInfo(keydatalen 位)`，每项 4 字节大端长度前缀（NIST SP 800-56A §5.8.1）。不使用 `apu`/`apv`。
+- **曲线只允许 P-256**（`secp256r1`）：WebCrypto、Java 8 SunEC、nimbus 都原生支持，**不引入新依赖、不注册全局 Provider**；`epk.crv` 非 P-256 直接拒绝（防曲线降级）。
+- **服务端密钥**：`keys[].type: EC`，私钥 PKCS#8、公钥 SPKI（Base64）。启动期 fail-fast：曲线必须是 P-256，且公私钥必须成对（用一次"自协商"验证：`ECDH(临时私钥, 配置公钥) == ECDH(配置私钥, 临时公钥)`）。JWKS 输出 `kty=EC, crv=P-256, x, y, alg=ECDH-ES, use=enc`。
+- **白名单联动**：存在 EC 密钥时 `allowed-algs` 默认加 `ECDH-ES`；`enc` 走 AES-GCM 家族（与 RSA 共用 `JceCipherSuite` 的 AEAD 实现）。
+- **SPI**：`CipherSuite` 新增带 protected header 的解封重载 `unwrapCek(keys, kid, alg, encryptedKey, header)`（默认实现委托旧四参重载，RSA/SM2 不受影响）；`JweCodec` 统一调用带 header 的入口，`encrypted_key` 为 `null`/空段时统一按 0 长度字节交给套件裁定。
+- **客户端**：两份 front 参考实现均已支持（WebCrypto `ECDH` + 手写 Concat KDF），`enc` 以服务端 `allowed-encs` 为准（不再写死 A256GCM）。
+- **互通性证据**：core 单测用 nimbus `ECDHEncrypter`（独立实现）当 oracle 双向验证；真实 E2E：web-example 11/11、gateway-example 10/10。
 
 ## 4. 模块与 API 变更
 

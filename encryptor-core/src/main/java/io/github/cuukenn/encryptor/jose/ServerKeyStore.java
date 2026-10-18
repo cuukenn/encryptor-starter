@@ -1,6 +1,8 @@
 package io.github.cuukenn.encryptor.jose;
 
 import com.nimbusds.jose.JWEAlgorithm;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.util.Base64URL;
@@ -18,11 +20,19 @@ import org.bouncycastle.crypto.util.PublicKeyFactory;
 import org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory;
 import org.bouncycastle.math.ec.ECPoint;
 
+import java.math.BigInteger;
+import java.security.AlgorithmParameters;
 import java.security.KeyFactory;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
@@ -32,6 +42,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.crypto.KeyAgreement;
 
 /**
  * 服务端密钥库：多 {@code kid} 并存（支持轮换），按 {@code kid} 取私钥、导出只含公钥的 JWK 与 SPKI。
@@ -198,6 +210,8 @@ public final class ServerKeyStore {
             try {
                 if (effectiveType == KeyType.SM2) {
                     entries.put(kid, sm2Entry(kid, privPkcs8Base64, pubBase64));
+                } else if (effectiveType == KeyType.EC) {
+                    entries.put(kid, ecEntry(kid, privPkcs8Base64, pubBase64));
                 } else {
                     entries.put(kid, rsaEntry(kid, privPkcs8Base64, pubBase64));
                 }
@@ -232,6 +246,32 @@ public final class ServerKeyStore {
                 Base64.getEncoder().encodeToString(publicKey.getEncoded()),
                 rsaKey.toPublicJWK().toJSONObject(), false);
             return new Entry(KeyType.RSA, privateKey, publicKey, rsaKey, null, info);
+        }
+
+        /**
+         * P-256 密钥（{@code ECDH-ES}）：私钥 PKCS#8、公钥 SPKI，两条都必须落在 secp256r1 上。
+         */
+        private Entry ecEntry(String kid, String privPkcs8Base64, String pubX509Base64) throws Exception {
+            KeyFactory keyFactory = KeyFactory.getInstance("EC");
+            PrivateKey privateKey = keyFactory.generatePrivate(
+                new PKCS8EncodedKeySpec(Base64.getDecoder().decode(privPkcs8Base64)));
+            PublicKey publicKey = keyFactory.generatePublic(
+                new X509EncodedKeySpec(Base64.getDecoder().decode(pubX509Base64)));
+            if (!(privateKey instanceof ECPrivateKey) || !(publicKey instanceof ECPublicKey)) {
+                throw new EncryptorException("密钥 kid=" + kid + " 不是 EC 密钥");
+            }
+            ECPrivateKey ecPrivateKey = (ECPrivateKey)privateKey;
+            ECPublicKey ecPublicKey = (ECPublicKey)publicKey;
+            requireP256(kid, ecPrivateKey.getParams(), ecPublicKey.getParams());
+            if (!matches(ecPublicKey, ecPrivateKey)) {
+                throw new EncryptorException("密钥 kid=" + kid + " 的公私钥不匹配");
+            }
+            ECKey ecKey = new ECKey.Builder(Curve.P_256,
+                coordinate(ecPublicKey.getW().getAffineX()), coordinate(ecPublicKey.getW().getAffineY()))
+                .keyID(kid).algorithm(JWEAlgorithm.parse(EcCipherSuite.ALG)).keyUse(KeyUse.ENCRYPTION).build();
+            PublicKeyInfo info = new PublicKeyInfo(kid, EcCipherSuite.ALG,
+                Base64.getEncoder().encodeToString(publicKey.getEncoded()), ecKey.toPublicJWK().toJSONObject(), false);
+            return new Entry(KeyType.EC, privateKey, publicKey, null, null, info);
         }
 
         private Entry sm2Entry(String kid, String privPkcs8Base64, String pubBase64) throws Exception {
@@ -312,6 +352,51 @@ public final class ServerKeyStore {
             return parsed != null && sm2 != null && sm2.getN().equals(parsed.getN())
                 && sm2.getG().equals(parsed.getG())
                 && parsed.getCurve().getFieldSize() == SM2_COORDINATE_BYTES * 8;
+        }
+
+        /** 两条密钥的曲线参数都必须等于 P-256（secp256r1），否则拒绝（防降级到 P-384/P-521）。 */
+        private static void requireP256(String kid, ECParameterSpec privParams, ECParameterSpec pubParams)
+            throws Exception {
+            ECParameterSpec p256 = p256Params();
+            if (!p256.equals(privParams) || !p256.equals(pubParams)) {
+                throw new EncryptorException("密钥 kid=" + kid + " 的曲线不是 P-256（secp256r1）");
+            }
+        }
+
+        private static ECParameterSpec p256Params() throws Exception {
+            AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
+            parameters.init(new ECGenParameterSpec("secp256r1"));
+            return parameters.getParameterSpec(ECParameterSpec.class);
+        }
+
+        /**
+         * 公私钥是否成对：一次"自协商"验证——临时密钥对分别与配置公钥、配置私钥协商，
+         * 两次共享密钥相等 ⇔ 两条密钥同属一对。比"从私钥推公钥逐点比对"更直接，且只用 JCE。
+         */
+        private static boolean matches(ECPublicKey publicKey, ECPrivateKey privateKey) throws Exception {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+            generator.initialize(new ECGenParameterSpec("secp256r1"));
+            java.security.KeyPair probe = generator.generateKeyPair();
+            return MessageDigest.isEqual(agree(probe.getPrivate(), publicKey), agree(privateKey, probe.getPublic()));
+        }
+
+        private static byte[] agree(PrivateKey mine, PublicKey theirs) throws Exception {
+            KeyAgreement agreement = KeyAgreement.getInstance("ECDH");
+            agreement.init(mine);
+            agreement.doPhase(theirs, true);
+            return agreement.generateSecret();
+        }
+
+        /** 大整数坐标 → 定长 32 字节大端 Base64URL（JWK 的 x/y）。 */
+        private static Base64URL coordinate(BigInteger value) {
+            byte[] raw = value.toByteArray();
+            byte[] fixed = new byte[32];
+            if (raw.length >= 32) {
+                System.arraycopy(raw, raw.length - 32, fixed, 0, 32);
+            } else {
+                System.arraycopy(raw, 0, fixed, 32 - raw.length, raw.length);
+            }
+            return Base64URL.encode(fixed);
         }
 
         private static Map<String, Object> sm2Jwk(String kid, ECPoint point) {            byte[] encoded = point.getEncoded(false);

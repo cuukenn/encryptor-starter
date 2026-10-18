@@ -4,7 +4,7 @@
 
 ## 这是什么
 
-`encryptor-starter`：一套**报文层安全**的 Spring Boot Starter（v2 协议，对齐 JOSE/JWE RFC 7516）。客户端用服务端公钥（RSA-OAEP-256 或国密 SM2）封装一把每请求新生成的 CEK，业务数据用 AES-GCM（或 SM4-GCM）加密；服务端验上下文/防重放、解密、处理、再用同一 CEK 把响应回加密（`alg=dir`）。
+`encryptor-starter`：一套**报文层安全**的 Spring Boot Starter（v2 协议，对齐 JOSE/JWE RFC 7516）。客户端用服务端公钥封装一把每请求新生成的 CEK——RSA-OAEP-256、国密 SM2，或 ECDH-ES（P-256 直接密钥协商）——业务数据用 AES-GCM（或 SM4-GCM）加密；服务端验上下文/防重放、解密、处理、再用同一 CEK 把响应回加密（`alg=dir`）。
 
 - 语言/构建：**Java 8** + Maven 多模块
 - 版本：Spring Boot `2.4.2`、Spring Cloud `2020.0.1`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
@@ -63,7 +63,8 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 ## 核心数据流（v2）
 
 ```text
-客户端: CEK=CSPRNG(32B) → JWE{alg=RSA-OAEP-256|SM2, enc=A256GCM|SM4-GCM, kid, ts, nonce, uri, m, dir=req}
+客户端: CEK=CSPRNG(32B) → JWE{alg=RSA-OAEP-256|ECDH-ES|SM2, enc=A256GCM|SM4-GCM, kid, ts, nonce, uri, m, dir=req}
+        ECDH-ES: 临时 P-256 密钥对 + epk(header) → Z → Concat-KDF(SHA-256) 派生 CEK，encrypted_key 段为空
         载体三选一: ?jwe=<compact> | {"jwe":"<compact>"} | form jwe=<compact>
 
 服务端 (servlet filter / gateway GlobalFilter):
@@ -85,7 +86,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 | 改 servlet 侧过滤器链/三载体/失败面/JWKS 端点 | `encryptor-web-starter/.../filter/`、`discovery/` |
 | 改网关链路/有界执行器/响应改写/JWKS | `encryptor-gateway-starter/.../gateway/` |
 | 改配置形态/自动装配/启动摘要 | 两侧 `EncryptorAutoConfiguration` + `config/EncryptorConfig` |
-| 改默认算法组合/加 CipherSuite | `encryptor-core/.../jose/`（CipherSuite SPI + JceCipherSuite/SmCipherSuite） |
+| 改默认算法组合/加 CipherSuite | `encryptor-core/.../jose/`（CipherSuite SPI + JceCipherSuite/SmCipherSuite/EcCipherSuite + ConcatKdf） |
 | 跑起来验证/改示例/前端 JS | `encryptor-examples/`（front/encryptor/jwe.js 是 JS 客户端参考实现） |
 | 性能回归 | `encryptor-bench/` + `check-thresholds.sh` |
 
@@ -104,6 +105,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 | `encryptor-web-starter/src/test/.../SmJweTestSupport.java`（国密手拼客户端） | `encryptor-gateway-starter/src/test/.../SmGatewayTestSupport.java`（成对副本） |
 | `encryptor-web-starter/src/test/.../filter/ResponseFilterHardeningTest.java` | `encryptor-gateway-starter/src/test/.../filter/GatewayJweTest.java`（同名用例族） |
 | `encryptor-examples/web-example/front/encryptor/jwe.js` | `encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js` |
+| `encryptor-examples/web-example/src/main/resources/application.yml`（`ec-2026` EC 演示密钥 + `/test/ec.*` 白名单） | `encryptor-examples/gateway-example/gateway/src/main/resources/application.yml`（`ec-gw-2026`） |
 
 **协议变更（JWE 头字段、AAD claims、载体字段名 `jwe`、`kid` 语义）还要同步：** 两份 `HttpTest.java`（`encryptor-examples/*/src/test/**/HttpTest.java`，里面手工拼 compact 与解析逻辑）、两份 front 的 `jwe.js`、设计文档。
 
@@ -119,7 +121,8 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 ## 历史包袱与坑（v1 已删，但这些坑仍要防）
 
 1. 🟩 v1 协议（自研 RSA-PKCS1v15+AES-CBC+MD5-AES 签名、`EncryptorDataWrapper` 5 字段、`EncryptorKit`、`GroupEncryptor`、签名/编码/摘要策略栈）**已全部删除**，残留 grep 必须 0 命中：`EncryptorDataWrapper|AES_K|md5withaes|DigestWithEncryptSigner|GroupEncryptor|HexEncoder`。
-2. ⚠️ 含 `.` 的 uri 正则 config key 必须用括号写法 `"[...]"`（Spring 静默改坏 key）；正则是**整串匹配**，前缀匹配要写 `.*`。
+2. ⚠️ 含 `.` 的 uri 正则 config key 必须**整体**包在括号里，如 `"[/test/ec.*]"`（绑定后 key 是括号内那串）；**括号不能嵌套**（`"[/]test[/]ec.*"` 会被 Spring 静默改坏 → 规则失效）；正则是**整串匹配**，前缀匹配要写 `.*`。
+2.1 ⚠️ ECDH-ES 的 `encrypted_key` 段**为空**（compact 里是 `header..iv.ct.tag`），`JweCodec` 不再把"空 encrypted_key"当结构错误；`epk` 属于 protected header，**参与 AAD**，服务端改动 `epk` 解析口径就等于改 AAD（会全量 AAD_MISMATCH）。只支持 **P-256**，`epk.crv` 不符一律拒；EC 密钥存在时 `allowed-algs` 才联动出 `ECDH-ES`，`enc` 走 AES-GCM 家族。
 3. ⚠️ 网关的**下游必须是没有引入 encryptor 的普通应用**（`gateway-example/web`）：网关转发的已是明文，下游若也带 starter 会再解一次 → 400。
 4. ⚠️ `Cipher` 非线程安全：JCE 路径每次新建 Cipher（`JceCipherSuite.unwrapCek/aead*`），**不要**缓存单例。
 5. ⚠️ nimbus `Base64URL` 无 `decode(String)` → `java.util.Base64.getUrlDecoder()`；`JWEHeader.parse(String)` 收 JSON，parse base64url 段用 `JWEHeader.parse(new Base64URL(...))`。
@@ -139,6 +142,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 ## 构建状态（v2 分支 `feat/jwe-protocol`）
 
 - `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 79 + starter 9 + reactive 3 + web 31 + gateway 23 + 两示例）。
-- 全量单测 **145 绿**（评审修复后：core 70→79、web 26→31、gateway 19→23）；JMH：RSA 并行度 3.83×（阈值 2.5×），bytes/op 基线 72792。
-- 真实端到端已复验：web-example(8081) 与 gateway-example(8080→8082) 的 `node front/test.js` 各 6/6 PASS；两个 JWKS 端点 200 + ETag。
+- 全量单测 **147 绿**（新增 ECDH-ES 后：core 79→92、web 31、gateway 23、reactive 3）；JMH：RSA 并行度 3.83×（阈值 2.5×），bytes/op 基线 72792。
+- ECDH-ES（P-256）端到端已复验（全 JIT 手起实例）：web-example `node front/test.js` 11/11、gateway-example 10/10；core 另以 nimbus `ECDHEncrypter` 为独立 oracle 做双向互通单测。
+- 真实端到端（RSA 路径，全 JIT）：web-example(8081) 与 gateway-example(8080→8082) 的 JWE 三载体 + 篡改用例全 PASS；两个 JWKS 端点 200 + ETag。
 - 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues.md` 文末「v2 整分支评审修复」章节。

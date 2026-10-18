@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.jose;
 
+import com.nimbusds.jose.JWEHeader;
+
 import java.util.Set;
 
 /**
@@ -25,6 +27,16 @@ public interface CipherSuite {
      * @param alg 报文声明的封装算法（必属 {@link #algorithms()}）
      */
     byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey) throws Exception;
+
+    /**
+     * 带 protected header 的解封入口：ECDH-ES 这类算法要从 header 里取 {@code epk}（临时公钥）。
+     *
+     * <p>默认实现忽略 header、委托给四参重载；只需要 {@code encrypted_key} 的算法（RSA-OAEP/SM2）无需覆写。</p>
+     */
+    default byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey, JWEHeader header)
+        throws Exception {
+        return unwrapCek(keys, kid, alg, encryptedKey);
+    }
 
     /**
      * AEAD 内容加密。

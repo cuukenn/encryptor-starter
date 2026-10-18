@@ -1,6 +1,6 @@
 'use strict';
 /**
- * 端到端断言脚本：GET / POST(json) / POST(form) / JWKS 四条，全过 exit 0，任一失败 exit 1。
+ * 端到端断言脚本：JWKS / GET / POST(json) / POST(form) / ECDH-ES / 篡改六组，全过 exit 0，任一失败 exit 1。
  * 需先启动 web-example（8081）。跑法：node front/test.js
  *
  * @author changgg
@@ -63,7 +63,48 @@ async function main() {
         check('post-form: 200 且解回明文含 name=[1]（表单被解析）', plain.includes('name=[1]'), plain);
     }
 
-    // 5. 篡改任一字节必须 400（防篡改可执行断言）
+    // 5. ECDH-ES（P-256 直接密钥协商）：/test/ec 只接受 ec-2026
+    {
+        const ecKey = keys.byKid.get('ec-2026');
+        check('jwks: ec-2026 是 kty=EC/crv=P-256', !!ecKey && ecKey.kty === 'EC' && ecKey.crv === 'P-256',
+            JSON.stringify(ecKey));
+        const {jwe: compact, cek, alg} = await jwe.encrypt(qs.stringify({name: 'ec'}),
+            {kid: 'ec-2026', publicKeyJwk: ecKey, uri: '/test/ec', method: 'GET'});
+        check('ecdh-es: alg=ECDH-ES 且 encrypted_key 段为空', alg === 'ECDH-ES' && compact.split('.')[1] === '',
+            'alg=' + alg + ' seg=' + compact.split('.')[1]);
+        const res = await axios.get(BASE + '/test/ec', {params: {jwe: compact}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('ecdh-es: 200 且解回明文含 EC, ec', plain.includes('EC, ec'), plain);
+    }
+
+    // 6. ECDH-ES 反向：/test/ec 拒绝 RSA kid（uri 级 kid 白名单）
+    {
+        const {jwe: compact} = await jwe.encrypt(qs.stringify({name: '1'}),
+            {...currentKey(keys), uri: '/test/ec', method: 'GET'});
+        try {
+            await axios.get(BASE + '/test/ec', {params: {jwe: compact}});
+            check('ecdh-es: RSA kid 打 /test/ec 必须非 200', false);
+        } catch (err) {
+            check('ecdh-es: RSA kid 打 /test/ec 必须 400', err?.response?.status === 400,
+                'status=' + err?.response?.status);
+        }
+    }
+
+    // 7. 未在白名单的 enc 必须被拒（fail-closed）
+    {
+        const ecKey = keys.byKid.get('ec-2026');
+        const {jwe: compact} = await jwe.encrypt(qs.stringify({name: 'ec'}),
+            {kid: 'ec-2026', publicKeyJwk: ecKey, uri: '/test/ec', method: 'GET', enc: 'A128GCM'});
+        try {
+            await axios.get(BASE + '/test/ec', {params: {jwe: compact}});
+            check('ecdh-es: A128GCM 未在白名单必须非 200', false);
+        } catch (err) {
+            check('ecdh-es: A128GCM 未在白名单必须 400', err?.response?.status === 400,
+                'status=' + err?.response?.status);
+        }
+    }
+
+    // 8. 篡改任一字节必须 400（防篡改可执行断言）
     {
         const {jwe: compact} = await jwe.encrypt(qs.stringify({name: '1'}),
             {...currentKey(keys), uri: '/test/hello', method: 'GET'});

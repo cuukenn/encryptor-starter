@@ -63,7 +63,35 @@ async function main() {
         check('post-form: 200 且解回明文含 name=[1]（表单被解析）', plain.includes('name=[1]'), plain);
     }
 
-    // 5. 篡改任一字节必须 400（防篡改可执行断言）
+    // 5. ECDH-ES（P-256 直接密钥协商）：网关侧同样支持
+    {
+        const ecKey = keys.byKid.get('ec-gw-2026');
+        check('jwks: ec-gw-2026 是 kty=EC/crv=P-256', !!ecKey && ecKey.kty === 'EC' && ecKey.crv === 'P-256',
+            JSON.stringify(ecKey));
+        const {jwe: compact, cek, alg} = await jwe.encrypt(qs.stringify({name: 'ec'}),
+            {kid: 'ec-gw-2026', publicKeyJwk: ecKey, uri: '/test/hello', method: 'GET'});
+        check('ecdh-es: alg=ECDH-ES 且 encrypted_key 段为空', alg === 'ECDH-ES' && compact.split('.')[1] === '',
+            'alg=' + alg + ' seg=' + compact.split('.')[1]);
+        const res = await axios.get(BASE + '/test/hello', {params: {jwe: compact}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('ecdh-es: 200 且解回明文含 Hello, ec（下游回显）', plain.includes('Hello, ec'), plain);
+    }
+
+    // 6. 未在白名单的 enc 必须被拒（fail-closed）
+    {
+        const ecKey = keys.byKid.get('ec-gw-2026');
+        const {jwe: compact} = await jwe.encrypt(qs.stringify({name: 'ec'}),
+            {kid: 'ec-gw-2026', publicKeyJwk: ecKey, uri: '/test/hello', method: 'GET', enc: 'A128GCM'});
+        try {
+            await axios.get(BASE + '/test/hello', {params: {jwe: compact}});
+            check('ecdh-es: A128GCM 未在白名单必须非 200', false);
+        } catch (err) {
+            check('ecdh-es: A128GCM 未在白名单必须 400', err?.response?.status === 400,
+                'status=' + err?.response?.status);
+        }
+    }
+
+    // 7. 篡改任一字节必须 400（防篡改可执行断言）
     {
         const {jwe: compact} = await jwe.encrypt(qs.stringify({name: '1'}),
             {...currentKey(keys), uri: '/test/hello', method: 'GET'});

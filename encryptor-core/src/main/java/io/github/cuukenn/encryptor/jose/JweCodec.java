@@ -113,8 +113,7 @@ public class JweCodec {
 
         JWEHeader header = jwe.getHeader();
         if (header == null || header.getAlgorithm() == null || header.getEncryptionMethod() == null
-            || jwe.getIV() == null || jwe.getCipherText() == null || jwe.getAuthTag() == null
-            || jwe.getEncryptedKey() == null) {
+            || jwe.getIV() == null || jwe.getCipherText() == null || jwe.getAuthTag() == null) {
             throw fail(EncryptorFailure.BAD_HEADER, "JWE 结构不完整");
         }
         String alg = header.getAlgorithm().getName();
@@ -152,7 +151,10 @@ public class JweCodec {
         CipherSuite aeadSuite = suiteOfEnc(enc);
         byte[] cek;
         try {
-            cek = unwrapSuite.unwrapCek(keys, kid, alg, jwe.getEncryptedKey().decode());
+            // encrypted_key 段对 dir/ECDH-ES 等直接协商类算法为空（nimbus 可能给 null 或空段），
+            // 统一成 0 长字节，由套件决定是否接受
+            byte[] encryptedKey = jwe.getEncryptedKey() == null ? new byte[0] : jwe.getEncryptedKey().decode();
+            cek = unwrapSuite.unwrapCek(keys, kid, alg, encryptedKey, header);
         } catch (EncryptorException e) {
             // 套件已经给出精确分类（如密钥类型与 alg 不匹配 ⇒ ALG_NOT_ALLOWED），不得退化成笼统的解密失败
             throw e;

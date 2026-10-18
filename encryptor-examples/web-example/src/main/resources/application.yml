@@ -14,6 +14,11 @@ encryptor:
             - kid: "secret-2026"
               private-key: MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDBviT7w2dAa5reWT5G7/wlxr5ZeFVuKYU6s49T7iLGjf9glPXyC9qPyL9ziCY2yuaV57OF/HLn6OeKZusdtYsIBSbqn31epmJK1fuNoS7NacnHqY9FdhAA5/VJRxZZWuY/5IBnS++RhAxXJuLwpnnU/6LcDXzP8g/F/rO8Wpuj+3wDBVQXjo8Uj4sjBLVf7BTBNJdt1iVSn2Cwt7sbm3hMY2JGwUm1Xj6A869ItLbokdcODkaA9PfIYWCVe4/682z17tHttpEdb2sgYc20a16XatA3o2XpVartR6Re6SD3xiruT9KzQUbFDEW9K3jqdgxSeD67fBdr1GnePCcDrim3AgMBAAECggEAH1br3O0xDLV7TJVWDXEw3JwnWrSsPmYpVCNglMc0HoyGBLBZOnPwFmB267At3PYkUkJegqwhRYyiC6bLSI0py2conOemBtirlLHEKmxUyaCKUH8H8HNWcmG92+0hBdzo2ulSW03oF6YAaFv0y3sPwRna/8qPZ9nJnbxY2affKP6zRgWEP35ZTX8n+udE6uo52CLdxD5gyr+xMN/MjNmZxYdX1xsVb9qjoiGbcXky95NsxLEoPGEr3Laqnp/OyKfBR+N0EDdv+K7kyVDbAKVMOf7m27eL67sMQhYYI+pK1Dv7oYt13nrDJtrNAbANExQoBdsuQJ011kYTGkf9Y7Y8+QKBgQDkHGfLOiWXSTx345HjEEPdn10nGshTvV2cXXRB3nI6ZiGk/X3xHQEU6eYPT5UPlV5J7na22vNlOZ0oW/QDXoJpNiUadZ1oml/XU2I2J8rRHcc55AyJAfVFkxYmlxtJzJqGCfCYtg2DwH/r6fu07NojgG4IzC78tiykrSOSv1JR3wKBgQDZbg5caWMjFGoQnkbfN86kHuoerCItyUK32uaUu27QaHILDIYfg59q6J3Fsui4wvAnM+cNDLP3VM1Gdg8Vb6lbsJKp7Qc9XXggyh0APXthIsZHnch/Eq7oAeUISnGi7mTPdPAAaK/ji/T16Fz9LsgLyXE0W6bDmmPaKPW3jQSTKQKBgQDInu7ufyJmjwO+kYhSQpDdjvaXmOeNNqPpDQxdji26jO6UNFoawB6ebSRoXN7FiOIXdcI1ChY89dHxmAXhHLLno7Y4Mi8Ru4wFThG3fYHULzN0B8y6ht1Xpog5wnY+jtNshbt0I9F5Ccm4C97TfehQhvi/hgzhN7vFzXzW6KuW0wKBgQDYcqgXNM59CICB5J6W7f5nAWN9f0xTGiyxzFeIroIlNCR7fU8zphsYGVOekHj+HQlnbVLQednaGPB0+WgQpeUJouCOCqkPXLIOqkVujMX7L9wFRTxny9iUm/Y9Z6ZyVTHEGBwnvA+EzTnhZxzS6jQ5D6MDRU3hIRvP/MCHpfls6QKBgDVUC2tJwKWQhCwtCX7GHJGs2YfgTMICI+bDmeDnztkv6BP5CZiXFC3E1OT86OJtNlVs8PM2mS0x/ERRXqjAgG+OcLXG45JXCLzEMWi87xjPlGIY7HhunzDU3ITUi8a5ypDEQKo7ds7NHSzjSN1oOv0PJDlgGnEofdfoDSSM245u
               public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwb4k+8NnQGua3lk+Ru/8Jca+WXhVbimFOrOPU+4ixo3/YJT18gvaj8i/c4gmNsrmleezhfxy5+jnimbrHbWLCAUm6p99XqZiStX7jaEuzWnJx6mPRXYQAOf1SUcWWVrmP+SAZ0vvkYQMVybi8KZ51P+i3A18z/IPxf6zvFqbo/t8AwVUF46PFI+LIwS1X+wUwTSXbdYlUp9gsLe7G5t4TGNiRsFJtV4+gPOvSLS26JHXDg5GgPT3yGFglXuP+vNs9e7R7baRHW9rIGHNtGtel2rQN6Nl6VWq7UekXukg98Yq7k/Ss0FGxQxFvSt46nYMUng+u3wXa9Rp3jwnA64ptwIDAQAB
+            # ECDH-ES（P-256）演示密钥：/test/ec.* 只接受这把
+            - kid: "ec-2026"
+              type: EC
+              private-key: MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCCOc7AE+43yb/7wzQSUBfxhpyXeox4/SIaGvm16OSUgow==
+              public-key: MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERw5R2QoVGBgjmTf//AbKaEw/XUxJREANRc8VUERWq9g9Q6qUyPF3g7M54R+2o9JWYM4qcKF9pEaIygB0pNo7JQ==
         active-kid: "example-2026"
         web:
             enable: true
@@ -21,3 +26,5 @@ encryptor:
             # 命中该正则的请求只接受 kid=secret-2026 的 JWE 头；未命中走全局（active-kid）
             crypto-config:
                 "[^/test/secret.*]": [ "secret-2026" ]
+                # /test/ec.* 只接受 ECDH-ES(P-256) 那把，用来演示"uri 级绑密钥类型"
+                "[/test/ec.*]": [ "ec-2026" ]
