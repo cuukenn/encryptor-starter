@@ -145,11 +145,47 @@ mvn -B -pl encryptor-examples/gateway-example/web     org.springframework.boot:s
 mvn -B -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
 
 # 客户端（Node ≥16；本仓库实测 Node 16，用 npm 而不是 pnpm）
-cd encryptor-examples/web-example/front && npm install && node test.js     # 6 条断言
-cd encryptor-examples/gateway-example/gateway/front && npm install && node test.js
+cd encryptor-examples/web-example/front && npm install && node test.js     # 11 条断言
+cd encryptor-examples/gateway-example/gateway/front && npm install && node test.js   # 10 条断言
 ```
 
-`test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、篡改 IV 必须 400；全过 `exit 0`。
+`test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、ECDH-ES 往返（`alg=ECDH-ES` 且 `encrypted_key` 段为空）、uri 级 kid 绑定、未配置的 `enc` 被拒、篡改 IV 必须 400；全过 `exit 0`。
+
+## 性能基准（JMH）
+
+基准代码在 `encryptor-bench/`。下表是**同一台机器上三次独立运行的中位数**（轮间偏差 <1%）：
+
+- 机器：Apple M1 Pro（10 核）/ 32 GB / macOS，Oracle JDK 11.0.28
+- 参数：`-wi 2 -i 3 -f 1 -prof gc`（每基准 2×1s 预热 + 3×1s 测量，1 个 fork）
+- 单位：一次 `roundTrip` = **服务端处理一次请求**（`decryptRequest` + `encryptResponse`）；客户端封包不在其中，compact 在 `setup` 阶段预先生成；`decrypt*` = 仅服务端解封 + 解密
+
+| 基准 | 吞吐 (ops/s) | 单次耗时 | 4 线程并行度 | 分配 (B/op) |
+| --- | --- | --- | --- | --- |
+| `E2eBenchmark.roundTrip`（RSA-OAEP-256） | **1020** | 0.98 ms | — | 73018 |
+| `EcdhEsBenchmark.ecdhRoundTrip`（ECDH-ES P-256） | **1438** | 0.70 ms | — | 73550 |
+| `RsaParallelBenchmark.decryptSingleThread` | 1028 | 0.97 ms | — | 60881 |
+| `RsaParallelBenchmark.decryptFourThreads` | 4051 | 0.25 ms/op | **3.94×** | 60584 |
+| `EcdhEsBenchmark.ecdhDecryptSingleThread` | 1457 | 0.69 ms | — | 61456 |
+| `EcdhEsBenchmark.ecdhDecryptFourThreads` | 5808 | 0.17 ms/op | **3.99×** | 60833 |
+
+怎么读：
+
+- **两个算法族都在千级 ops/s，ECDH-ES 约为 RSA-OAEP-256 的 1.4 倍**——是同一数量级的差距，不是数量级优势。单次请求的成本 = 「一次 JWE 编解码（parse/AAD/GCM）」+「一次密钥协商」，P-256 协商相对 RSA-2048 私钥运算只省下其中一段（实测 ≈0.29 ms/op，其余为两条路径共享的管线成本）。
+- **并发近线性**（4 线程 3.94× / 3.99×）：`Cipher` 每次新建、无共享可变状态，密钥运算不互相阻塞。
+- **分配量约 61–74 KB/op**，主要来自 nimbus 的 JWE/JSON 对象。`gc.alloc.rate.norm` 是本仓库的回归基线（`encryptor-bench/baseline.json`，阈值 +10%）。
+- 以上是**本机、JDK 11、未调优**的原始值；换机器或换 JDK 请以本机重跑为准。
+
+复现：
+
+```bash
+/usr/local/maven/3.8.9/bin/mvn -B -Pall-modules -pl encryptor-bench -am -DskipTests package
+java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rff encryptor-bench/target/bench.json
+encryptor-bench/check-thresholds.sh encryptor-bench/target/bench.json
+```
+
+`check-thresholds.sh` 卡两条闸门：4 线程解封并行度 ≥2.5×、往返分配量不超过基线 +10%；ECDH-ES/RSA 的比值只打印不断言（3×1s 迭代下该比值噪声可达 ±35%，当闸门只会带来假失败；看趋势请加长迭代，如 `-wi 3 -i 5`）。
+
+⚠️ **别拿 `spring-boot:run` 的性能数字做决策**：它会给示例应用注入 `-XX:TieredStopAtLevel=1`（只跑 C1）。同一套代码实测从约 0.95 ms/op 变成约 7.5 ms/op（≈7.8×），HTTP 往返 rtt 从约 1.6 ms 变成约 8.6 ms。要量生产形态就用 `java -cp … <MainClass>` 直接起（示例见 `AGENTS.md`），或打包后 `java -jar`。
 
 ## v1 → v2 迁移
 

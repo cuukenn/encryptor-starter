@@ -141,8 +141,10 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 
 ## 构建状态（v2 分支 `feat/jwe-protocol`）
 
-- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 79 + starter 9 + reactive 3 + web 31 + gateway 23 + 两示例）。
-- 全量单测 **147 绿**（新增 ECDH-ES 后：core 79→92、web 31、gateway 23、reactive 3）；JMH：RSA 并行度 3.83×（阈值 2.5×），bytes/op 基线 72792。
+- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 31 + gateway 23 + 两示例 + JMH bench）。
+- 全量单测 **158 绿**（core 92、starter 9、reactive 3、web 31、gateway 23），fail/err 均 0。
+- JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。
+- ⚠️ `bench.jar` 的两个坑：①`EcdhEsBenchmark` 必须显式传 `allowedAlgs={ECDH-ES}`（空集合会取协议默认 `RSA-OAEP-256` → 构造期 fail-fast）；②JMH setup 失败时只在日志里打堆栈、**exit code 仍是 0**，必须查 `bench.log`/`check-thresholds.sh` 而不能只看退出码。
 - ECDH-ES（P-256）端到端已复验（全 JIT 手起实例）：web-example `node front/test.js` 11/11、gateway-example 10/10；core 另以 nimbus `ECDHEncrypter` 为独立 oracle 做双向互通单测。
 - 真实端到端（RSA 路径，全 JIT）：web-example(8081) 与 gateway-example(8080→8082) 的 JWE 三载体 + 篡改用例全 PASS；两个 JWKS 端点 200 + ETag。
 - 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues.md` 文末「v2 整分支评审修复」章节。
