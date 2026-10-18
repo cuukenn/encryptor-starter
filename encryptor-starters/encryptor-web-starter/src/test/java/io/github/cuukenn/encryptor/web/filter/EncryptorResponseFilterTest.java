@@ -81,7 +81,7 @@ class EncryptorResponseFilterTest {
 
     @Test
     void 黑名单响应contentType原样放行() throws Exception {
-        webConfig.setBlackResContentType(java.util.Collections.singletonList("application/octet-stream"));
+        webConfig.setSkipResContentType(java.util.Collections.singletonList("application/octet-stream"));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/dl");
         request.setParameter("jwe", support.seal("f=1", "/api/dl", "POST"));
         MockHttpServletResponse response = new MockHttpServletResponse();

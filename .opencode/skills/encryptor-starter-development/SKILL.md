@@ -35,7 +35,7 @@ description: Use when changing this repository's JWE payload-security code - add
 - [ ] 我改的东西是否跨了协议边界（JWE protected header 的 `uri`/`m`/`dir`/`ts`/`nonce` claims、载体字段名 `jwe`、`kid` 语义、alg/enc 取值）？跨了就要同步：两份 `HttpTest.java` **和两份 `front/encryptor/jwe.js`**，并更新设计文档。
 - [ ] 新增算法：CipherSuite 只解决"怎么算"；"许不许用"在白名单（`allowed-algs`/`allowed-encs` + codec 内强制），两边配置默认值都要能联动到。
 - [ ] 配置写对前缀了吗？web 是 `encryptor.config.web.*`，**gateway 是 `encryptor.config.reactive.gateway.*`**（多一层 `reactive`，且 failure-status/上限在 reactive 通用段）。
-- [ ] 名单类配置（`black-uris` 等）是**正则整串匹配**；命中即**跳过**加密（不是拦截）。含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`。
+- [ ] 名单类配置（`skip-uris` 等，旧名 `black-uris` 为弃用 alias）是**正则整串匹配**；命中即**跳过**加密（不是拦截）。含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`。
 - [ ] `Cipher` 非线程安全——不要缓存单例；防重放必须在 GCM tag 校验**之后**。
 
 ## 成对文件对照表（改一处必改另一处）

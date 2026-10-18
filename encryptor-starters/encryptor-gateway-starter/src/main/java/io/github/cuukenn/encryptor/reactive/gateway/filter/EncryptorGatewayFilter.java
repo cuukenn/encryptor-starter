@@ -77,7 +77,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         String uri = request.getURI().getPath();
         String method = request.getMethodValue();
         // 2. uri/method 黑名单透传（与 servlet 侧同一语义：整串正则匹配）
-        if (StrKit.anyMatch(uri, config.getBlackUris()) || StrKit.anyMatch(method, config.getBlackMethods())) {
+        if (StrKit.anyMatch(uri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
             return chain.filter(exchange);
         }
         // 3. 运行期旁路透传
@@ -87,7 +87,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         // 4. 请求方向 content-type 黑名单透传（不请求解密 ⇒ 也不响应加密）
         MediaType contentType = request.getHeaders().getContentType();
         String contentTypeValue = contentType == null ? "" : contentType.toString().toLowerCase(Locale.ROOT);
-        if (StrKit.anyMatch(contentTypeValue, config.getBlackReqContentType())) {
+        if (StrKit.anyMatch(contentTypeValue, config.getSkipReqContentType())) {
             return chain.filter(exchange);
         }
         // 5. 载体识别

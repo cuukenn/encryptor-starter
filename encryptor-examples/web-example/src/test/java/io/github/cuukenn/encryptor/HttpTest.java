@@ -16,6 +16,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -48,7 +49,7 @@ public class HttpTest {
 
     @Test
     public void test_get() {
-        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/hello", "GET", KID_GLOBAL, PUBLIC_KEY_GLOBAL);
         HttpResponse response = sendGet("/test/hello?jwe=" + url(sealed.compact));
         Assertions.assertEquals(200, response.getStatus(), "GET /test/hello 应返回 200");
@@ -63,7 +64,7 @@ public class HttpTest {
      */
     @Test
     public void test_get_uri_level_kid() {
-        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/secret", "GET", KID_SECRET, PUBLIC_KEY_SECRET);
         HttpResponse response = sendGet("/test/secret?jwe=" + url(sealed.compact));
         Assertions.assertEquals(200, response.getStatus(), "GET /test/secret 应返回 200");
@@ -76,7 +77,7 @@ public class HttpTest {
      */
     @Test
     public void test_get_uri_level_kid_rejected() {
-        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/secret", "GET", KID_GLOBAL, PUBLIC_KEY_GLOBAL);
         HttpResponse response = sendGet("/test/secret?jwe=" + url(sealed.compact));
         logger.info("wrong-kid status: {}, body: {}", response.getStatus(), response.body());
@@ -161,8 +162,17 @@ public class HttpTest {
         return HttpRequest.get(BASE + url).execute();
     }
 
+    /** URL 编码（UTF-8）。JDK 8 没有 URLEncoder.encode(String, Charset)（那是 Java 10+）。 */
+    private static String enc(String s) {
+        try {
+            return URLEncoder.encode(s, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static String url(String compact) {
-        return URLEncoder.encode(compact, StandardCharsets.UTF_8);
+        return enc(compact);
     }
 
     private static String decryptResponse(String body, byte[] cek) {

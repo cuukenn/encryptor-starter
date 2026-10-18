@@ -90,10 +90,12 @@ encryptor:
       path: /.well-known/encryptor-keys
       cache-max-age-seconds: 300
     web:                       # 仅 servlet 侧; gateway 前缀 encryptor.config.reactive.gateway
-      black-uris: []            # 跳过名单(正则整串匹配)
-      black-methods: []
-      black-req-content-type: []
-      black-res-content-type: []
+      skip-uris: []             # 跳过名单: 命中即不加密(正则整串匹配)
+      skip-methods: []
+      skip-req-content-type: []
+      skip-res-content-type: []
+      # 旧名 black-uris / black-methods / black-req|res-content-type 仍可绑定
+      # (弃用 alias, 启动会 WARN), 新旧共存时合并去重
       crypto-config:            # uri 正则 → 该路由只接受哪些 kid
         "[^/pay/.*]": ["2026-10"]
 ```
@@ -122,7 +124,7 @@ encryptor:
   }
   ```
   两侧自动装配都会用它替换内存实现（无需覆盖整个 `DefaultProtocol`）。`ttl` 与这里的 TTL 要对齐（存储 TTL ≥ `ttl`，否则过期 nonce 会被重新接受）。
-- **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `black-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
+- **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `skip-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
 - **请求上限的实际边界**：`max-request-size` 在 servlet 侧只对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体经容器 `getParameter()` 解析，字节上限由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
 - **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
 - **客户端**：JS 参考实现（`encryptor-examples/*/front/encryptor/jwe.js`）覆盖 RSA-OAEP-256 与 ECDH-ES（P-256，WebCrypto 原生 `ECDH` + 手写 Concat KDF），`enc` 支持 A128/A192/A256GCM，具体用哪个以服务端 `allowed-encs` 为准。浏览器 WebCrypto **没有** SM 算法，所以 JS 侧不含国密路径。

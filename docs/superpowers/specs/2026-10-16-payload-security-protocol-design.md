@@ -134,8 +134,8 @@
 | --- | --- | --- | --- |
 | `enable` | 全局 | 重启（过滤链注册） | 关掉 = 完全不处理 |
 | `bypass.request` / `bypass.response` | 全局，按方向 | **可（每请求读）** | 该方向"原样透传"（请求不再要求密文、响应不加密）——用于止血 |
-| `black-uris` / `black-methods` | 单 uri/method | 重启 | 完全跳过（别名 `skip-uris` / `skip-methods`，旧名保留） |
-| `black-req/res-content-type`（别名 `skip-*`） | content-type | 重启 | 该方向的处理跳过（**请求/响应语义必须在两侧一致**，改掉今天 web/gateway 不对称） |
+| **`skip-uris` / `skip-methods`**（旧名 `black-*` 为弃用 alias，P3-4 已实现） | 单 uri/method | 重启 | 完全跳过 |
+| **`skip-req/res-content-type`**（旧名 `black-*` 为弃用 alias，P3-4 已实现） | content-type | 重启 | 该方向的处理跳过（**请求/响应语义必须在两侧一致**，改掉今天 web/gateway 不对称） |
 | `failure-status` / `max-request-size` / `max-response-size` | 全局 | 重启 | 同今天，但网关也真正生效 |
 | `x-skip-encryptor`（网关，`skip-able=true`） | 单请求 | 启动期预置 | 保持，但要求内网/共享密钥且启动时大声告警 |
 
@@ -255,10 +255,10 @@ encryptor:
     web:
       enable: true
       bypass: { request: false, response: false }
-      black-uris: [ ... ]              # 别名 skip-uris
-      black-methods: [ ... ]
-      black-req-content-type: [ ... ]
-      black-res-content-type: [ ... ]
+      skip-uris: [ ... ]               # 命中即跳过（旧名 black-uris 仍可绑定，已弃用）
+      skip-methods: [ ... ]
+      skip-req-content-type: [ ... ]
+      skip-res-content-type: [ ... ]
       crypto-config:                   # uri 级覆盖（key 含 . 必须 [key] 括号写法）
         "[^/pay/.*]": { active-kid: "k-pay-2026" }
 ```

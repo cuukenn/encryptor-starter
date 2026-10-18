@@ -147,8 +147,8 @@ class EncryptorWebFilterTest {
     }
 
     @Test
-    void blackUris透传() throws Exception {
-        webConfig.getBlackUris().add("/api/open.*");
+    void skipUris透传() throws Exception {
+        webConfig.getSkipUris().add("/api/open.*");
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/open/public");
         MockHttpServletResponse response = new MockHttpServletResponse();
         run(request, response);

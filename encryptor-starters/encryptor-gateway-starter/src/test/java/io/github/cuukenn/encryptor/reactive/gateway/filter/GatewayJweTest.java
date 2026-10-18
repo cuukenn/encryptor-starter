@@ -238,8 +238,8 @@ class GatewayJweTest {
     }
 
     @Test
-    void 命中blackUris时透传() {
-        gatewayConfig.getBlackUris().add("/api/open.*");
+    void 命中skipUris时透传() {
+        gatewayConfig.getSkipUris().add("/api/open.*");
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/open/health"));
         AtomicBoolean called = new AtomicBoolean();
         gateway().filter(exchange, e -> {
@@ -251,7 +251,7 @@ class GatewayJweTest {
 
     @Test
     void 命中reqContentType黑名单时透传() {
-        gatewayConfig.getBlackReqContentType().add("application/octet-stream");
+        gatewayConfig.getSkipReqContentType().add("application/octet-stream");
         MockServerWebExchange exchange = MockServerWebExchange.from(
             MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_OCTET_STREAM).body("raw"));
         AtomicBoolean called = new AtomicBoolean();
@@ -312,7 +312,7 @@ class GatewayJweTest {
         GatewayContext ctx = new GatewayContext();
         ctx.setEncrypted(true);
         exchange.getAttributes().put(GatewayConstant.GATEWAY_CONTEXT_ATTR, ctx);
-        gatewayConfig.getBlackResContentType().add("text/plain");
+        gatewayConfig.getSkipResContentType().add("text/plain");
         GatewayFilterChain inner = e -> {
             ServerHttpResponse resp = e.getResponse();
             resp.getHeaders().setContentType(MediaType.TEXT_PLAIN);

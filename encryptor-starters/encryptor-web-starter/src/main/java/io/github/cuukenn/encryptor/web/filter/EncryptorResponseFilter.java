@@ -25,7 +25,7 @@ import java.util.UUID;
  * 响应加密（v2）：只对"本请求确实协商出 CEK 且响应方向未旁路"的响应包装与加密。
  *
  * <p>缓冲有界（C3b）：超过 {@code max-response-size} 即停止缓冲并回 500（不发明文）；
- * 大文件/流式接口应把其 content-type 加入 {@code black-res-content-type}，
+ * 大文件/流式接口应把其 content-type 加入 {@code skip-res-content-type}，
  * 并把 {@code max-response-size} 设为 {@code <= 0} 以关闭该上限。</p>
  *
  * <p>运行期止血：{@code EncryptorRuntime.bypassResponse()} 为 true 时原样透传（与网关一致）。</p>
@@ -71,7 +71,7 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
         WebEncryptorConfig config = ctx.getConfig();
         String contentType = wrapper.getContentType();
         if (config != null && contentType != null
-            && StrKit.anyMatch(contentType.toLowerCase(Locale.ROOT), config.getBlackResContentType())) {
+            && StrKit.anyMatch(contentType.toLowerCase(Locale.ROOT), config.getSkipResContentType())) {
             wrapper.copyBodyToResponse();
             return;
         }

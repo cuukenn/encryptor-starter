@@ -16,6 +16,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -45,7 +46,7 @@ public class HttpTest {
 
     @Test
     public void test_get() {
-        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/hello", "GET");
         HttpResponse response = HttpRequest.get(BASE + "/test/hello?jwe=" + url(sealed.compact)).execute();
         Assertions.assertEquals(200, response.getStatus(), "GET /test/hello 应返回 200");
@@ -70,7 +71,7 @@ public class HttpTest {
 
     @Test
     public void test_tampered_rejected() {
-        String plaintext = "name=" + URLEncoder.encode("小明", StandardCharsets.UTF_8);
+        String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/hello", "GET");
         // 篡改密文段首字符 → GCM tag 校验失败 → 400
         String[] parts = sealed.compact.split("\\.");
@@ -139,8 +140,17 @@ public class HttpTest {
         return bytes;
     }
 
+    /** URL 编码（UTF-8）。JDK 8 没有 URLEncoder.encode(String, Charset)（那是 Java 10+）。 */
+    private static String enc(String s) {
+        try {
+            return URLEncoder.encode(s, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static String url(String compact) {
-        return URLEncoder.encode(compact, StandardCharsets.UTF_8);
+        return enc(compact);
     }
 
     private static String decryptResponse(String body, byte[] cek) {

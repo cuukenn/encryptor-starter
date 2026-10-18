@@ -72,4 +72,37 @@ class WebCryptoConfigBindingTest {
                 assertThat(context).hasBean("defaultWebEncryptorFilter");
             });
     }
+
+    @Test
+    void 旧名black名单仍可绑定并落到skip名单() {
+        runner.withPropertyValues(rsaKeyProps("k1"))
+            .withPropertyValues("encryptor.config.web.black-uris[0]=/api/open.*",
+                "encryptor.config.web.black-methods[0]=OPTIONS",
+                "encryptor.config.web.black-req-content-type[0]=multipart/form-data",
+                "encryptor.config.web.black-res-content-type[0]=text/event-stream")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                WebEncryptorConfig web = context.getBean(WebEncryptorConfig.class);
+                // P3-4：旧名只是 alias，写进的就是同一份生效名单（getter 也保留）
+                assertThat(web.getSkipUris()).containsExactly("/api/open.*");
+                assertThat(web.getSkipMethods()).containsExactly("OPTIONS");
+                assertThat(web.getSkipReqContentType()).containsExactly("multipart/form-data");
+                assertThat(web.getSkipResContentType()).containsExactly("text/event-stream");
+                assertThat(web.getBlackUris()).containsExactly("/api/open.*");
+            });
+    }
+
+    @Test
+    void 新旧名字可共存并合并去重() {
+        runner.withPropertyValues(rsaKeyProps("k1"))
+            .withPropertyValues("encryptor.config.web.skip-uris[0]=/api/open.*",
+                "encryptor.config.web.black-uris[0]=/api/open.*",
+                "encryptor.config.web.black-uris[1]=/other")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                WebEncryptorConfig web = context.getBean(WebEncryptorConfig.class);
+                // 两个 setter 都是「合并 + 按值去重」，与绑定顺序无关
+                assertThat(web.getSkipUris()).containsExactly("/api/open.*", "/other");
+            });
+    }
 }

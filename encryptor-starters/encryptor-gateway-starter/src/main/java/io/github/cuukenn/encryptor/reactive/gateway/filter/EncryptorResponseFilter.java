@@ -67,7 +67,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
                 String resCt = getHeaders().getContentType() == null
                     ? "" : getHeaders().getContentType().toString();
-                if (StrKit.anyMatch(resCt, config.getBlackResContentType())) {
+                if (StrKit.anyMatch(resCt, config.getSkipResContentType())) {
                     return super.writeWith(body);
                 }
                 return DataBufferUtils.join(body)

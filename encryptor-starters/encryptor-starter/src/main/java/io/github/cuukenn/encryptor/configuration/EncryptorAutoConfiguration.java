@@ -90,7 +90,7 @@ public class EncryptorAutoConfiguration {
         }
         if (config.getMaxResponseSize() <= 0) {
             logger.warn("encryptor.config.max-response-size<=0：响应缓冲不设上限，"
-                + "大响应会全量驻留内存（请配合 black-res-content-type 使用）");
+                + "大响应会全量驻留内存（请配合 skip-res-content-type 使用）");
         }
     }
 

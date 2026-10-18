@@ -69,7 +69,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         ctx.setParameters(null);
         String uri = request.getRequestURI();
         String method = request.getMethod();
-        if (StrKit.anyMatch(uri, config.getBlackUris()) || StrKit.anyMatch(method, config.getBlackMethods())) {
+        if (StrKit.anyMatch(uri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -79,7 +79,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
         String ct = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
-        if (StrKit.anyMatch(ct, config.getBlackReqContentType())) {
+        if (StrKit.anyMatch(ct, config.getSkipReqContentType())) {
             filterChain.doFilter(request, response);
             return;
         }
