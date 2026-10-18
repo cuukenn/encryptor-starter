@@ -497,3 +497,11 @@
 性能基准数据（JMH 六个基准、三次独立运行的中位数）已写入 `README.md`「性能基准（JMH）」；`encryptor-bench` 新增 `EcdhEsBenchmark`（配 `BenchSupport.ecStore()` / `sealEcdh()`），`check-thresholds.sh` 改为全限定基准名精确匹配、ECDH-ES/RSA 比值只打印不断言。
 
 ⚠️ 顺带更正一条此前的**误判**：`crypto-config` 的 `"[^/test/secret.*]"` 不是"否定字符类"。外层 `[ ]` 是 Spring 的括号写法（绑定后会被剥掉），真正的 key 是正则 `^/test/secret.*`；`WebCryptoConfigBindingTest.括号key绑定含点的正则uri` 已钉死该语义（`.[^/api/.*]` → key `^/api/.*`，且注释说明不用 `[key]` 时 Spring 会把 `^/api/.*` 静默改成 `api`）。示例与 README 的写法本身正确，无需改动。
+
+## CI 加固与 JDK 8 复验（2026-10-18）
+
+此前 `.github/workflows/ci.yml` 只有一步 `mvn -B -Pmain-module clean install`（temurin **JDK 8**），即**只覆盖 dependencies + core + starters**：示例工程与 JMH bench 在 CI 里连编译都不做，两份前端参考实现是否同步也没有守卫。
+
+- **JDK 8 复验**：本地用 CI 同款 JDK（Oracle 1.8.0_461，arm64）跑 CI 同一条命令 → **158 绿 / BUILD SUCCESS**。ECDH-ES 在 JDK 8 上走 SunEC 的 `KeyAgreement("ECDH")` 正常（`EcCipherSuiteTest` 里以 nimbus `ECDHEncrypter` 为独立 oracle 的双向互通用例全过）；SM2 + SM4-GCM（BC 1.78.1）与 RSA-OAEP-256 亦然。此前所有验证都在 JDK 11 上做，这次补上了"CI 真实 JDK"这一环的证据。
+- **新增两步**：①`mvn -B -Pall-modules -DskipTests package` —— 保证示例与 bench 能编译（`-DskipTests` 仍会编译测试源码，可挡住编译腐坏）；②`diff -u` 两份 `jwe.js` —— 把 `AGENTS.md`「成对文件」表里的前端双写面变成 CI 守卫（两份文件当前逐字节一致）。
+- **故意不做**：JMH 阈值脚本不进 CI —— 共享 runner 上吞吐噪声大，硬闸门只会带来假失败；它仍是本地/发布前的手动闸门（`README.md`「性能基准（JMH）」有复现命令）。

@@ -143,6 +143,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 
 - `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 92 + starter 9 + reactive 3 + web 31 + gateway 23 + 两示例 + JMH bench）。
 - 全量单测 **158 绿**（core 92、starter 9、reactive 3、web 31、gateway 23），fail/err 均 0。
+- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）已按同命令在本地 1.8.0_461 复跑：`mvn -B -Pmain-module clean install` **158 绿**（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
 - JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。
 - ⚠️ `bench.jar` 的两个坑：①`EcdhEsBenchmark` 必须显式传 `allowedAlgs={ECDH-ES}`（空集合会取协议默认 `RSA-OAEP-256` → 构造期 fail-fast）；②JMH setup 失败时只在日志里打堆栈、**exit code 仍是 0**，必须查 `bench.log`/`check-thresholds.sh` 而不能只看退出码。
 - ECDH-ES（P-256）端到端已复验（全 JIT 手起实例）：web-example `node front/test.js` 11/11、gateway-example 10/10；core 另以 nimbus `ECDHEncrypter` 为独立 oracle 做双向互通单测。
