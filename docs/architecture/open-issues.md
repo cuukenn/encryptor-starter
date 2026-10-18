@@ -485,3 +485,15 @@
 - **ECDH-ES+A128KW/A192KW/A256KW**（密钥包装模式，非直接协商）：与 `dir` 语义不同，需引入 CEK 包装层，收益不足。
 - **`apu`/`apv`**：不实现，Concat KDF 的 PartyU/VInfo 固定为空（已与 JS 客户端、nimbus oracle 对齐）。
 - **Java 手拼客户端的 ECDH-ES 用例**（两份 `HttpTest.java`）：JS 参考实现已覆盖端到端；`HttpTest` 要手拼 `epk`+Concat KDF，重复度高，暂不加。
+
+## 复查建议 ①②③ 的落实（2026-10-18）
+
+上一轮「正确性 + 性能」报告里的三条建议，现状：
+
+1. **① JS 参考客户端把 `enc` 写死成 `A256GCM`**（服务端只允许 `A128GCM` 时无法互通）——**已修**：`decrypt()` 不再断言 `enc` 等于常量，改以响应头为准并按 `header.enc` 校验 CEK 长度；`encrypt()` 支持 A128/A192/A256GCM，按 `enc` 决定 CEK 字节数。
+2. **② dev 模式（`spring-boot:run`）的性能数字不可用于决策**——**已落文档**：`README.md`「性能基准（JMH）」里加粗警告（该插件注入 `-XX:TieredStopAtLevel=1`，同代码 0.95 ms/op → 7.5 ms/op、HTTP rtt 1.6 ms → 8.6 ms），并给出全 JIT 手起方式（见 `AGENTS.md`）。
+3. **③ 示例未配 SM2 密钥，国密能力无法在示例中自证**——**已补**：web-example 加 `sm-2026`（`^/test/sm.*` 绑定 + `GET /test/sm` 端点）、gateway-example 加 `sm-gw-2026`。用独立 SM 客户端（手拼 SM2 C1C3C2 + SM4-GCM，不复用 core）打 `/test/hello`，两侧各 **12/12 PASS**：正常往返、响应 `alg=dir`/`enc=SM4-GCM`/空 `encrypted_key`、以及重放 / 篡改密文 / 未知 kid / AAD 上下文不匹配四条拒绝面；同一批实例上 `node front/test.js` 仍 11/11、10/10（RSA 与 ECDH-ES 路径无回归）。
+
+性能基准数据（JMH 六个基准、三次独立运行的中位数）已写入 `README.md`「性能基准（JMH）」；`encryptor-bench` 新增 `EcdhEsBenchmark`（配 `BenchSupport.ecStore()` / `sealEcdh()`），`check-thresholds.sh` 改为全限定基准名精确匹配、ECDH-ES/RSA 比值只打印不断言。
+
+⚠️ 顺带更正一条此前的**误判**：`crypto-config` 的 `"[^/test/secret.*]"` 不是"否定字符类"。外层 `[ ]` 是 Spring 的括号写法（绑定后会被剥掉），真正的 key 是正则 `^/test/secret.*`；`WebCryptoConfigBindingTest.括号key绑定含点的正则uri` 已钉死该语义（`.[^/api/.*]` → key `^/api/.*`，且注释说明不用 `[key]` 时 Spring 会把 `^/api/.*` 静默改成 `api`）。示例与 README 的写法本身正确，无需改动。

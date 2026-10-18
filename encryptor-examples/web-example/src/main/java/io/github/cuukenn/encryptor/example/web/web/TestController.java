@@ -37,6 +37,15 @@ public class TestController {
         return "EC, " + name;
     }
 
+    /**
+     * uri 级 crypto-config 覆盖（{@code ^/test/sm.*}）的目标端点：只接受 SM2 那把密钥。
+     * 浏览器 WebCrypto 没有 SM 算法，需用国密客户端验证（见 README「国密的客户端」）。
+     */
+    @GetMapping("/sm")
+    public String sm(@RequestParam(name = "name", required = false) String name) {
+        return "SM, " + name;
+    }
+
     @PostMapping("/hello")
     public String hello(@RequestBody Map<String, Object> data) {
         return "Hello, " + data;

@@ -105,7 +105,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 | `encryptor-web-starter/src/test/.../SmJweTestSupport.java`（国密手拼客户端） | `encryptor-gateway-starter/src/test/.../SmGatewayTestSupport.java`（成对副本） |
 | `encryptor-web-starter/src/test/.../filter/ResponseFilterHardeningTest.java` | `encryptor-gateway-starter/src/test/.../filter/GatewayJweTest.java`（同名用例族） |
 | `encryptor-examples/web-example/front/encryptor/jwe.js` | `encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js` |
-| `encryptor-examples/web-example/src/main/resources/application.yml`（`ec-2026` EC 演示密钥 + `/test/ec.*` 白名单） | `encryptor-examples/gateway-example/gateway/src/main/resources/application.yml`（`ec-gw-2026`） |
+| `encryptor-examples/web-example/src/main/resources/application.yml`（`ec-2026` EC + `sm-2026` SM2 演示密钥 + `/test/ec.*`、`/test/sm.*` 白名单） | `encryptor-examples/gateway-example/gateway/src/main/resources/application.yml`（`ec-gw-2026` + `sm-gw-2026`） |
 
 **协议变更（JWE 头字段、AAD claims、载体字段名 `jwe`、`kid` 语义）还要同步：** 两份 `HttpTest.java`（`encryptor-examples/*/src/test/**/HttpTest.java`，里面手工拼 compact 与解析逻辑）、两份 front 的 `jwe.js`、设计文档。
 
@@ -146,5 +146,7 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 - JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。
 - ⚠️ `bench.jar` 的两个坑：①`EcdhEsBenchmark` 必须显式传 `allowedAlgs={ECDH-ES}`（空集合会取协议默认 `RSA-OAEP-256` → 构造期 fail-fast）；②JMH setup 失败时只在日志里打堆栈、**exit code 仍是 0**，必须查 `bench.log`/`check-thresholds.sh` 而不能只看退出码。
 - ECDH-ES（P-256）端到端已复验（全 JIT 手起实例）：web-example `node front/test.js` 11/11、gateway-example 10/10；core 另以 nimbus `ECDHEncrypter` 为独立 oracle 做双向互通单测。
+- 国密（SM2+SM4-GCM）在示例里已可自证：两个示例都自带 SM2 演示密钥，用独立 SM 客户端（手拼 SM2 C1C3C2 + SM4-GCM，不复用 core）打 `/test/hello` 各 **12/12 PASS**（含重放/篡改/未知 kid/AAD 不匹配四条拒绝面）；同一实例上 `node front/test.js` 仍全绿。
+- ⚠️ 客户端 classpath 的 BC 版本与目标服务端无关：网关的 classpath 里含较老的 bcprov（缺 `ECDomainParameters(X9ECParameters)` 构造器），把用于 web 的 SM 客户端拿去跑会在客户端侧 `NoSuchMethodError`——换回客户端自己的 classpath 即可（服务端 SM2 解析/解密正常，启动摘要与 E2E 均可证）。
 - 真实端到端（RSA 路径，全 JIT）：web-example(8081) 与 gateway-example(8080→8082) 的 JWE 三载体 + 篡改用例全 PASS；两个 JWKS 端点 200 + ETag。
 - 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues.md` 文末「v2 整分支评审修复」章节。

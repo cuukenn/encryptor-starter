@@ -19,6 +19,10 @@ encryptor:
               type: EC
               private-key: MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCCOc7AE+43yb/7wzQSUBfxhpyXeox4/SIaGvm16OSUgow==
               public-key: MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERw5R2QoVGBgjmTf//AbKaEw/XUxJREANRc8VUERWq9g9Q6qUyPF3g7M54R+2o9JWYM4qcKF9pEaIygB0pNo7JQ==
+            - kid: "sm-2026"
+              type: SM2
+              private-key: MIICSwIBADCB7AYHKoZIzj0CATCB4AIBATAsBgcqhkjOPQEBAiEA/////v////////////////////8AAAAA//////////8wRAQg/////v////////////////////8AAAAA//////////wEICjp+p6dn140TVqeS89lCafzl4n1FauPkt28vUFNlA6TBEEEMsSuLB8ZgRlfmQRGajnJlI/jC7/yZgvhcVpFiTNMdMe8Nzai9PZ3nFm9zuNraSFT0KmHfMYqR0AC3zLlITnwoAIhAP////7///////////////9yA99rIcYFK1O79Ak51UEjAgEBBIIBVTCCAVECAQEEINtj1VognGDxvroMiyQdsysAIcTveEFHaFl7Qvt2GPWFoIHjMIHgAgEBMCwGByqGSM49AQECIQD////+/////////////////////wAAAAD//////////zBEBCD////+/////////////////////wAAAAD//////////AQgKOn6np2fXjRNWp5Lz2UJp/OXifUVq4+S3by9QU2UDpMEQQQyxK4sHxmBGV+ZBEZqOcmUj+MLv/JmC+FxWkWJM0x0x7w3NqL09necWb3O42tpIVPQqYd8xipHQALfMuUhOfCgAiEA/////v///////////////3ID32shxgUrU7v0CTnVQSMCAQGhRANCAASk5TTvUN8HCoFjUGHrYvaktAyqQzunrRbj104ekAHzJAnzg66QFkA8gtmct1rq25H2yX+Hj5Ifd8t5ZvKGuLD0
+              public-key: MIIBMzCB7AYHKoZIzj0CATCB4AIBATAsBgcqhkjOPQEBAiEA/////v////////////////////8AAAAA//////////8wRAQg/////v////////////////////8AAAAA//////////wEICjp+p6dn140TVqeS89lCafzl4n1FauPkt28vUFNlA6TBEEEMsSuLB8ZgRlfmQRGajnJlI/jC7/yZgvhcVpFiTNMdMe8Nzai9PZ3nFm9zuNraSFT0KmHfMYqR0AC3zLlITnwoAIhAP////7///////////////9yA99rIcYFK1O79Ak51UEjAgEBA0IABKTlNO9Q3wcKgWNQYeti9qS0DKpDO6etFuPXTh6QAfMkCfODrpAWQDyC2Zy3WurbkfbJf4ePkh93y3lm8oa4sPQ=
         active-kid: "example-2026"
         web:
             enable: true
@@ -28,3 +32,5 @@ encryptor:
                 "[^/test/secret.*]": [ "secret-2026" ]
                 # /test/ec.* 只接受 ECDH-ES(P-256) 那把，用来演示"uri 级绑密钥类型"
                 "[/test/ec.*]": [ "ec-2026" ]
+                # /test/sm.* 只接受 SM2 那把（国密客户端需要 SM4-GCM 能力，浏览器 WebCrypto 不支持）
+                "[/test/sm.*]": [ "sm-2026" ]
