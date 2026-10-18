@@ -8,7 +8,7 @@
 
 - 语言/构建：**Java 8** + Maven 多模块
 - 版本：Spring Boot `2.4.2`、Spring Cloud `2020.0.1`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
-- groupId：`io.github.cuukenn`，版本 `1.0.0-SNAPSHOT`
+- groupId：`io.github.cuukenn`，版本 `1.0.0`（发布版；`v1.0.0` 标签已打）
 - ⚠️ **Boot 2.4 用的是 `META-INF/spring.factories` 自动装配**，不是 2.7+ 的 `AutoConfiguration.imports`
 
 ## 安全边界（必须记住）
