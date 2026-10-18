@@ -1,3 +1,11 @@
+---
+name: Bug report / 问题反馈
+about: 填清环境 + 现象 + 复现步骤，否则会被关闭（Please fill it out carefully, or it will be closed.）
+title: ''
+labels: ''
+assignees: ''
+---
+
 Please fill it out carefully, or it will be closed.
 
 # Environment

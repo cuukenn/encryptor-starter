@@ -21,7 +21,7 @@
 > | P2-2 | ⚠️ 仍开放 | CI 是否覆盖新模块（bench 不随发布）待确认，非协议问题 |
 > | P2-3 | ⚠️ 仍开放 | 两份 `jwe.js`（web/gateway 示例）仍对称复制，接受（无共享发布物） |
 > | P3-4 | ⚠️ 仍开放 | `black*` 命名与语义相反；v2 保留同名 + 文档写明"正则整串匹配"，改名破坏兼容，暂不改 |
-> | P3-5 | ⚠️ 仍开放 | `.github` 模板未动，非协议问题 |
+> | P3-5 | 🟩 已修（2026-10-18） | 改为 `.github/ISSUE_TEMPLATE/bug_report.md`（front-matter 形式）；`pull_request_template.md` 本就在规范路径 |
 >
 > 原始记录（v1 时代，保留供追溯）：
 >
@@ -359,9 +359,11 @@
 
 - `blackUris` / `blackMethods` / `blackReqContentType` / `blackResContentType` 实为"跳过加密名单"；`StrKit.anyMatch` → `ReUtil.isMatch`（**正则**，非通配符）。建议新增 `skip*` 并保留旧名 alias。
 
-### P3-5 `.github` 模板为单文件形式 🟨
+### P3-5 `.github` 模板为单文件形式 🟩（2026-10-18 已修）
 
-- `issue_template.md` / `pull_request_template.md`，未使用 `.github/ISSUE_TEMPLATE/*.md` 的 front-matter 模板选择器。低优先级。
+- 原为 `.github/issue_template.md`——文件名大小写也不对：GitHub 只认 `.github/ISSUE_TEMPLATE/`（目录）或历史上的少数几个名字，这个文件实际上等于没生效。
+- 已改为 `.github/ISSUE_TEMPLATE/bug_report.md` 并加上 front-matter（`name`/`about`），正文原样保留；`pull_request_template.md` 本来就在 GitHub 认的路径上（`.github/pull_request_template.md`），不动。
+- 不与 `.gitee/` 的多语言模板（`ISSUE_TEMPLATE.zh-CN.md` / `.en.md`）强求一致：GitHub 侧保持单模板，避免凭空造内容。
 
 ### P3-6 `StrKit.getBestMatchStr` 等长正则 key 只留一个，命中结果依赖配置声明顺序 🟩（2026-10-16 第三批扫描发现 → 当批已修，经 `mvn` 验证）
 
@@ -397,7 +399,7 @@
 ### 第三批（2026-10-16 扫描 → **当批全部修完并验证**）
 
 - ✅ **已修 + `mvn` 验证（第三批当批完成的）**：**P0-2**（网关 key 编码对齐）、**P0-6**（常量撞值导致 `black-req-content-type` 失效）、**P0-7**（缺字段 NPE）、**P1-9**（`black-res-content-type` 求值时机）、**P1-10**（表单 content-type 识别）、**P1-11**（参数 wrapper 三个视图）、**P1-12**（错误面统一 + `failure-status`）、**P1-13**（报文大小上限 + 网关切 `boundedElastic`）、**P2-1**（两个 `HttpTest` 加断言并真跑通，顺带修掉 3 个示例真 bug）、**P2-7**（facade/params 缓存）、**P2-8**（GroupEncryptor 不再泄漏）、**P2-9**（死代码清理，并**更正** bcpkix 结论）、**P2-10**（去掉 `@ComponentScan`）、**P3-6**（StrKit 契约显式化）、**P3-7**（uri 级 `crypto-config` 括号写法 + 样例 + 绑定/端到端证据）、**P3-8**（pom `<name>` + enforcer）。每一项都带"先红后绿"用例（少数例外在各自条目里注明）。
-- 🟥 **确实仍未修**：**P3-4**（`black*` 命名与语义相反，需 alias 迁移）、**P3-5**（`.github` 模板形式）、以及各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）。
+- 🟥 **确实仍未修**：**P3-4**（`black*` 命名与语义相反，需 alias 迁移）、以及各条目里"仍未做"小节列出的部分（响应方向的全量缓冲、失败指标/告警、`WebContext.resEncryptor` 等死 API、反射推泛型、失败计数、示例前端复用 IV）。
 - 🧪 **验证资产**：
   - `encryptor-core/src/test/java/.../audit/CryptoMechanismAuditTest.java`（5 条，机制行为：签名输入歧义(S7)、CBC 确定性(S14)、篡改可检出、畸形签名逃逸(S15)、GroupEncryptor 不再泄漏(P2-8)）；
   - `encryptor-core/src/test/java/.../audit/ClientAuthAuditTest.java`（2 条，**S1** 任何人拿公钥即可伪造合法请求、**S3** 服务端接受任意客户端自选算法）；
