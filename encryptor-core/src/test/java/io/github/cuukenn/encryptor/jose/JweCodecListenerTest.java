@@ -97,6 +97,41 @@ class JweCodecListenerTest {
         assertTrue(listener.decryptFailures.isEmpty());
     }
 
+    @Test
+    void 直接使用JweCodec时监听器异常也不改变结果() {
+        EncryptorListener throwing = new EncryptorListener() {
+            @Override
+            public void onDecryptSuccess(JweContext context) {
+                throw new IllegalStateException("boom");
+            }
+
+            @Override
+            public void onDecryptFailure(EncryptorFailure failure, Throwable cause) {
+                throw new IllegalStateException("boom");
+            }
+
+            @Override
+            public void onEncryptFailure(EncryptorFailure failure, Throwable cause) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        JweCodec isolated = new JweCodec(store, Collections.singletonList(new JceCipherSuite()),
+            Collections.<String>emptySet(), Collections.<String>emptySet(), throwing);
+
+        JweContext context = assertDoesNotThrow(
+            () -> isolated.decryptRequest(clientJwe(System.currentTimeMillis(), "n1", KID), URI, "POST"));
+        assertEquals(KID, context.kid());
+
+        EncryptorException decryptError = assertThrows(EncryptorException.class,
+            () -> isolated.decryptRequest(clientJwe(System.currentTimeMillis(), "n2", "nope"), URI, "POST"));
+        assertEquals(EncryptorFailure.UNKNOWN_KID, decryptError.failure(), "监听器异常不得覆盖原始失败分类");
+
+        EncryptorException encryptError = assertThrows(EncryptorException.class,
+            () -> isolated.encryptResponse("x".getBytes(StandardCharsets.UTF_8), new byte[20], URI, "POST",
+                System.currentTimeMillis(), "n3"));
+        assertEquals(EncryptorFailure.ENCRYPT_FAILED, encryptError.failure(), "监听器异常不得覆盖原始失败分类");
+    }
+
     /** 录制实现：断言回调被触发且分类正确。 */
     private static final class RecordingListener implements EncryptorListener {
         final List<JweContext> decryptSuccesses = new ArrayList<>();

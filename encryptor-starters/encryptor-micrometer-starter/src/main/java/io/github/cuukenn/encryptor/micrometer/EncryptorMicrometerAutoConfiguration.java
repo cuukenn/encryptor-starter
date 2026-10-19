@@ -14,9 +14,9 @@ import org.springframework.context.annotation.Configuration;
  * 可选的 Micrometer 指标自动装配（D1 + D3）：加解密计数/失败分类，以及网关密码学执行器的队列深度。
  *
  * <p><b>不需要 core 或任何 starter 改一行代码</b>：两个 starter 都是用
- * {@code ObjectProvider<EncryptorListener>} 取监听器的，所以这里注册一个
- * {@link MicrometerEncryptorListener} bean 就会被自动接上；{@link CryptoExecutor} 本身就是容器里的
- * 单例 bean（gateway starter 的 {@code @ConditionalOnMissingBean} 可被覆盖），这里只读它。</p>
+ * {@code ObjectProvider<EncryptorListener>} 取监听器并按 {@code @Order} 组合的，所以这里注册一个
+ * {@link MicrometerEncryptorListener} bean 就会被自动接上，且不会挤掉用户自己的监听器；{@link CryptoExecutor}
+ * 本身就是容器里的单例 bean（gateway starter 的 {@code @ConditionalOnMissingBean} 可被覆盖），这里只读它。</p>
  *
  * <p>本模块**不**依赖 actuator：只要容器里有 {@link MeterRegistry}（actuator 会提供，测试里可以用
  * {@code SimpleMeterRegistry}）就工作。放在 actuator 的 {@code MetricsAutoConfiguration} 之后，
@@ -33,11 +33,11 @@ import org.springframework.context.annotation.Configuration;
 public class EncryptorMicrometerAutoConfiguration {
 
     /**
-     * 监听器 bean：用户自己定义了 {@link EncryptorListener} 时不覆盖（可与本 bean 组合使用）。
+     * 监听器 bean：与用户自己定义的 {@link EncryptorListener} 并存；两侧 starter 会按
+     * {@code @Order}/注册顺序把容器里的所有监听器组合进协议栈。
      */
     @Bean
     @ConditionalOnBean(MeterRegistry.class)
-    @ConditionalOnMissingBean(EncryptorListener.class)
     public MicrometerEncryptorListener micrometerEncryptorListener(MeterRegistry registry) {
         return new MicrometerEncryptorListener(registry);
     }

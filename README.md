@@ -155,7 +155,7 @@ cd encryptor-examples/gateway-example/gateway/front && npm install && node test.
 
 ## 可观测性（可选模块）
 
-默认零依赖：core 只暴露 `EncryptorListener` SPI（三个 no-op 回调），不引入任何指标库。要指标就加这个可选模块——**core 与两个 starter 的依赖面不变**：
+默认零指标依赖：core 只暴露 `EncryptorListener` SPI（三个 no-op 回调），不引入任何指标库。要指标就加这个可选模块——**core 与两个 starter 的依赖面不变**：
 
 ```xml
 <dependency>
@@ -165,7 +165,7 @@ cd encryptor-examples/gateway-example/gateway/front && npm install && node test.
 </dependency>
 ```
 
-装配条件（条件装配，全部满足才生效）：应用里存在 `MeterRegistry`（如 actuator + 任一 registry）；且你**没有**自己注册 `EncryptorListener` bean（自定义优先）。网关队列指标只在网关 starter 在场、且存在 `CryptoExecutor`（网关自动装配提供，可自行覆盖）时出现。
+装配条件（条件装配）：应用里存在 `MeterRegistry`（如 actuator + 任一 registry）即可。**你可以同时注册自己的 `EncryptorListener`**——两侧 starter 会把容器里所有监听器按 `@Order`/注册顺序组合（`CompositeEncryptorListener`），指标与自定义审计并存。某个监听器抛异常时只会记一条 WARN（含回调名与异常栈）并继续，不影响其它监听器或加解密主流程。网关队列指标只在网关 starter 在场、且存在 `CryptoExecutor`（网关自动装配提供，可自行覆盖）时出现。
 
 | 指标 | 类型 | 标签 | 含义 |
 | --- | --- | --- | --- |

@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.configuration;
 
+import io.github.cuukenn.encryptor.audit.CompositeEncryptorListener;
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.jose.NonceChecker;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
 
 /**
  * v2 协议的通用自动装配（reactive 侧）：与 servlet 侧装配<b>同一份</b> core {@link DefaultProtocol}，
@@ -64,8 +66,10 @@ public class EncryptorReactiveAutoConfiguration {
         if (sharedNonceChecker != null) {
             builder.nonceChecker(sharedNonceChecker);
         }
-        EncryptorListener contextListener = listener.getIfAvailable();
-        if (contextListener != null) {
+        // 容器里可以有多个监听器（如业务审计 + Micrometer 指标），按 @Order/注册顺序组合后交给协议栈
+        EncryptorListener contextListener = CompositeEncryptorListener.of(
+            listener.orderedStream().collect(Collectors.toList()));
+        if (contextListener != EncryptorListener.NONE) {
             builder.listener(contextListener);
         }
         DefaultProtocol protocol = builder.build();

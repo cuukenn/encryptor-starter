@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.jose;
 
+import io.github.cuukenn.encryptor.audit.CompositeEncryptorListener;
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 
 import com.nimbusds.jose.EncryptionMethod;
@@ -63,7 +64,8 @@ public class JweCodec {
      * @param suites      装配的算法套件（至少一个；白名单只允许取自这里声明的 alg/enc）
      * @param allowedAlgs 允许的封装算法；为空 = 协议默认
      * @param allowedEncs 允许的内容加密方法；为空 = 协议默认
-     * @param listener    可观测性回调（成功/失败），可为 {@link EncryptorListener#NONE}
+     * @param listener    可观测性回调（成功/失败），可为 {@link EncryptorListener#NONE}；
+     *                    监听器异常会记 WARN 并隔离，不改变加解密结果
      */
     public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs,
                     EncryptorListener listener) {
@@ -74,7 +76,13 @@ public class JweCodec {
         this.suites = Collections.unmodifiableList(new ArrayList<>(suites));
         this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), installed(true), "alg");
         this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), installed(false), "enc");
-        this.listener = listener == null ? EncryptorListener.NONE : listener;
+        if (listener == null || listener == EncryptorListener.NONE) {
+            this.listener = EncryptorListener.NONE;
+        } else if (listener instanceof CompositeEncryptorListener) {
+            this.listener = listener;
+        } else {
+            this.listener = CompositeEncryptorListener.of(Collections.singletonList(listener));
+        }
     }
 
     /**

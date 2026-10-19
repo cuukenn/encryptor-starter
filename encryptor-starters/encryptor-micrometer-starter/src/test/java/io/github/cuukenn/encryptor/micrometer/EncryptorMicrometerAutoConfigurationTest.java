@@ -35,12 +35,15 @@ class EncryptorMicrometerAutoConfigurationTest {
     }
 
     @Test
-    void 用户自己的监听器优先() {
+    void 用户监听器与指标监听器并存() {
         runner.withBean(MeterRegistry.class, SimpleMeterRegistry::new)
-            .withBean(EncryptorListener.class, () -> EncryptorListener.NONE)
+            .withBean("userListener", EncryptorListener.class, () -> new EncryptorListener() {
+            })
             .run(context -> {
-                assertThat(context.getBean(EncryptorListener.class)).isSameAs(EncryptorListener.NONE);
-                assertThat(context).doesNotHaveBean(MicrometerEncryptorListener.class);
+                assertThat(context).hasSingleBean(MicrometerEncryptorListener.class);
+                assertThat(context.getBeansOfType(EncryptorListener.class)).hasSize(2);
+                assertThat(context.getBeansOfType(EncryptorListener.class).values())
+                    .anyMatch(listener -> listener instanceof MicrometerEncryptorListener);
             });
     }
 

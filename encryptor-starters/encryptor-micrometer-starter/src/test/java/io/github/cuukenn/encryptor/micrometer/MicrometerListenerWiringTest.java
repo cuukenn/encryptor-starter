@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.micrometer;
 
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
+import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -12,14 +13,16 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 端到端接线：本模块只注册一个 {@link EncryptorListener} bean，真实协议栈（reactive starter 的
- * 自动装配）必须自动接上它，并且真实解密失败要落到计数器上。
+ * 端到端接线：本模块注册的 {@link EncryptorListener} bean（以及用户自己的监听器 bean）都必须被
+ * 真实协议栈接上，并且真实解密失败要落到计数器上。
  *
  * <p>这条用例存在的意义：证明「加一个依赖就生效」不是文档承诺，而是容器里验证过的事实
  * （两个 starter 都是用 {@code ObjectProvider<EncryptorListener>} 取监听器，本模块不改它们一行代码）。</p>
@@ -47,6 +50,31 @@ class MicrometerListenerWiringTest {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    @Test
+    void 用户监听器与指标监听器同时收到回调() {
+        List<String> calls = new ArrayList<>();
+        runner.withPropertyValues(rsaKeyProps("meter-2"))
+            .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+            .withBean("userListener", EncryptorListener.class, () -> new EncryptorListener() {
+                @Override
+                public void onDecryptFailure(EncryptorFailure failure, Throwable cause) {
+                    calls.add("user");
+                }
+            })
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+
+                DefaultProtocol protocol = context.getBean(DefaultProtocol.class);
+                assertThatThrownBy(() -> protocol.openRequest("not-a-jwe", "/bench", "GET"))
+                    .isInstanceOf(EncryptorException.class);
+
+                assertThat(calls).containsExactly("user");
+                MeterRegistry registry = context.getBean(MeterRegistry.class);
+                assertThat(registry.get("encryptor.decrypt").tag("result", "failure").counter().count())
+                    .isEqualTo(1.0);
+            });
     }
 
     @Test

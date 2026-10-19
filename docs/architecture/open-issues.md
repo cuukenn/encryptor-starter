@@ -540,7 +540,7 @@
 
 - `MicrometerEncryptorListener implements EncryptorListener`：`encryptor.decrypt{result=success|failure}`（Counter）、`encryptor.decrypt.failures{failure=<分类>}`、`encryptor.encrypt.failures{failure=<分类>}`；分类取 `EncryptorFailure` 枚举名，注册时遍历枚举一次性预建（未出现的分类也有 0 值），未知/null 归 `INTERNAL`。
 - `GatewayCryptoExecutorMetrics`：`encryptor.gateway.crypto.pending`（Gauge = 提交数 − 完成数）、`rejected`（FunctionCounter，每次被拒 +1，对应用户可见的一次 503）、`threads`/`queue.capacity`（Gauge 常量）。持 `CryptoExecutor` 强引用（Micrometer 的 Gauge 只弱引用）。
-- `EncryptorMicrometerAutoConfiguration`（`META-INF/spring.factories` 注册）：`@ConditionalOnClass(MeterRegistry)` + `@AutoConfigureAfter(name = "...MetricsAutoConfiguration")`（用字符串名避免硬依赖 actuator）；`EncryptorListener` bean 带 `@ConditionalOnBean(MeterRegistry)` + `@ConditionalOnMissingBean(EncryptorListener)`（用户自定义优先）；内部 `@ConditionalOnClass(CryptoExecutor)` 子配置导出网关指标（`CryptoExecutor` 属 gateway starter，而它是本模块的 **optional** 依赖，故 servlet 应用不会被拖进 Spring Cloud Gateway）。
+- `EncryptorMicrometerAutoConfiguration`（`META-INF/spring.factories` 注册）：`@ConditionalOnClass(MeterRegistry)` + `@AutoConfigureAfter(name = "...MetricsAutoConfiguration")`（用字符串名避免硬依赖 actuator）；`EncryptorListener` bean 带 `@ConditionalOnBean(MeterRegistry)`，**不设** `@ConditionalOnMissingBean(EncryptorListener)`——用户自己的监听器与指标监听器并存，两侧 starter 用 `CompositeEncryptorListener` 按 `@Order`/注册顺序组合；内部 `@ConditionalOnClass(CryptoExecutor)` 子配置导出网关指标（`CryptoExecutor` 属 gateway starter，而它是本模块的 **optional** 依赖，故 servlet 应用不会被拖进 Spring Cloud Gateway）。
 - pom：`encryptor-core` + `spring-boot-autoconfigure` + `micrometer-core`（版本由 spring-boot-dependencies 管）+ `encryptor-gateway-spring-boot-starter`（optional）+ `spring-boot-starter-test`。`encryptor-starters/pom.xml` 与 `encryptor-dependencies/pom.xml`（BOM）已登记。
 
 **为什么不记耗时**：`EncryptorListener` 只有"结束时"回调，没有开始钩子；要加计时段就得改 core 热路径（`JweCodec`），收益配不上风险。端到端 P99 用 HTTP 层指标（`http.server.requests`）即可覆盖。
@@ -555,3 +555,5 @@
 - gateway 30 = 原 27 + `CryptoExecutorTest` 3（默认取值 / 待执行数记账 / 被拒记账）。
 - micrometer 8 = `MicrometerEncryptorListenerTest` 3（计数、分类预建、null→INTERNAL）+ `EncryptorMicrometerAutoConfigurationTest` 4（有/无 registry、用户监听器优先、网关指标导出）+ `MicrometerListenerWiringTest` 1（**接线证明**：真实 reactive starter 与本模块同时装配，`DefaultProtocol.openRequest("not-a-jwe", …)` 抛异常后 `encryptor.decrypt{result=failure}` == 1，且恰好一个分类被计数）。
 - 未做：Micrometer 的 Timer/耗时（理由见上）；D2 仍开放。
+
+> **2026-10-19 多监听器支持后的增量**：`EncryptorListener` 从单选改为组合（core `CompositeEncryptorListener`，按 `@Order` 扇出；监听器异常记 WARN 后隔离；`JweCodec` 构造器也会自动包装直接传入的监听器）。`EncryptorMicrometerAutoConfigurationTest` 的“用户监听器优先”改为“用户监听器与指标监听器并存”，`MicrometerListenerWiringTest` 新增 1 条两者同时收到回调的接线用例 → micrometer **9**；全量 **191 绿**（core 98、starter 10、reactive 4、web 40、gateway 30、micrometer 9）。

@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.configuration;
 
+import io.github.cuukenn.encryptor.audit.CompositeEncryptorListener;
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.config.KeyMaterialConfig;
@@ -19,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
 
 /**
  * v2 协议的通用自动装配：两侧（servlet/reactive）只 {@code new} core 的 {@link DefaultProtocol}，
@@ -65,8 +67,10 @@ public class EncryptorAutoConfiguration {
         if (sharedNonceChecker != null) {
             builder.nonceChecker(sharedNonceChecker);
         }
-        EncryptorListener contextListener = listener.getIfAvailable();
-        if (contextListener != null) {
+        // 容器里可以有多个监听器（如业务审计 + Micrometer 指标），按 @Order/注册顺序组合后交给协议栈
+        EncryptorListener contextListener = CompositeEncryptorListener.of(
+            listener.orderedStream().collect(Collectors.toList()));
+        if (contextListener != EncryptorListener.NONE) {
             builder.listener(contextListener);
         }
         DefaultProtocol protocol = builder.build();
