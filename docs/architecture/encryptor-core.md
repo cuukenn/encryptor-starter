@@ -5,6 +5,10 @@
 
 
 > 与框架无关的加解密内核：定义全部策略接口（SPI）与默认实现，**不依赖 Spring**。
+>
+> **v2 现状补充（2026-10-20）**：国密 SM2/SM4-GCM 与 BouncyCastle 已迁到可选模块 `encryptor-sm`；
+> 本模块只保留 `KeyEntryParser`/`CipherSuite` 两个可选 SPI，main/test 源码零 `org.bouncycastle`。
+> 下文的 v1 策略栈仅作历史记录。
 
 | 项 | 值 |
 | --- | --- |
@@ -12,8 +16,8 @@
 | artifactId | `encryptor-core`（`jar`） |
 | 父 | `encryptor-parent`（根目录 `pom.xml`） |
 | 包名 | `io.github.cuukenn.encryptor` |
-| 依赖 | `cn.hutool:hutool-all`、`org.bouncycastle:bcpkix-jdk18on`、`spring-boot-starter-data-redis`(optional)、`logback-classic`(optional)、`junit-jupiter-engine`(test) |
-| 测试 | `src/test/java/io/github/cuukenn/encryptor/lectotype/`（`EncryptorStrategyTest`、`EncoderStrategyTest`、`SignerStrategyTest`） |
+| 依赖 | `com.nimbusds:nimbus-jose-jwt`、`org.slf4j:slf4j-api`、`logback-classic`(test)、`junit-jupiter-engine`(test)、`mockito-core`(test)。**不含 BouncyCastle / Spring** |
+| 测试 | `src/test/java/io/github/cuukenn/encryptor/{jose,protocol,audit,kit,runtime}/`（SM2 用例在 `encryptor-sm`） |
 
 ## 职责
 

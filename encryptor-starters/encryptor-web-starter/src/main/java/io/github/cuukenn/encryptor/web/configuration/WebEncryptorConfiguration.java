@@ -106,9 +106,9 @@ public class WebEncryptorConfiguration {
         public Builder<T> filterConfiguration(T filter, int order, boolean async, String... patterns) {
             this.filterRegistrationBean.setFilter(filter); // 设置过滤器
             this.filterRegistrationBean.setOrder(order); // 设置启动顺序
-            String clazzPath = filter.getClass().toString().toLowerCase(Locale.ROOT);
-            // 配置过滤器的名称，首字母一定要小写，不然拦截了请求后会报错
-            this.filterRegistrationBean.setName(clazzPath.substring(clazzPath.lastIndexOf(".")));
+            // 注册名用简单类名的小写形式；不能对 getClass().toString() 做 substring(lastIndexOf("."))，
+            // 那样会得到 ".encryptorwebfilter"（前导点 + 丢掉类名语义）。
+            this.filterRegistrationBean.setName(filter.getClass().getSimpleName().toLowerCase(Locale.ROOT));
             // 不显式传 "/*" 时虽然容器默认匹配全部请求，但语义依赖容器实现；这里显式声明
             this.filterRegistrationBean.addUrlPatterns(patterns.length == 0 ? new String[]{"/*"} : patterns);
             this.filterRegistrationBean.setAsyncSupported(async);

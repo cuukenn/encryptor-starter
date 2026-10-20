@@ -1,17 +1,18 @@
-package io.github.cuukenn.encryptor.jose;
+package io.github.cuukenn.encryptor.sm;
 
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
+import io.github.cuukenn.encryptor.jose.CipherSuite;
+import io.github.cuukenn.encryptor.jose.JweCodec;
+import io.github.cuukenn.encryptor.jose.KeyType;
+import io.github.cuukenn.encryptor.jose.ServerKeyStore;
 import org.bouncycastle.crypto.engines.SM2Engine;
 import org.bouncycastle.crypto.engines.SM4Engine;
 import org.bouncycastle.crypto.modes.GCMBlockCipher;
 import org.bouncycastle.crypto.params.AEADParameters;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-import org.bouncycastle.crypto.params.ParametersWithRandom;
 import org.bouncycastle.crypto.InvalidCipherTextException;
 
-import java.security.SecureRandom;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -19,12 +20,17 @@ import java.util.Set;
 /**
  * 国密套件：SM2（C1C3C2）封装 CEK + SM4-GCM 内容加密。
  *
+ * <p>本类位于可选的 {@code encryptor-sm} 模块：core 只保留 {@link CipherSuite} SPI，
+ * 不使用国密的消费者不会把 BouncyCastle 带进 classpath。通过
+ * {@code META-INF/services/io.github.cuukenn.encryptor.jose.CipherSuite} 被
+ * {@link io.github.cuukenn.encryptor.protocol.DefaultProtocol} 自动发现。</p>
+ *
  * <p>只用 BouncyCastle <b>轻量级 API</b>（{@link SM2Engine} / {@link GCMBlockCipher}+{@link SM4Engine}），
  * <b>不注册全局 Provider</b>——避免污染应用的 JCA Provider 列表（这是"core 不引 Spring"之外的另一条
- * 不可侵犯约束：库代码不许改进程级状态）。
+ * 不可侵犯约束：库代码不许改进程级状态）。</p>
  *
  * <p>内容加密走 SM4-GCM 而非 SM4-CBC+HMAC-SM3：完整性仍由 AEAD 的 tag 承担，
- * 保持"没有独立 MAC、不做先解密再比较"的协议原则。
+ * 保持"没有独立 MAC、不做先解密再比较"的协议原则。</p>
  *
  * @author changgg
  */
@@ -44,8 +50,6 @@ public class SmCipherSuite implements CipherSuite {
     private static final int SM4_KEY_BYTES = 16;
     private static final int GCM_TAG_BYTES = 16;
     private static final int GCM_TAG_BITS = 128;
-
-    private final SecureRandom random = new SecureRandom();
 
     @Override
     public Set<String> algorithms() {
@@ -73,7 +77,7 @@ public class SmCipherSuite implements CipherSuite {
             throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
                 "kid=" + kid + " 的密钥类型是 " + type + "，alg=" + ALG + " 需要 SM2 密钥");
         }
-        ECPrivateKeyParameters privateKey = (ECPrivateKeyParameters) keys.sm2PrivateKey(kid);
+        ECPrivateKeyParameters privateKey = (ECPrivateKeyParameters)keys.nativePrivateKey(kid);
         SM2Engine engine = new SM2Engine(SM2Engine.Mode.C1C3C2);
         engine.init(false, privateKey);
         return engine.processBlock(encryptedKey, 0, encryptedKey.length);

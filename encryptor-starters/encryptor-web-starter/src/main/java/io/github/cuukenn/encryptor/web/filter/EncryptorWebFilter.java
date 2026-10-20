@@ -11,6 +11,7 @@ import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
+import io.github.cuukenn.encryptor.web.kit.CachedBodyHttpServletRequest;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
 import io.github.cuukenn.encryptor.web.kit.WebContext.Carrier;
 import org.slf4j.Logger;
@@ -85,34 +86,37 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         String compact;
         Carrier carrier;
+        byte[] cachedJsonBody = null;
+        long maxRequestSize = WebContext.maxRequestSize();
+        // 必须在 getParameter 之前判 Content-Length：表单载体一调用 getParameter，容器就会解析整个 body
+        if (maxRequestSize > 0 && request.getContentLengthLong() > maxRequestSize) {
+            fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+            return;
+        }
         compact = request.getParameter(EncryptorConstant.JWE_PARAM);
         if (compact != null && !compact.isEmpty()) {
             carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
         } else if (ct.startsWith("application/json")) {
             carrier = Carrier.JSON;
-            long max = WebContext.maxRequestSize();
-            if (max > 0 && request.getContentLengthLong() > max) {
-                fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
-                return;
-            }
-            byte[] raw = max > 0 ? readBounded(request.getInputStream(), max) : IoUtil.readBytes(request.getInputStream());
+            byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize) : IoUtil.readBytes(request.getInputStream());
             if (raw == null) {
                 fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
                 return;
             }
+            cachedJsonBody = raw;
             if (raw.length == 0) {
-                fail(response, WebContext.failureStatus());
-                return;
+                compact = null;
+            } else {
+                JSONObject envelope;
+                try {
+                    envelope = JSONUtil.parseObj(new String(raw, StandardCharsets.UTF_8));
+                } catch (RuntimeException e) {
+                    logger.warn("request body is not a valid json envelope, uri: {}", uri, e);
+                    fail(response, WebContext.failureStatus());
+                    return;
+                }
+                compact = envelope.getStr(EncryptorConstant.JWE_PARAM);
             }
-            JSONObject envelope;
-            try {
-                envelope = JSONUtil.parseObj(new String(raw, StandardCharsets.UTF_8));
-            } catch (RuntimeException e) {
-                logger.warn("request body is not a valid json envelope, uri: {}", uri, e);
-                fail(response, WebContext.failureStatus());
-                return;
-            }
-            compact = envelope.getStr(EncryptorConstant.JWE_PARAM);
         } else {
             carrier = Carrier.NONE;
         }
@@ -121,7 +125,10 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
                 fail(response, WebContext.failureStatus());
                 return;
             }
-            filterChain.doFilter(request, response);
+            // JSON 分支已经读过原始 body；透传时必须回放，否则下游看到的是空流
+            HttpServletRequest passthrough = cachedJsonBody == null
+                ? request : new CachedBodyHttpServletRequest(request, cachedJsonBody);
+            filterChain.doFilter(passthrough, response);
             return;
         }
         JweContext jweCtx;
@@ -136,6 +143,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         List<String> accepted = acceptedKid(uri);
         if (accepted != null && !accepted.isEmpty() && !accepted.contains(jweCtx.kid())) {
             logger.warn("kid not accepted for uri: {}, kid: {}", uri, jweCtx.kid());
+            jweCtx.destroy();
             fail(response, WebContext.failureStatus());
             return;
         }

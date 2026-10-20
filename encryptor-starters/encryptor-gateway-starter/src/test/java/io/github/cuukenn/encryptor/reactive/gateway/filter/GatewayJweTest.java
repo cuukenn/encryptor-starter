@@ -22,7 +22,9 @@ import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -31,8 +33,10 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -42,11 +46,13 @@ import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -138,6 +144,24 @@ class GatewayJweTest {
     }
 
     @Test
+    void 请求完成后清理上下文并清零敏感数据() {
+        String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<byte[]> sensitivePlaintext = new AtomicReference<>();
+        AtomicReference<byte[]> sensitiveCek = new AtomicReference<>();
+        gateway().filter(exchange, e -> {
+            GatewayContext context = e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR);
+            sensitivePlaintext.set(context.getJweContext().plaintext());
+            sensitiveCek.set(context.getJweContext().cek());
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat((Object) exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR)).isNull();
+        assertThat(sensitivePlaintext.get()).containsOnly((byte) 0);
+        assertThat(sensitiveCek.get()).containsOnly((byte) 0);
+    }
+
+    @Test
     void query载体解密并改写query参数() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
             MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("a=1&b=2", "/api/a", "GET")));
@@ -215,6 +239,30 @@ class GatewayJweTest {
         assertThat(called).isFalse();
     }
 
+    /**
+     * chunked 请求没有 Content-Length：必须在读取过程中就按 max-request-size 截断，
+     * 不能先把整个 body 拼进堆、再按实际长度拒绝。
+     */
+    @Test
+    void chunkedBody超限时不得读完整个流() {
+        reactiveConfig.setMaxRequestSize(64);
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+        AtomicInteger emitted = new AtomicInteger();
+        Flux<DataBuffer> body = Flux.range(0, 100)
+            .map(i -> (DataBuffer) bufferFactory.wrap(new byte[10]))
+            .doOnNext(buffer -> emitted.incrementAndGet());
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(body));
+        AtomicBoolean called = new AtomicBoolean();
+        gateway().filter(exchange, e -> {
+            called.set(true);
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(called).isFalse();
+        assertThat(emitted.get()).isLessThan(100);
+    }
+
     @Test
     void 篡改报文时400且链不继续() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
@@ -239,6 +287,23 @@ class GatewayJweTest {
         }).block(TIMEOUT);
         assertThat(called).isTrue();
         assertThat(exchange.getResponse().getStatusCode()).isNotEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void 非空JSON明文透传时下游仍能读到原始body() {
+        reactiveConfig.setRequireEncrypted(false);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body("{\"foo\":1}"));
+        AtomicReference<String> body = new AtomicReference<>();
+        gateway().filter(exchange, e -> DataBufferUtils.join(e.getRequest().getBody())
+            .map(buffer -> {
+                byte[] bytes = new byte[buffer.readableByteCount()];
+                buffer.read(bytes);
+                DataBufferUtils.release(buffer);
+                return new String(bytes, StandardCharsets.UTF_8);
+            })
+            .doOnNext(body::set).then()).block(TIMEOUT);
+        assertThat(body.get()).isEqualTo("{\"foo\":1}");
     }
 
     @Test
@@ -288,7 +353,7 @@ class GatewayJweTest {
         AtomicReference<byte[]> cek = new AtomicReference<>();
         GatewayFilterChain inner = e -> {
             GatewayContext ctx = e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR);
-            cek.set(ctx.getJweContext().cek());
+            cek.set(Arrays.copyOf(ctx.getJweContext().cek(), ctx.getJweContext().cek().length));
             ServerHttpResponse resp = e.getResponse();
             return resp.writeWith(Mono.just(resp.bufferFactory().wrap("hello-downstream".getBytes(StandardCharsets.UTF_8))));
         };
@@ -297,6 +362,117 @@ class GatewayJweTest {
         assertThat(new String(decryptResponse(payload, cek.get()), StandardCharsets.UTF_8))
             .isEqualTo("hello-downstream");
         assertThat(responseHeaderJson(payload)).contains("\"res\"");
+    }
+
+    @Test
+    void 流式writeAndFlushWith响应也被加密() {
+        String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        GatewayFilterChain inner = e -> {
+            GatewayContext ctx = e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR);
+            cek.set(Arrays.copyOf(ctx.getJweContext().cek(), ctx.getJweContext().cek().length));
+            ServerHttpResponse resp = e.getResponse();
+            return resp.writeAndFlushWith(Flux.just(
+                Mono.just(resp.bufferFactory().wrap("hello-".getBytes(StandardCharsets.UTF_8))),
+                Mono.just(resp.bufferFactory().wrap("stream".getBytes(StandardCharsets.UTF_8)))));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        String payload = exchange.getResponse().getBodyAsString().block(TIMEOUT);
+        assertThat(payload).contains("\"jwe\"");
+        assertThat(new String(decryptResponse(payload, cek.get()), StandardCharsets.UTF_8))
+            .isEqualTo("hello-stream");
+        assertThat(responseHeaderJson(payload)).contains("\"res\"");
+    }
+
+    @Test
+    void 流式响应命中contentType黑名单时仍透传() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
+        GatewayContext ctx = new GatewayContext();
+        ctx.setEncrypted(true);
+        exchange.getAttributes().put(GatewayConstant.GATEWAY_CONTEXT_ATTR, ctx);
+        gatewayConfig.getSkipResContentType().add("text/plain");
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            resp.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+            return resp.writeAndFlushWith(Flux.just(
+                Mono.just(resp.bufferFactory().wrap("hello-".getBytes(StandardCharsets.UTF_8))),
+                Mono.just(resp.bufferFactory().wrap("stream".getBytes(StandardCharsets.UTF_8)))));
+        };
+        response().filter(exchange, inner).block(TIMEOUT);
+        assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEqualTo("hello-stream");
+    }
+
+    @Test
+    void 网关204响应不加密也不带body() {
+        String envelope = "{\"jwe\":\"" + seal("{}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            resp.setStatusCode(HttpStatus.NO_CONTENT);
+            resp.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap("secret".getBytes(StandardCharsets.UTF_8))));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEmpty();
+        assertThat(exchange.getResponse().getHeaders().getContentType()).isNotEqualTo(MediaType.APPLICATION_JSON);
+    }
+
+    @Test
+    void 网关HEAD响应不加密也不带body() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.head("/api/a").queryParam("jwe", seal("", "/api/a", "HEAD")));
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap("secret".getBytes(StandardCharsets.UTF_8))));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEmpty();
+    }
+
+    @Test
+    void 网关302空body直接透传() {
+        String envelope = "{\"jwe\":\"" + seal("{}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        GatewayFilterChain inner = e -> {
+            ServerHttpResponse resp = e.getResponse();
+            resp.setStatusCode(HttpStatus.FOUND);
+            resp.getHeaders().setLocation(URI.create("/login"));
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap(new byte[0])));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
+        assertThat(exchange.getResponse().getHeaders().getLocation()).isEqualTo(URI.create("/login"));
+        assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEmpty();
+        assertThat(exchange.getResponse().getHeaders().getContentType()).isNotEqualTo(MediaType.APPLICATION_JSON);
+    }
+
+    @Test
+    void 网关302带body仍加密() {
+        String envelope = "{\"jwe\":\"" + seal("{}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        GatewayFilterChain inner = e -> {
+            GatewayContext ctx = e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR);
+            cek.set(Arrays.copyOf(ctx.getJweContext().cek(), ctx.getJweContext().cek().length));
+            ServerHttpResponse resp = e.getResponse();
+            resp.setStatusCode(HttpStatus.FOUND);
+            resp.getHeaders().setLocation(URI.create("/login"));
+            return resp.writeWith(Mono.just(resp.bufferFactory().wrap("redirect-body".getBytes(StandardCharsets.UTF_8))));
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        String payload = exchange.getResponse().getBodyAsString().block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
+        assertThat(exchange.getResponse().getHeaders().getLocation()).isEqualTo(URI.create("/login"));
+        assertThat(payload).contains("\"jwe\"");
+        assertThat(new String(decryptResponse(payload, cek.get()), StandardCharsets.UTF_8))
+            .isEqualTo("redirect-body");
     }
 
     @Test
@@ -324,6 +500,25 @@ class GatewayJweTest {
         };
         response().filter(exchange, inner).block(TIMEOUT);
         assertThat(exchange.getResponse().getBodyAsString().block(TIMEOUT)).isEqualTo("plain-text");
+    }
+
+    /** 响应方向同理：流式/chunked 响应必须在读取过程中按 max-response-size 截断。 */
+    @Test
+    void chunkedResponse超限时不得读完整个流() {
+        reactiveConfig.setMaxResponseSize(64);
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
+        GatewayContext ctx = new GatewayContext();
+        ctx.setEncrypted(true);
+        exchange.getAttributes().put(GatewayConstant.GATEWAY_CONTEXT_ATTR, ctx);
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+        AtomicInteger emitted = new AtomicInteger();
+        GatewayFilterChain inner = e -> e.getResponse().writeWith(
+            Flux.range(0, 100)
+                .map(i -> (DataBuffer) bufferFactory.wrap(new byte[10]))
+                .doOnNext(buffer -> emitted.incrementAndGet()));
+        response().filter(exchange, inner).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(emitted.get()).isLessThan(100);
     }
 
     /**

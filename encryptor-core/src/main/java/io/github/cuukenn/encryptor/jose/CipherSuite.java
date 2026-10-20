@@ -54,4 +54,15 @@ public interface CipherSuite {
 
     /** 由 {@code enc} 决定的认证标签字节数（JWE compact 里 tag 是独立一段）。 */
     int tagLength(String enc);
+
+    /**
+     * 由 {@code enc} 决定的 IV 字节数。
+     *
+     * <p>默认 12 字节（AES-GCM / SM4-GCM 的 96-bit IV）。第三方套件若使用其他长度（例如
+     * CBC-HMAC 的 16 字节），必须在自己的实现里覆写；{@link JweCodec} 的请求校验与响应
+     * IV 生成都以本方法为准。</p>
+     */
+    default int ivLength(String enc) {
+        return 12;
+    }
 }

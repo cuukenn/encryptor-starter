@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * 正则匹配工具：{@link Pattern} 预编译缓存。
@@ -30,6 +31,30 @@ public class StrKit {
     /** 清空正则缓存（配置变更后调用）。 */
     public static void invalidate() {
         PATTERN_CACHE.clear();
+    }
+
+    /**
+     * 启动期预编译并校验（带配置名）：非法正则会带上配置项名称与原始正则，
+     * 便于直接定位是哪个配置写错了。
+     *
+     * @param name    配置项名称（如 {@code crypto-config}）
+     * @param regexes 配置里的正则集合，{@code null} 视为空集合
+     */
+    public static void precompile(String name, Collection<String> regexes) {
+        if (regexes == null) {
+            return;
+        }
+        for (String regex : regexes) {
+            if (regex == null) {
+                throw new IllegalArgumentException(name + " 中的正则不能为 null");
+            }
+            try {
+                pattern(regex);
+            } catch (PatternSyntaxException e) {
+                throw new IllegalArgumentException(name + " 含非法正则: " + regex
+                    + " (" + e.getDescription() + ")", e);
+            }
+        }
     }
 
     /**

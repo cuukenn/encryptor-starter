@@ -20,12 +20,24 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
         <!-- *************************三方依赖版本号**************************************-->
-        <spring-boot.version>2.4.2</spring-boot.version>
-        <spring-cloud.version>2020.0.1</spring-cloud.version>
+        <spring-boot.version>2.7.18</spring-boot.version>
+        <spring-cloud.version>2021.0.8</spring-cloud.version>
         <spring-cloud-alibaba.version>2021.1</spring-cloud-alibaba.version>
     </properties>
     <dependencyManagement>
         <dependencies>
+            <!--
+                先导入本项目 BOM：Maven 的 dependencyManagement 是“先声明者胜”。
+                Spring Boot / Spring Cloud 的 BOM 也会管理 nimbus-jose-jwt（较旧版本，含已知 CVE），
+                放在后面才能让本项目的 9.37.3 / BouncyCastle / Hutool 版本对下游模块生效。
+            -->
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-dependencies</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -46,14 +58,6 @@
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
                 <version>${spring-cloud-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!--project dependencies依赖控制-->
-            <dependency>
-                <groupId>io.github.cuukenn</groupId>
-                <artifactId>encryptor-dependencies</artifactId>
-                <version>${project.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -96,6 +100,7 @@
             <modules>
                 <module>encryptor-dependencies</module>
                 <module>encryptor-core</module>
+                <module>encryptor-sm</module>
                 <module>encryptor-starters</module>
                 <module>encryptor-examples</module>
                 <module>encryptor-bench</module>
@@ -106,6 +111,7 @@
             <modules>
                 <module>encryptor-dependencies</module>
                 <module>encryptor-core</module>
+                <module>encryptor-sm</module>
                 <module>encryptor-starters</module>
             </modules>
         </profile>
@@ -280,6 +286,21 @@
                                     <version>[1.8,)</version>
                                 </requireJavaVersion>
                                 <banDuplicatePomDependencyVersions/>
+                                <!--
+                                    Spring Boot / Spring Cloud 的 BOM 也会管理 nimbus-jose-jwt（较旧版本，含已知 CVE）。
+                                    根 POM 已把本项目 BOM 前置；这条规则防止以后调整顺序时又回落到旧版本。
+                                -->
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>com.nimbusds:nimbus-jose-jwt:[0,9.37.3)</exclude>
+                                        <!--
+                                            旧 BC 系（jdk15on）由 spring-security-rsa 等传递引入，会与
+                                            encryptor-sm 的 jdk18on 形成同名包冲突；网关 starter 已排除。
+                                            这里再加一道门禁，防止后续依赖调整把它带回来。
+                                        -->
+                                        <exclude>org.bouncycastle:*-jdk15on</exclude>
+                                    </excludes>
+                                </bannedDependencies>
                             </rules>
                         </configuration>
                     </execution>

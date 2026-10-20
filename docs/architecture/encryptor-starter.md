@@ -78,5 +78,5 @@ encryptor:
 ## 坑
 
 - 只有 `enable=true` 且 `matchIfMissing=true`（即默认开）时本自动装配才生效；排查"没加密"先看 `encryptor.enable`。
-- `spring.factories` 是 Boot 2.4 的写法。工程整体升级 Spring Boot 2.7+ 时必须迁移到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`。
+- `spring.factories` 在 Boot 2.7 仍兼容但已弃用。工程当前保留该写法；后续迁移时改用 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`。
 - `CryptoConfig.getOrDefaultFill` 的语义是"某个字段为空才用默认"，不是整体替换；uri 级覆盖配置依赖它。

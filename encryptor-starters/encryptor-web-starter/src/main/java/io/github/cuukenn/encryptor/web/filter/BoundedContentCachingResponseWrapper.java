@@ -68,6 +68,93 @@ class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper
         super.flushBuffer();
     }
 
+    /** {@code reset()} 会清空缓存、头与状态，计数/溢出标记也必须一起复位。 */
+    @Override
+    public void reset() {
+        if (writer != null) {
+            writer.flush();
+        }
+        super.reset();
+        overflow = false;
+        if (stream != null) {
+            stream.written = 0L;
+        }
+    }
+
+    /**
+     * 清空缓存时同步复位计数与溢出标记：缓存大小与 {@code written} 必须保持一致。
+     * 否则清掉明文后写入的 JWE 仍会带着旧明文的字节数参与上限判断，
+     * 接近上限的正常响应会被误判为溢出（空 200），{@code sendError} 也会退化成 500。
+     */
+    @Override
+    public void resetBuffer() {
+        if (writer != null) {
+            writer.flush();
+        }
+        super.resetBuffer();
+        overflow = false;
+        if (stream != null) {
+            stream.written = 0L;
+        }
+    }
+
+    /**
+     * 写入加密后的响应体：上限约束的是业务明文，JWE 的 Base64 膨胀不应再被同一個上限截断。
+     * 直接走父类的缓存流，绕过 {@link BoundedServletOutputStream} 的计数。
+     */
+    void writeEncryptedBody(byte[] body) throws IOException {
+        super.getOutputStream().write(body);
+    }
+
+    /**
+     * 拦截 {@code sendError}：Spring 的默认实现会先把缓存 body 复制到真实响应并提交，
+     * 之后外层再也无法把错误响应换成 JWE（真实容器里会变成明文错误页）。
+     * 这里只改状态/缓存内容，由外层响应过滤器统一加密。
+     */
+    @Override
+    public void sendError(int sc) throws IOException {
+        sendError(sc, null);
+    }
+
+    @Override
+    public void sendError(int sc, String msg) throws IOException {
+        requireNotCommitted("sendError");
+        discardBufferedBody();
+        setStatus(sc);
+        if (msg != null) {
+            setContentType("text/plain;charset=UTF-8");
+            // 不能复用 getWriter()：它可能已被业务按其他字符集创建，setContentType 不会改变已有 writer 的编码。
+            getOutputStream().write(msg.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /**
+     * 同理拦截 {@code sendRedirect}：默认实现会复制已写入的 body 并提交响应。
+     * 重定向不承载业务 body，清空缓存后只保留状态与 Location，由容器在过滤器链结束后提交。
+     */
+    @Override
+    public void sendRedirect(String location) throws IOException {
+        requireNotCommitted("sendRedirect");
+        discardBufferedBody();
+        setStatus(HttpServletResponse.SC_FOUND);
+        setHeader("Location", encodeRedirectURL(location));
+    }
+
+    /** Servlet 契约：响应已提交后不能再 sendError/sendRedirect。 */
+    private void requireNotCommitted(String action) {
+        if (isCommitted()) {
+            throw new IllegalStateException("响应已提交，无法 " + action);
+        }
+    }
+
+    /** 先把 PrintWriter 里的字符落盘，再清缓存；否则旧内容会在下一次 flush 时混进新 body。 */
+    private void discardBufferedBody() {
+        if (writer != null) {
+            writer.flush();
+        }
+        resetBuffer();
+    }
+
     private final class BoundedServletOutputStream extends ServletOutputStream {
         private final ServletOutputStream delegate;
         private long written;

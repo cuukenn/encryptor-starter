@@ -4,12 +4,12 @@
 
 ## 这是什么
 
-`encryptor-starter`：一套**报文层安全**的 Spring Boot Starter（v2 协议，对齐 JOSE/JWE RFC 7516）。客户端用服务端公钥封装一把每请求新生成的 CEK——RSA-OAEP-256、国密 SM2，或 ECDH-ES（P-256 直接密钥协商）——业务数据用 AES-GCM（或 SM4-GCM）加密；服务端验上下文/防重放、解密、处理、再用同一 CEK 把响应回加密（`alg=dir`）。
+`encryptor-starter`：一套**报文层安全**的 Spring Boot Starter（v2 协议，对齐 JOSE/JWE RFC 7516）。客户端用服务端公钥封装一把每请求新生成的 CEK——RSA-OAEP-256、国密 SM2，或 ECDH-ES（P-256 直接密钥协商）——业务数据用 AES-GCM（或 SM4-GCM）加密；服务端验上下文/防重放、解密、处理、再用同一 CEK 把响应回加密（`alg=dir`）。国密能力在**可选模块 `encryptor-sm`** 中，core/starter 本身不依赖 BouncyCastle。
 
 - 语言/构建：**Java 8** + Maven 多模块
-- 版本：Spring Boot `2.4.2`、Spring Cloud `2020.0.1`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
+- 版本：Spring Boot `2.7.18`、Spring Cloud `2021.0.8`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
 - groupId：`io.github.cuukenn`，版本 `1.0.0`（发布版；`v1.0.0` 标签已打）
-- ⚠️ **Boot 2.4 用的是 `META-INF/spring.factories` 自动装配**，不是 2.7+ 的 `AutoConfiguration.imports`
+- ⚠️ **Boot 2.7 仍兼容 `META-INF/spring.factories` 自动装配**（已弃用），本项目当前继续使用；后续可迁移到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
 
 ## 安全边界（必须记住）
 
@@ -38,7 +38,8 @@ java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rf
 | --- | --- | --- |
 | `.` | `encryptor-parent` | pom |
 | `encryptor-dependencies/` | `encryptor-dependencies` | pom（BOM，**独立 POM，无 parent**） |
-| `encryptor-core/` | `encryptor-core` | jar |
+| `encryptor-core/` | `encryptor-core` | jar（零 BouncyCastle / 零 Spring） |
+| `encryptor-sm/` | `encryptor-sm` | jar（**可选**：SM2/SM4-GCM + BouncyCastle，用户显式添加） |
 | `encryptor-starters/` | `encryptor-starters` | pom |
 | `encryptor-starters/encryptor-starter/` | `encryptor-spring-boot-starter` | jar |
 | `encryptor-starters/encryptor-starter-reactive/` | `encryptor-spring-boot-starter-reactive` | jar |
@@ -55,10 +56,11 @@ java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rf
 ```text
 encryptor-dependencies (BOM: nimbus-jose-jwt/bouncycastle 版本在此)
         │  import
-encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 Spring 上下文）
+encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 Spring 上下文，零 BouncyCastle）
+        ├── encryptor-sm ┈┈ optional ┈┈ SM2/SM4-GCM 实现（唯一依赖 BC 的制品；不被任何 starter 传递）
         ├── encryptor-spring-boot-starter ──── encryptor-web-spring-boot-starter   (servlet)
         └── encryptor-spring-boot-starter-reactive ── encryptor-gateway-spring-boot-starter (reactive)
-                                                        └── encryptor-examples
+                                                        └── encryptor-examples（示例显式添加 encryptor-sm）
 
 encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optional ┈┈ encryptor-micrometer-spring-boot-starter
         （可选模块：依赖 core + micrometer-core，并 optional 依赖 gateway-starter 仅为读 CryptoExecutor；
@@ -90,9 +92,10 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 | 改 JWE 编解码/AAD/防重放/密钥库/协议默认栈 | `encryptor-core/.../jose/`、`protocol/` |
 | 改 servlet 侧过滤器链/三载体/失败面/JWKS 端点 | `encryptor-web-starter/.../filter/`、`discovery/` |
 | 改网关链路/有界执行器/响应改写/JWKS | `encryptor-gateway-starter/.../gateway/` |
-| 改配置形态/自动装配/启动摘要 | 两侧 `EncryptorAutoConfiguration` + `config/EncryptorConfig` |
+| 改配置形态/自动装配/启动摘要 | core `config/base/EncryptorConfigBase` + 两侧 `EncryptorAutoConfiguration` / `config/EncryptorConfig`（只保留前缀） |
 | 改指标/监听器适配（可选） | `encryptor-starters/encryptor-micrometer-starter/.../micrometer/`（读 `EncryptorListener` SPI + `CryptoExecutor`） |
-| 改默认算法组合/加 CipherSuite | `encryptor-core/.../jose/`（CipherSuite SPI + JceCipherSuite/SmCipherSuite/EcCipherSuite + ConcatKdf） |
+| 改默认算法组合/加 CipherSuite | `encryptor-core/.../jose/`（CipherSuite SPI + JceCipherSuite/EcCipherSuite + ConcatKdf；SPI 实现用 `META-INF/services` 注册） |
+| 改国密 SM2/SM4-GCM 或 BC 相关解析 | `encryptor-sm/.../sm/`（`SmCipherSuite` + `SmKeyEntryParser`，包名 `io.github.cuukenn.encryptor.sm`；**core 不得再出现 `org.bouncycastle`**） |
 | 跑起来验证/改示例/前端 JS | `encryptor-examples/`（front/encryptor/jwe.js 是 JS 客户端参考实现） |
 | 性能回归 | `encryptor-bench/` + `check-thresholds.sh` |
 
@@ -105,7 +108,7 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 | servlet 侧 | reactive/gateway 侧 |
 | --- | --- |
 | `encryptor-starter/.../configuration/EncryptorAutoConfiguration.java` | `encryptor-starter-reactive/.../reactive/configuration/EncryptorReactiveAutoConfiguration.java` |
-| `encryptor-starter/.../config/EncryptorConfig.java`（+ KeyMaterial/Discovery/BypassConfig） | `encryptor-starter-reactive/.../reactive/config/EncryptorConfig.java`（同三件套） |
+| `encryptor-starter/.../config/EncryptorConfig.java`（只保留 `PREFIX`；字段/默认值继承 core `config/base/EncryptorConfigBase`，三件套同样继承） | `encryptor-starter-reactive/.../reactive/config/EncryptorConfig.java`（同，只差 `PREFIX`） |
 | `encryptor-web-starter/.../filter/*`、`.../discovery/JwksEndpointFilter` | `encryptor-gateway-starter/.../gateway/filter/*`、`.../discovery/JwksEndpointFilter` |
 | `encryptor-starter/.../constant/EncryptorConstant.java`（`JWE_PARAM`/`TRACE_HEADER`） | `encryptor-starter-reactive/.../reactive/constant/EncryptorConstant.java`（同名同值） |
 | `encryptor-web-starter/src/test/.../SmJweTestSupport.java`（国密手拼客户端） | `encryptor-gateway-starter/src/test/.../SmGatewayTestSupport.java`（成对副本） |
@@ -132,7 +135,7 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 3. ⚠️ 网关的**下游必须是没有引入 encryptor 的普通应用**（`gateway-example/web`）：网关转发的已是明文，下游若也带 starter 会再解一次 → 400。
 4. ⚠️ `Cipher` 非线程安全：JCE 路径每次新建 Cipher（`JceCipherSuite.unwrapCek/aead*`），**不要**缓存单例。
 5. ⚠️ nimbus `Base64URL` 无 `decode(String)` → `java.util.Base64.getUrlDecoder()`；`JWEHeader.parse(String)` 收 JSON，parse base64url 段用 `JWEHeader.parse(new Base64URL(...))`。
-6. ⚠️ BC 自产 SM2 PKCS#8 可能用显式曲线参数而非命名 OID（`ServerKeyStore.isSm2Algorithm` 已兼容三形态）；SM 路径只用 BC 轻量级 API，**不注册全局 Provider**。
+6. ⚠️ BC 自产 SM2 PKCS#8 可能用显式曲线参数而非命名 OID（`SmKeyEntryParser.isSm2Algorithm` 已兼容三形态）；SM 路径只用 BC 轻量级 API，**不注册全局 Provider**。SM2 解析/套件都在可选模块 `encryptor-sm` 的 `io.github.cuukenn.encryptor.sm` 包（经 `KeyEntryParser`/`CipherSuite` 的 `ServiceLoader` 接线，避免与 core 的 `jose` 包形成 split package）。**core（main/test）与 starter 的 main 源码都不得出现 `org.bouncycastle`**；starter 的 SM 集成测试允许用 `<scope>test</scope>` 的 `encryptor-sm`/bcprov，但不得进入 compile/runtime 依赖树。没有 `encryptor-sm` 时配置 SM2 密钥必须启动期失败并提示添加该依赖。
 7. ⚠️ 防重放 `ReplayGuard.verify` 必须在 **GCM tag 校验之后**调用（未认证输入不得污染 nonce 存储）。
 8. ⚠️ 流式响应（SSE/下载）**不包装**：响应过滤器先判 content-type 黑名单再加密；不要无脑全量缓冲。
 9. 🟩 设计文档里的“已完成”状态：P0–P3 修复与 S1–S17 处置见 `docs/architecture/open-issues.md` / `security-review.md` 顶部的状态表（v1 部分条目已随 v1 删除而消除）。
@@ -148,15 +151,18 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 
 ## 构建状态（`master`）
 
-- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 98 + starter 10 + reactive 4 + web 40 + gateway 30 + micrometer 9 + 两示例 + JMH bench）。
-- 全量单测 **191 绿**（core 98、starter 10、reactive 4、web 40、gateway 30、micrometer 9），fail/err 均 0。增量构成：web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）；gateway +3 来自 D3 的 `CryptoExecutorTest`；micrometer 8 是 D1/D3 新增的可选模块（监听器计数 3 + 自动装配条件 4 + 接线证明 1）。本轮多监听器支持 +9：core +6（`CompositeEncryptorListenerTest` 5：按序扇出/单监听器异常隔离/多监听器互不影响/空集合等价 NONE/异常 WARN 日志含回调名与异常栈；`JweCodecListenerTest` 1：直接 `new JweCodec(...)` 时监听器异常也不改变结果）、servlet starter +1 与 reactive starter +1（两处都验证两个 listener bean 全部接上协议栈）、micrometer +1（用户监听器与指标监听器同时收到回调）。
-- CI（`.github/workflows/ci.yml`，temurin **JDK 8**）此前已按同命令在本地 1.8.0_461 复跑 182 绿（ECDH-ES 走 JDK 8 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例，全通过）；本轮多监听器改动后已在本地 JDK 11 跑 `-Pmain-module clean install` 191 绿，JDK 8 CI 待跑。CI 另加两步：`-Pall-modules -DskipTests package`（保证示例与 bench 能编译，此前 CI 完全不碰它们）与 `diff` 两份 `jwe.js`（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
+- `mvn -B -Pall-modules clean install` → BUILD SUCCESS（core 104 + sm 18 + starter 10 + reactive 4 + web 63 + gateway 43 + micrometer 9 + 两示例 + JMH bench）。
+- 依赖版本：根 POM 现在先 import `encryptor-dependencies`、再 import Spring Boot BOM，`nimbus-jose-jwt` 在 web/gateway/bench 也统一解析为 **9.37.3**；`hutool-all` 已从 core 下移到 web/gateway starter（core 不再传递）。**bcprov/bcpkix 1.78.1 只由 `encryptor-sm` 显式声明**（版本在 BOM 管理）：`encryptor-core` 与各 starter 的 runtime 依赖树里没有 BouncyCastle；SM2 用户必须显式添加 `io.github.cuukenn:encryptor-sm`。
+- 全量单测 **251 绿**（core 104、sm 18、starter 10、reactive 4、web 63、gateway 43、micrometer 9），fail/err 均 0。SM 相关用例（`SmCipherSuiteTest` 7、`SmKeyEntryParserTest` 6、`SmDefaultProtocolTest` 5）已从 core 迁到 `encryptor-sm`；core 另新增「SM2 无解析器时提示 encryptor-sm」的 fail-fast 用例（本轮双写面抽取再 +2：`JwksDocument`/`ProtocolAssembler`；配置模型随后下沉 core `config/base`，两侧 `EncryptorConfig` 只保留前缀，未新增用例；`InMemoryNonceStore` 分片 +2；servlet 异步响应加密 +1）。评审修复再加 4：core +1（`nonce-retention ≥ 2*ttl`）、web +2（JSON 明文透传 body 保留、异步交接后请求明文延迟清零）、gateway +1（JSON 明文透传 body 保留）；Minor 收尾 +2：core +2（`MAX_NONCE_LENGTH` 按 UTF-8 字节、`Builder.keys(null)` 明确错误）。此前的 P0/P1 加固（过滤器注册名、`JweContext`/`WebContext`/`GatewayContext` 清零、网关链路清理、网关 HEAD/204 无 body、网关 302 空/带 body、摘要工具与套件 IV 长度、`StrKit` 具名正则诊断、`sendError` 字符集/已提交响应）：core +7（nonce 上限、ReplayGuard 复用、retention 校验/边界、RSA 2048、IV 12、自定义 checker）、web +15（P0 的 204/304/HEAD、sendError/sendRedirect、近上限、302+body、业务异常兜底、reset/302 超限、配置校验，以及 P1 的表单 Content-Length 早检、空 JSON + `require-encrypted=false` 透传）、gateway +6（P0 的 chunked 请求/响应、配置校验，以及 P1 的 writeAndFlushWith 加密/黑名单透传）。增量构成：web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）；gateway +3 来自 D3 的 `CryptoExecutorTest`；micrometer 8 是 D1/D3 新增的可选模块（监听器计数 3 + 自动装配条件 4 + 接线证明 1）。本轮多监听器支持 +9：core +6（`CompositeEncryptorListenerTest` 5：按序扇出/单监听器异常隔离/多监听器互不影响/空集合等价 NONE/异常 WARN 日志含回调名与异常栈；`JweCodecListenerTest` 1：直接 `new JweCodec(...)` 时监听器异常也不改变结果）、servlet starter +1 与 reactive starter +1（两处都验证两个 listener bean 全部接上协议栈）、micrometer +1（用户监听器与指标监听器同时收到回调）。
+- CI（`.github/workflows/ci.yml`，temurin **8/11/17 矩阵**）已在本地 JDK 8/11/17 各跑过 `-Pmain-module clean install`（此前 228 绿）；本轮摘要工具/套件 IV/`StrKit`/`sendError` 改动后 JDK 11 为 **236 绿**，引入 `encryptor-sm` 拆分后 JDK 11 为 240 绿，双写面抽取（`JwksDocument`/`ProtocolAssembler`）后为 **242 绿**，`InMemoryNonceStore` 分片后为 244 绿，servlet 异步响应加密后为 **245 绿**，评审修复后为 249 绿，Minor 收尾及 `encryptor-sm` 包名迁移后 JDK 8/11/17 均为 **251 绿**（ECDH-ES 走 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例）；JDK 8 任务的 `-Pall-modules -DskipTests package` 也已在评审修复后复跑通过（保证示例与 bench 能编译），两份 `jwe.js` 的 `diff` 一致（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
+- CI 的 JDK 8 任务新增**依赖面守卫**：core + 四个 starter 的 runtime 依赖树不得出现 `org.bouncycastle` 或 `encryptor-sm`（`dependency:tree -Dincludes=... -Dscope=runtime -DoutputFile=...`），防止 BC/可选模块重新传递到消费者。
+- `mvn -B -Pall-modules -DskipTests package` → BUILD SUCCESS：示例（web-example / gateway-example）与 bench 都能在"core/starters 无 BC、示例显式带 encryptor-sm"的依赖形态下编译打包；bench 的 runtime 树仍无 BC。
 - ⚠️ **示例测试源码必须能编过 JDK 8**（`mvn -Pall-modules` 会编 examples 的 test 源码）：`HttpTest.java` 曾用 `URLEncoder.encode(String, Charset)`（**Java 10+** 才有）→ JDK 8 下编译失败；已改为自带 `enc(String)` helper（`URLEncoder.encode(s, "UTF-8")` 包一层）。两份 `HttpTest.java` 是成对文件，改一处必须同步另一处。
 - P3-4（`skip-*` 正名 + 旧名 alias）：⚠️ 新旧名单**不能共用同一个 list**——Spring Boot 对集合属性是"就地绑定（clear + 回填到 getter 返回的 list）"，共用时后绑定的会把先绑定的清掉。现为「旧名独立字段 + `InitializingBean.afterPropertiesSet()` 合并去重」。
 - JMH（M1 Pro / JDK 11，三次运行中位数，`-wi 2 -i 3 -f 1 -prof gc`）：RSA 往返 1020 ops/s、ECDH-ES 往返 1438 ops/s（**≈1.4×，非数量级**，差值来自 P-256 协商 vs RSA-2048 私钥运算 ≈0.29 ms/op）；4 线程解封并行度 RSA 3.94× / ECDH-ES 3.99×（阈值 2.5×）；bytes/op 73018（基线 72792，+0.3%，阈值 +10%）。完整表与复现命令见 `README.md`「性能基准（JMH）」。
 - ⚠️ `bench.jar` 的两个坑：①`EcdhEsBenchmark` 必须显式传 `allowedAlgs={ECDH-ES}`（空集合会取协议默认 `RSA-OAEP-256` → 构造期 fail-fast）；②JMH setup 失败时只在日志里打堆栈、**exit code 仍是 0**，必须查 `bench.log`/`check-thresholds.sh` 而不能只看退出码。
 - ECDH-ES（P-256）端到端已复验（全 JIT 手起实例）：web-example `node front/test.js` 11/11、gateway-example 10/10；core 另以 nimbus `ECDHEncrypter` 为独立 oracle 做双向互通单测。
 - 国密（SM2+SM4-GCM）在示例里已可自证：两个示例都自带 SM2 演示密钥，用独立 SM 客户端（手拼 SM2 C1C3C2 + SM4-GCM，不复用 core）打 `/test/hello` 各 **12/12 PASS**（含重放/篡改/未知 kid/AAD 不匹配四条拒绝面）；同一实例上 `node front/test.js` 仍全绿。
-- ⚠️ 客户端 classpath 的 BC 版本与目标服务端无关：网关的 classpath 里含较老的 bcprov（缺 `ECDomainParameters(X9ECParameters)` 构造器），把用于 web 的 SM 客户端拿去跑会在客户端侧 `NoSuchMethodError`——换回客户端自己的 classpath 即可（服务端 SM2 解析/解密正常，启动摘要与 E2E 均可证）。
+- ⚠️ 网关 starter 已显式排除 `spring-security-rsa` 传递的 `bcprov/bcpkix/bcutil-jdk15on`（旧的 1.69 系列）；新增依赖若重新把 `*-jdk15on` 带回 compile/runtime，会与 `encryptor-sm` 的 `*-jdk18on:1.78.1` 形成双 BC 血统。根 POM 的 enforcer 已禁止 `org.bouncycastle:*-jdk15on`，依赖树守卫也应保持为空。
 - 真实端到端（RSA 路径，全 JIT）：web-example(8081) 与 gateway-example(8080→8082) 的 JWE 三载体 + 篡改用例全 PASS；两个 JWKS 端点 200 + ETag。
-- 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues.md` 文末「v2 整分支评审修复」章节。
+- 评审修复的裁定（RF-1/2/3）与 5 条明确推迟的 Minor（D1–D5）见 `docs/architecture/open-issues-v2-history.md` 的「v2 整分支评审修复」章节。

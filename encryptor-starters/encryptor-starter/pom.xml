@@ -29,5 +29,16 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 国密用例：SM 套件/解析器是可选模块，测试侧显式添加（不会被 starter 传给消费者） -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-sm</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

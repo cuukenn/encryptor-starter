@@ -15,30 +15,39 @@
 
 ## 管理的内容
 
-本项目的四个可发布制品（版本 `${revision}`）：
+本项目的可发布制品（版本 `${revision}`）：
 
 | artifactId | 对应目录 |
 | --- | --- |
 | `encryptor-core` | `encryptor-core/` |
+| `encryptor-sm` | `encryptor-sm/`（可选：国密 SM2/SM4-GCM + BouncyCastle） |
 | `encryptor-spring-boot-starter` | `encryptor-starters/encryptor-starter/` |
 | `encryptor-spring-boot-starter-reactive` | `encryptor-starters/encryptor-starter-reactive/` |
 | `encryptor-web-spring-boot-starter` | `encryptor-starters/encryptor-web-starter/` |
 | `encryptor-gateway-spring-boot-starter` | `encryptor-starters/encryptor-gateway-starter/` |
+| `encryptor-micrometer-spring-boot-starter` | `encryptor-starters/encryptor-micrometer-starter/` |
 
 三方依赖版本（属性定义在本模块 `<properties>` 里）：
 
 | 依赖 | 版本 |
 | --- | --- |
 | `cn.hutool:hutool-all` | `5.8.25` |
-| `org.bouncycastle:bcpkix-jdk18on` | `1.78.1` |
+| `org.bouncycastle:bcprov-jdk18on` | `1.78.1`（仅 `encryptor-sm` 使用） |
+| `org.bouncycastle:bcpkix-jdk18on` | `1.78.1`（仅 `encryptor-sm` 使用） |
 | `org.springframework.cloud:spring-cloud-starter-bootstrap` | `3.1.0` |
 
-Spring Boot / Spring Cloud / Spring Cloud Alibaba 的版本**不在这里**，而在根 `pom.xml`：`spring-boot 2.4.2`、`spring-cloud 2020.0.1`、`spring-cloud-alibaba 2021.1`。
+> **BouncyCastle 是显式可选依赖**：`encryptor-core` 与全部 starter 的 **compile/runtime** 依赖树里都没有 BouncyCastle
+> （gateway 已排除 `spring-security-rsa` 传递的 `*-jdk15on`；starter 的 SM 集成测试只以 `test` scope 引入 bcprov）。
+> 只有 `encryptor-sm`（国密）在 compile/runtime 依赖它，且不会被任何 starter 传递。
+> 使用 `type: SM2` 的服务必须自己添加 `io.github.cuukenn:encryptor-sm`；缺失时启动期失败并提示该依赖。
+> SM 路径只使用 BC 轻量级 API，不注册全局 JCA Provider。
+
+Spring Boot / Spring Cloud / Spring Cloud Alibaba 的版本**不在这里**，而在根 `pom.xml`：`spring-boot 2.7.18`、`spring-cloud 2021.0.8`、`spring-cloud-alibaba 2021.1`。
 
 ## 常见任务
 
-- **升级 hutool / bouncycastle**：只改本模块 `<properties>`（或对应 `<version>`）。
-- **升级 Spring Boot / Cloud**：改根 `pom.xml` 的属性，注意 Boot 2.4.2 仍然使用 `META-INF/spring.factories` 做自动装配（不是 `AutoConfiguration.imports`），升级到 2.7+ 后需要同步迁移四个 starter 的 `spring.factories`。
+- **升级 hutool / bouncycastle**：只改本模块 `<properties>`（`hutool.version` / `bouncycastle.version`）。
+- **升级 Spring Boot / Cloud**：改根 `pom.xml` 的属性。Boot 2.7 仍兼容 `META-INF/spring.factories` 自动装配（已弃用）；当前项目继续使用它，迁移到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 时需同步四个 starter。
 - **新增一个 starter 制品**：必须同时在本模块补 `dependencyManagement` 条目，否则消费方要写版本号。
 
 ## 坑

@@ -24,8 +24,8 @@ description: Use when changing this repository's JWE payload-security code - add
 | servlet JWKS 发现端点 | `encryptor-web-starter/.../discovery/JwksEndpointFilter.java` |
 | 网关链路（GlobalFilter/有界执行器/响应改写） | `encryptor-gateway-starter/.../gateway/filter/` |
 | 网关 JWKS 端点 | `encryptor-gateway-starter/.../gateway/discovery/JwksEndpointFilter.java` |
-| 配置形态 / 自动装配 / 启动摘要 | 两侧 `EncryptorAutoConfiguration` + `config/EncryptorConfig`（+ KeyMaterial/Discovery/BypassConfig） |
-| 新增 CipherSuite（如新国密组合） | `encryptor-core/.../jose/CipherSuite.java` + `JceCipherSuite`/`SmCipherSuite` 对照实现；白名单须同步 `DefaultProtocol` |
+| 配置形态 / 自动装配 / 启动摘要 | core `config/base/EncryptorConfigBase` + 两侧 `EncryptorAutoConfiguration` / `config/EncryptorConfig`（只保留前缀；KeyMaterial/Discovery/BypassConfig 同） |
+| 新增 CipherSuite（如新国密组合） | `encryptor-core/.../jose/CipherSuite.java` 定义 SPI；内置实现在 core（`JceCipherSuite`/`EcCipherSuite`），国密类在可选模块 `encryptor-sm/.../sm/`（包名 `io.github.cuukenn.encryptor.sm`，避免 split package）；实现用 `META-INF/services` 注册，白名单须同步 `DefaultProtocol` |
 | 跑示例 / 前端 JS 客户端 | `encryptor-examples/*/front/encryptor/jwe.js`（WebCrypto 参考实现） |
 | 性能回归 | `encryptor-bench/` + `check-thresholds.sh`（RSA 并行度、bytes/op 基线） |
 
@@ -37,13 +37,14 @@ description: Use when changing this repository's JWE payload-security code - add
 - [ ] 配置写对前缀了吗？web 是 `encryptor.config.web.*`，**gateway 是 `encryptor.config.reactive.gateway.*`**（多一层 `reactive`，且 failure-status/上限在 reactive 通用段）。
 - [ ] 名单类配置（`skip-uris` 等，旧名 `black-uris` 为弃用 alias）是**正则整串匹配**；命中即**跳过**加密（不是拦截）。含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`。
 - [ ] `Cipher` 非线程安全——不要缓存单例；防重放必须在 GCM tag 校验**之后**。
+- [ ] 我是否把 `org.bouncycastle` 带进了 core/starter？SM2 解析与套件只能在可选模块 `encryptor-sm`；core（main/test）与 starter 的 main 源码都必须零 BC。starter 的 SM 集成测试可以用 `<scope>test</scope>` 的 `encryptor-sm`/bcprov，但不得作为 compile/runtime 依赖传递。
 
 ## 成对文件对照表（改一处必改另一处）
 
 | servlet | reactive/gateway |
 | --- | --- |
 | `encryptor-starter/.../configuration/EncryptorAutoConfiguration.java` | `encryptor-starter-reactive/.../reactive/configuration/EncryptorReactiveAutoConfiguration.java` |
-| `encryptor-starter/.../config/EncryptorConfig.java`（+ KeyMaterial/Discovery/BypassConfig） | `encryptor-starter-reactive/.../reactive/config/`（同三件套，只差 `PREFIX`） |
+| `encryptor-starter/.../config/EncryptorConfig.java`（只保留 `PREFIX`；字段继承 core `config/base/EncryptorConfigBase`，三件套同） | `encryptor-starter-reactive/.../reactive/config/`（同，只差 `PREFIX`） |
 | `encryptor-web-starter/.../filter/`、`.../discovery/JwksEndpointFilter` | `encryptor-gateway-starter/.../gateway/filter/`、`.../discovery/JwksEndpointFilter` |
 | `encryptor-examples/web-example/front/encryptor/jwe.js` | `encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js` |
 

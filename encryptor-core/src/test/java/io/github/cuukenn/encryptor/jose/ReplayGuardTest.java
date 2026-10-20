@@ -60,6 +60,16 @@ class ReplayGuardTest {
     }
 
     @Test
+    void nonce超过上限一律拒绝() {
+        StringBuilder nonce = new StringBuilder(129);
+        for (int i = 0; i < 129; i++) {
+            nonce.append('a');
+        }
+        assertEquals(EncryptorFailure.BAD_HEADER, assertThrows(EncryptorException.class,
+            () -> guard().verify(System.currentTimeMillis(), nonce.toString())).failure());
+    }
+
+    @Test
     void 缺nonce一律拒绝() {
         assertEquals(EncryptorFailure.BAD_HEADER,
             assertThrows(EncryptorException.class, () -> guard().verify(System.currentTimeMillis(), null)).failure());

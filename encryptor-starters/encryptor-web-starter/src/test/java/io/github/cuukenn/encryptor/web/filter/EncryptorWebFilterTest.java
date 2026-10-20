@@ -8,11 +8,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.util.StreamUtils;
 
 import javax.servlet.FilterChain;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -122,6 +124,58 @@ class EncryptorWebFilterTest {
         run(request, response);
         assertThat(response.getStatus()).isEqualTo(413);
         assertThat(chainExecuted).isFalse();
+    }
+
+    @Test
+    void 表单超maxRequestSize按ContentLength回413且不解析参数() throws Exception {
+        protocolConfig.setMaxRequestSize(64);
+        AtomicBoolean parameterAccessed = new AtomicBoolean(false);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/f") {
+            @Override
+            public long getContentLengthLong() {
+                return 300L;
+            }
+
+            @Override
+            public String getParameter(String name) {
+                parameterAccessed.set(true);
+                return super.getParameter(name);
+            }
+        };
+        request.setContentType("application/x-www-form-urlencoded");
+        request.setContent(new byte[300]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(413);
+        assertThat(chainExecuted).isFalse();
+        assertThat(parameterAccessed).isFalse();
+    }
+
+    @Test
+    void 空JSONbody且requireEncryptedFalse时透传() throws Exception {
+        protocolConfig.setRequireEncrypted(false);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+        request.setContentType("application/json");
+        request.setContent(new byte[0]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(chainExecuted).isTrue();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(WebContext.current().isReqEncryptor()).isFalse();
+    }
+
+    @Test
+    void 非空JSON明文透传时下游仍能读到原始body() throws Exception {
+        protocolConfig.setRequireEncrypted(false);
+        byte[] plaintext = "{\"foo\":1}".getBytes(StandardCharsets.UTF_8);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+        request.setContentType("application/json");
+        request.setContent(plaintext);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<String> seen = new AtomicReference<>();
+        filter.doFilter(request, response, (req, res) ->
+            seen.set(StreamUtils.copyToString(req.getInputStream(), StandardCharsets.UTF_8)));
+        assertThat(seen.get()).isEqualTo("{\"foo\":1}");
     }
 
     @Test

@@ -24,6 +24,22 @@ class InMemoryNonceStoreTest {
     }
 
     @Test
+    void 大容量自动分片且总容量仍受上限约束() {
+        InMemoryNonceStore store = new InMemoryNonceStore(60_000L, 1024);
+        assertTrue(store.shardCount() > 1, "大容量应分片以降低全局锁竞争");
+        for (int i = 0; i < 4096; i++) {
+            assertTrue(store.consume("n" + i));
+        }
+        assertTrue(store.size() <= 1024, "分片后总记录数仍不得超过容量上限");
+        assertTrue(store.evictedCount() > 0, "超过容量后应发生驱逐");
+    }
+
+    @Test
+    void 小容量保持单分片以维持全局插入顺序() {
+        assertEquals(1, new InMemoryNonceStore(60_000L, 2).shardCount());
+    }
+
+    @Test
     void 驱逐计数可观测() {
         InMemoryNonceStore store = new InMemoryNonceStore(60_000L, 1);
         assertTrue(store.consume("a"));

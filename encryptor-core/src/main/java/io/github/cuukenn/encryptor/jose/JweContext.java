@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.jose;
 
+import java.util.Arrays;
+
 /**
  * 一次成功解密的请求上下文：明文、CEK（响应方向要用同一把）、以及绑定的元数据。
  *
@@ -54,5 +56,19 @@ public final class JweContext {
 
     public String nonce() {
         return nonce;
+    }
+
+    /**
+     * 请求生命周期结束时 best-effort 清零明文与 CEK。
+     *
+     * <p>只能降低堆转储/内存复用的暴露窗口，不能保证 JVM/GC 中没有副本。
+     */
+    public void destroy() {
+        if (plaintext != null) {
+            Arrays.fill(plaintext, (byte) 0);
+        }
+        if (cek != null) {
+            Arrays.fill(cek, (byte) 0);
+        }
     }
 }

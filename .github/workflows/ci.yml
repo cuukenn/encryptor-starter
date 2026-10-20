@@ -8,22 +8,45 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 主测试矩阵：JDK 8 是目标运行时；11/17 用来提前发现 JCE/Provider 与
+        # 新版本 JDK 的反射/模块化差异（本项目的 ECDH-ES 依赖 SunEC）。
+        java: [ '8', '11', '17' ]
     steps:
       - name: Checkout Git Repo
-        uses: actions/checkout@v3
-      - name: Setup JDK
-        uses: actions/setup-java@v3
+        uses: actions/checkout@v4
+      - name: Setup JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '8'
+          java-version: ${{ matrix.java }}
           cache: maven
-      # main-module = dependencies + core + starters；examples 是演示工程，不参与 CI 的测试闸门
+      # main-module = dependencies + core + sm + starters；examples 是演示工程，不参与 CI 的测试闸门
       - name: Build & Test
         run: mvn -B -Pmain-module clean install
       # 演示工程与 JMH bench 不进测试闸门（HttpTest 需先起服务、JMH 在共享 runner 上噪声大），
-      # 但必须保证它们能编译——否则示例/基准会悄悄烂掉（-DskipTests 仍会编译测试源码）
+      # 但必须保证它们能编译——否则示例/基准会悄悄烂掉（-DskipTests 仍会编译测试源码）。
+      # 只在 JDK 8 任务跑一次，避免矩阵里重复编译。
       - name: Build examples & bench (no tests)
+        if: matrix.java == '8'
         run: mvn -B -Pall-modules -DskipTests package
       # 双写面守卫：两份前端参考实现必须逐字节一致（AGENTS.md 的成对文件表）
       - name: Front-end reference impl must stay in sync
+        if: matrix.java == '8'
         run: diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
+      # 依赖面守卫：core 与四个 starter 的 runtime/compile 依赖树不得出现 BC 或 encryptor-sm。
+      # encryptor-sm 只允许被显式引入（示例/SM 用户），starter 不能把它或 BC 传递给消费者。
+      - name: Guard BC-free runtime for core and starters
+        if: matrix.java == '8'
+        run: |
+          rm -f /tmp/encryptor-runtime-tree.txt
+          mvn -B -pl encryptor-core,encryptor-starters/encryptor-starter,encryptor-starters/encryptor-starter-reactive,encryptor-starters/encryptor-web-starter,encryptor-starters/encryptor-gateway-starter \
+            dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
+            -DoutputFile=/tmp/encryptor-runtime-tree.txt -DappendOutput=true
+          if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-runtime-tree.txt; then
+            echo "BouncyCastle or encryptor-sm leaked into a core/starter runtime tree" >&2
+            cat /tmp/encryptor-runtime-tree.txt >&2
+            exit 1
+          fi

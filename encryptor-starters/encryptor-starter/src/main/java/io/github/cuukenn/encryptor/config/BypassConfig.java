@@ -1,33 +1,13 @@
 package io.github.cuukenn.encryptor.config;
 
+import io.github.cuukenn.encryptor.config.base.BypassConfigBase;
+
 /**
  * 旁路开关（初始值；运行期经 {@code EncryptorRuntime.setBypass} 热改，无需重启）。
  *
+ * <p>字段与默认值继承自 core 的 {@link BypassConfigBase}。</p>
+ *
  * @author changgg
  */
-public class BypassConfig {
-    /**
-     * 请求方向原样透传：不再要求密文。
-     */
-    private boolean request;
-    /**
-     * 响应方向原样透传：不加密。
-     */
-    private boolean response;
-
-    public boolean isRequest() {
-        return request;
-    }
-
-    public void setRequest(boolean request) {
-        this.request = request;
-    }
-
-    public boolean isResponse() {
-        return response;
-    }
-
-    public void setResponse(boolean response) {
-        this.response = response;
-    }
+public class BypassConfig extends BypassConfigBase {
 }

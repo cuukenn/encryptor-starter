@@ -14,7 +14,7 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
 ## 特性
 
 - **协议**：JWE Compact 单字段载体（query 参数 / JSON `{"jwe":…}` / form 字段 `jwe`），响应复用请求 CEK（`alg=dir`，客户端不需密钥对）。
-- **算法**：请求 `alg=RSA-OAEP-256`（RSA 公钥）或 `alg=ECDH-ES`（P-256 公钥，直接密钥协商，`epk` 随 header 走、`encrypted_key` 段为空），`enc=A256GCM`（默认）；国密 `alg=SM2` + `enc=SM4-GCM`（BC 轻量级 API，不注册 Provider）。算法白名单服务端强制，客户端不可自选。
+- **算法**：请求 `alg=RSA-OAEP-256`（RSA 公钥）或 `alg=ECDH-ES`（P-256 公钥，直接密钥协商，`epk` 随 header 走、`encrypted_key` 段为空），`enc=A256GCM`（默认）；国密 `alg=SM2` + `enc=SM4-GCM` 需显式添加可选模块 `encryptor-sm`（只使用 BC 轻量级 API，不注册 Provider）。算法白名单服务端强制，客户端不可自选。
 - **防重放**：服务端强制时间窗（`ttl`，默认 5 分钟）+ nonce 一次性消费。默认内存实现**只在本进程内有效**，多实例部署必须注册自己的 `NonceChecker` bean（Redis 等共享存储），见「运行须知」。
 - **上下文绑定**：AAD 绑定 `uri/method/方向/ts/nonce`，密文不能跨接口/跨方向搬运。
 - **密钥轮换**：多 kid 并存，JWKS 只读发现端点（`/.well-known/encryptor-keys`，免加密、只含公钥、ETag/缓存）。
@@ -59,6 +59,20 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
         </dependency>
         ```
 
+    - **国密（SM2/SM4-GCM）需要额外显式添加可选模块**：`encryptor-core` 与各 starter **不依赖 BouncyCastle**，也不会传递 `encryptor-sm`。只有确实使用 `type: SM2` 的服务才需要：
+
+        ```xml
+        <dependency>
+          <groupId>io.github.cuukenn</groupId>
+          <artifactId>encryptor-sm</artifactId>
+          <version>版本</version>
+        </dependency>
+        ```
+
+        没有它时配置 SM2 密钥会在**启动期**失败，错误信息会提示添加 `encryptor-sm`；RSA / ECDH-ES 路径不受影响。`encryptor-sm` 只使用 BouncyCastle 轻量级 API，**不注册全局 JCA Provider**。
+
+> **依赖版本提示**：项目自身已升级到 Spring Boot 2.7.18 / Spring Cloud 2021.0.8。Boot 2.4.x 的 BOM 会把 `nimbus-jose-jwt` 管到 9.1.3（含已知 CVE）；下游应用如果仍使用 Boot 2.4.x BOM，请在 `dependencyManagement` 中先 import `encryptor-dependencies`，或显式 pin `com.nimbusds:nimbus-jose-jwt:9.37.3`。
+
 ## 配置样例
 
 ```yaml
@@ -67,9 +81,9 @@ encryptor:
     enable: true
     keys:                       # 至少一把; 多钥并存支持轮换
       - kid: "2026-10"
-        type: RSA               # RSA(默认) 或 SM2
+        type: RSA               # RSA(默认) / EC / SM2（SM2 需显式依赖 encryptor-sm）
         private-key: <Base64 PKCS#8>
-        public-key: <Base64 X.509/SPKI>   # SM2 可用 SPKI 或裸 64 字节 x||y
+        public-key: <Base64 X.509/SPKI>   # SM2 可用 SPKI 或裸 64 字节 x||y（需 encryptor-sm）
       - kid: "2026-07"          # 旧钥保留只解不封, 客户端可自选 kid
         type: RSA
         private-key: <Base64 PKCS#8>
@@ -124,11 +138,17 @@ encryptor:
   }
   ```
   两侧自动装配都会用它替换内存实现（无需覆盖整个 `DefaultProtocol`）。`ttl` 与这里的 TTL 要对齐（存储 TTL ≥ `ttl`，否则过期 nonce 会被重新接受）。
-- **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`。这类接口应把其 content-type 加入 `skip-res-content-type`（不包装、原样透传），并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。
-- **请求上限的实际边界**：`max-request-size` 在 servlet 侧只对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体经容器 `getParameter()` 解析，字节上限由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
+- **大响应 / 流式接口**（下载、SSE、导出）：响应过滤器必须缓冲才能加密，缓冲上限就是 `max-response-size`（约束的是**业务明文**；加密后的 JWE 因 Base64 膨胀会略大，不按该值截断）。这类接口应把其 content-type 加入 `skip-res-content-type`，并把 `max-response-size` 设为 `<= 0` 关闭上限（启动会有告警）。注意：`skip-res-content-type` 只决定**最终是否加密**，响应仍会先经过包装器缓冲；若不关闭上限，超限仍会在缓冲阶段回 500。若确实要加密大响应，超限会回 500 且**不会**漏出半截明文。网关侧对 `writeAndFlushWith` 也会先聚合再加密；SSE 这类无限流必须进 skip 名单，否则会在上限处失败（不会降级成明文）。
+- **报文头约束**：`nonce` 必填且最长 **128 字符**（超长按 `BAD_HEADER` 拒绝）；RSA 密钥模数最低 **2048 位**；AES-GCM / SM4-GCM 的 IV 固定 **12 字节**。这些都在解密/启动期校验，不依赖业务代码。
+- **nonce 保留期**：使用内置 `InMemoryNonceStore` 时，`nonce-retention` 必须 **≥ `2 × ttl`**（默认即 `2 × ttl`），否则启动失败。时间窗是对称的，`ts` 偏未来的报文最晚会在 `ts + ttl` 被接受，因此 nonce 要保留到覆盖这段时间；注入自定义 `NonceChecker` 时该配置不生效，过期时间由实现方保证（见上一条）。
+- **内置 nonce 存储的并发**：容量 ≥ 1024 时按 nonce 哈希分 16 片（进程内随机盐，避免定向打爆单个分片）降低全局锁竞争；总容量按分片精确分配，全局记录数仍不超过 `nonce-capacity`。分片内按插入顺序驱逐，因此大容量下“全局最早项”退化为“分片内最早项”；容量 < 1024 时保持单分片全局 FIFO。
+- **响应边界（servlet / 网关）**：两侧都会跳过 `HEAD`、`1xx`、`204/205/304`（不加密、不写 body）。servlet 额外规则：`3xx` 仅在 body 为空时跳过，带说明性 body 的 3xx 仍会加密；`sendError` 的状态码保留，消息按 UTF-8 写入并作为加密 body 返回，响应已提交时按 Servlet 契约抛 `IllegalStateException`；`sendRedirect` 会清空已写入的 body，只保留状态与 `Location`，已提交时同样抛 `IllegalStateException`；业务抛异常时响应过滤器回 **500 空 body**（带 trace 头），不会落到容器的明文错误页；servlet 异步响应（`DeferredResult`/`Callable`）由响应过滤器包装 `AsyncContext`，在业务调用 `complete()` 前先加密写回，`onComplete` 仅作兜底，`onError`/`onTimeout` 回 500 空 body；异步 `dispatch()` 不会保留解密后的 `WebContext` 视图，转发目标看到的是原始请求上下文；业务自定义线程池仍不会自动传递 `WebContext`，需要自行传参。网关的 `3xx` 同样只在 body 为空时跳过，带 body 的 `3xx` 仍会加密。
+- **敏感数据清理（best-effort）**：servlet 在请求链结束后（`WebContext.clear()`）清零 CEK 与请求明文；网关在链路终止（`doFinally`/失败分支）时清理 `GatewayContext` 并清零 CEK/明文。该清理只覆盖本进程持有的数组，JVM/GC 复制、日志、下游缓冲不在范围内；需要更强保证时请自行限制日志与堆转储。
+- **启动期校验**：`skip-uris`、`skip-methods`、`skip-*-content-type`、`crypto-config` 里的正则在启动时统一编译，非法正则**直接启动失败**，错误信息包含配置项名与原始正则，不会等到第一个请求才 500。
+- **请求上限的实际边界**：`max-request-size` 在 servlet 侧对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体在读取参数前先按 `Content-Length` 判定（超限 413），chunked FORM 无法预知长度，字节上限仍由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。注意 servlet 在解析载体前会先按 `Content-Length` 做 413 早检，因此 **QUERY 载体携带超大 body 也会 413**（即使该 body 不会被读取）。空 JSON body 视为无载体：`require-encrypted=false` 时透传，默认 `true` 时仍 400。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
 - **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
 - **客户端**：JS 参考实现（`encryptor-examples/*/front/encryptor/jwe.js`）覆盖 RSA-OAEP-256 与 ECDH-ES（P-256，WebCrypto 原生 `ECDH` + 手写 Concat KDF），`enc` 支持 A128/A192/A256GCM，具体用哪个以服务端 `allowed-encs` 为准。浏览器 WebCrypto **没有** SM 算法，所以 JS 侧不含国密路径。
-- **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 core/web/gateway 三层测试覆盖。国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可直接用 `encryptor-core` 的 `JweCodec`。两个示例都已自带 SM2 演示密钥（web-example `sm-2026`、gateway-example `sm-gw-2026`），用任意国密客户端打 `/test/hello` 即可验证；servlet 侧另有 `^/test/sm.*` 绑定 `sm-2026` 的 `GET /test/sm` 端点，用来演示「uri 级绑密钥类型」。
+- **国密的客户端**：服务端国密路径（`alg=SM2` + `enc=SM4-GCM`）由 `encryptor-sm` 的国密套件/解析器测试与 web/gateway 过滤器测试共同覆盖（core 只保留 SPI 与 RSA/EC）。国密客户端需要自带 SM4-GCM 能力的 JS 库（常见 `sm-crypto` 只有 SM4-ECB/CBC，**不能**直接用于本协议的 `SM4-GCM`）。Java 客户端可显式依赖 `encryptor-sm` 并使用 `JweCodec`。两个示例都已自带 SM2 演示密钥（web-example `sm-2026`、gateway-example `sm-gw-2026`，pom 里显式添加了 `encryptor-sm`），用任意国密客户端打 `/test/hello` 即可验证；servlet 侧另有 `^/test/sm.*` 绑定 `sm-2026` 的 `GET /test/sm` 端点，用来演示「uri 级绑密钥类型」。
 - **网关下游**：网关转发出去的是**已解密的明文**，下游服务**不要**再引入 encryptor starter（否则会被二次解密 → 400）。参考 `encryptor-examples/gateway-example/web`（普通应用）。
 
 ## 代码示例
@@ -141,10 +161,10 @@ encryptor:
 
 ```bash
 # 服务端（Maven 不在 PATH 时用全路径；示例未配 repackage，只能用插件全坐标）
-mvn -B -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+mvn -B -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
 # 网关两个进程：先下游（8082），再网关（8080）
-mvn -B -pl encryptor-examples/gateway-example/web     org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
-mvn -B -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+mvn -B -pl encryptor-examples/gateway-example/web     org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
+mvn -B -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
 
 # 客户端（Node ≥16；本仓库实测 Node 16，用 npm 而不是 pnpm）
 cd encryptor-examples/web-example/front && npm install && node test.js     # 11 条断言
@@ -219,3 +239,5 @@ encryptor-bench/check-thresholds.sh encryptor-bench/target/bench.json
 ## v1 → v2 迁移
 
 **v1（RSA-PKCS1v15 + AES-CBC + MD5-AES 自造签名）已被移除，无兼容**。v1 的"签名"密钥由客户端自选上传，不提供防伪造；v2 直接对齐 JOSE/JWE。升级方式：前后端同批发布（协议不兼容，服务端对旧报文返回 `failure-status`）。
+
+> **BC 可选化的 API 变化**：`ServerKeyStore.sm2PrivateKey(String)` 与 `SM2_DOMAIN` 已随 BouncyCastle 可选化移除。自定义 `CipherSuite` 如需要 SM2 私钥，请改用 `ServerKeyStore.nativePrivateKey(String)`，并显式添加 `encryptor-sm` 依赖。

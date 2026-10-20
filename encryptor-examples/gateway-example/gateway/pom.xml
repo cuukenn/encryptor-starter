@@ -9,13 +9,16 @@
     </parent>
     <artifactId>gateway-example</artifactId>
     <dependencies>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway</artifactId>
-        </dependency>
+        <!-- spring-cloud-starter-gateway 由 encryptor-gateway-spring-boot-starter 传递，
+             且 starter 已排除 spring-security-rsa 带来的旧 BC（jdk15on）；这里不再重复声明。 -->
         <dependency>
             <groupId>io.github.cuukenn</groupId>
             <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
+        </dependency>
+        <!-- 示例配置了 SM2 演示密钥：国密支持是显式可选模块，不随 starter 传递 -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-sm</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

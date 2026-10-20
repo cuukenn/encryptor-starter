@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.protocol;
 
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
+import io.github.cuukenn.encryptor.jose.CipherSuite;
 import io.github.cuukenn.encryptor.jose.EcCipherSuite;
 import io.github.cuukenn.encryptor.jose.JceCipherSuite;
 import io.github.cuukenn.encryptor.jose.InMemoryNonceStore;
@@ -11,15 +12,15 @@ import io.github.cuukenn.encryptor.jose.KeyType;
 import io.github.cuukenn.encryptor.jose.NonceChecker;
 import io.github.cuukenn.encryptor.jose.ReplayGuard;
 import io.github.cuukenn.encryptor.jose.ServerKeyStore;
-import io.github.cuukenn.encryptor.jose.SmCipherSuite;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
 import java.util.Set;
 
 /**
@@ -161,6 +162,9 @@ public class DefaultProtocol {
         }
 
         public Builder keys(Collection<KeyMaterial> keys) {
+            if (keys == null) {
+                throw new EncryptorException("keys 不能为 null");
+            }
             materials.addAll(keys);
             return this;
         }
@@ -239,11 +243,12 @@ public class DefaultProtocol {
             boolean hasSm2 = false;
             boolean hasEc = false;
             for (KeyMaterial material : materials) {
-                keys.add(material.kid(), material.privateKeyB64(), material.publicKeyB64(), material.type());
-                if (material.type() == KeyType.RSA) {
+                KeyType type = material.type() == null ? KeyType.RSA : material.type();
+                keys.add(material.kid(), material.privateKeyB64(), material.publicKeyB64(), type);
+                if (type == KeyType.RSA) {
                     algs.add(ALG_RSA);
                     hasRsa = true;
-                } else if (material.type() == KeyType.EC) {
+                } else if (type == KeyType.EC) {
                     algs.add(ALG_ECDH_ES);
                     hasEc = true;
                 } else {
@@ -276,14 +281,57 @@ public class DefaultProtocol {
                 }
             }
 
-            JweCodec codec = new JweCodec(store,
-                Arrays.asList(new JceCipherSuite(), new EcCipherSuite(), new SmCipherSuite()),
-                effectiveAlgs, effectiveEncs, listener);
-            long retention = nonceRetentionMillis <= 0 ? ttlMillis : nonceRetentionMillis;
+            List<CipherSuite> suites = loadCipherSuites();
+            if (hasSm2 && !supportsAlgorithm(suites, ALG_SM2)) {
+                throw new EncryptorException("检测到 SM2 密钥但当前 classpath 没有 SM2 套件：请显式添加 "
+                    + "encryptor-sm 依赖（io.github.cuukenn:encryptor-sm）");
+            }
+            JweCodec codec = new JweCodec(store, suites, effectiveAlgs, effectiveEncs, listener);
+            // 自定义 NonceChecker 的过期策略由实现方决定，nonce-retention 不会生效；
+            // 只有内置 InMemoryNonceStore 才需要保证保留期覆盖整个时间窗。
+            // 时间窗是对称的：接受 [now-ttl, now+ttl]。一条 ts 偏未来的报文最晚可在
+            // ts+ttl 被接受，因此 nonce 必须保留至少 2*ttl，否则未来时钟偏移会留下重放缺口。
+            if (nonceChecker == null && nonceRetentionMillis > 0 && nonceRetentionMillis < safeDouble(ttlMillis)) {
+                throw new EncryptorException("nonce-retention(" + nonceRetentionMillis
+                    + "ms) 不能小于 2*ttl(" + ttlMillis + "ms)，否则未来时间戳会留下重放缺口");
+            }
+            long retention = nonceRetentionMillis <= 0 ? safeDouble(ttlMillis) : nonceRetentionMillis;
             NonceChecker effectiveNonceChecker = nonceChecker != null
                 ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
             ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);
             return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, effectiveAlgs, effectiveEncs);
+        }
+
+        /**
+         * 内置 RSA/ECDH-ES 套件 + {@link ServiceLoader} 发现的可选套件（例如 {@code encryptor-sm} 的国密套件）。
+         *
+         * <p>这样 core 的编译期依赖面不含 BouncyCastle；不使用国密的部署也完全不会加载 SM 类。</p>
+         */
+        private static List<CipherSuite> loadCipherSuites() {
+            List<CipherSuite> suites = new ArrayList<>();
+            suites.add(new JceCipherSuite());
+            suites.add(new EcCipherSuite());
+            try {
+                for (CipherSuite suite : ServiceLoader.load(CipherSuite.class)) {
+                    suites.add(suite);
+                }
+            } catch (ServiceConfigurationError e) {
+                throw new EncryptorException("加载 CipherSuite 失败: " + e.getMessage(), e);
+            }
+            return suites;
+        }
+
+        private static long safeDouble(long value) {
+            return value > Long.MAX_VALUE / 2 ? Long.MAX_VALUE : value * 2;
+        }
+
+        private static boolean supportsAlgorithm(List<CipherSuite> suites, String alg) {
+            for (CipherSuite suite : suites) {
+                if (suite.algorithms().contains(alg)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

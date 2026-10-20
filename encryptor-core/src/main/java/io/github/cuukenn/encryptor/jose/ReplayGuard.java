@@ -49,9 +49,7 @@ public class ReplayGuard {
             throw JweCodec.fail(EncryptorFailure.EXPIRED,
                 "报文时间戳超出窗口: ts=" + ts + ", now=" + now + ", ttl=" + ttlMillis);
         }
-        if (nonce == null || nonce.isEmpty()) {
-            throw JweCodec.fail(EncryptorFailure.BAD_HEADER, "报文缺少 nonce");
-        }
+        JweCodec.validateNonce(nonce);
         // 时间窗先校验：过期的垃圾请求不应占用 nonce 存储
         if (!nonceChecker.consume(nonce)) {
             throw JweCodec.fail(EncryptorFailure.REPLAY, "nonce 已被使用（重放）");

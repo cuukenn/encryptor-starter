@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.web.config;
 
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.kit.StrKit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -173,6 +174,15 @@ public class WebEncryptorConfig implements InitializingBean {
         mergeAlias("black-methods", skipMethods, blackMethods);
         mergeAlias("black-req-content-type", skipReqContentType, blackReqContentType);
         mergeAlias("black-res-content-type", skipResContentType, blackResContentType);
+        // 名单正则全部在启动期编译：非法配置直接启动失败，不等第一个请求才 500
+        StrKit.precompile(PREFIX + ".skip-uris", skipUris);
+        StrKit.precompile(PREFIX + ".skip-methods", skipMethods);
+        StrKit.precompile(PREFIX + ".skip-req-content-type", skipReqContentType);
+        StrKit.precompile(PREFIX + ".skip-res-content-type", skipResContentType);
+        Map<String, List<String>> crypto = getCryptoConfig();
+        if (crypto != null) {
+            StrKit.precompile(PREFIX + ".crypto-config", crypto.keySet());
+        }
     }
 
     /** 旧名并入生效名单（去重、幂等），并按需落一次弃用 WARN（P3-4 的迁移提示）。 */

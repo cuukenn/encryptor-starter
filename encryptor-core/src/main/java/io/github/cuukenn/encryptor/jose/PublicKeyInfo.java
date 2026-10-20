@@ -15,7 +15,14 @@ public final class PublicKeyInfo {
     private final Map<String, Object> jwk;
     private final boolean active;
 
-    PublicKeyInfo(String kid, String alg, String spkiBase64, Map<String, Object> jwk, boolean active) {
+    /**
+     * @param kid         密钥标识
+     * @param alg         对外声明的算法名（{@code RSA-OAEP-256} / {@code ECDH-ES} / {@code SM2} 等）
+     * @param spkiBase64  X.509 SubjectPublicKeyInfo 的 base64（不含 PEM 头尾）
+     * @param jwk         只含公钥的标准 JWK
+     * @param active      是否为当前推荐的 kid
+     */
+    public PublicKeyInfo(String kid, String alg, String spkiBase64, Map<String, Object> jwk, boolean active) {
         this.kid = kid;
         this.alg = alg;
         this.spkiBase64 = spkiBase64;

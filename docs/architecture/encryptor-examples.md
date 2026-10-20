@@ -13,6 +13,10 @@
 | `encryptor-examples/gateway-example/web/` | `gateway-example-web` | 网关后面的普通业务服务（**未引入 encryptor**） |
 | `encryptor-examples/` | `encryptor-examples`（`pom`） | 聚合模块 |
 
+> **依赖提示**：`web-example` 与 `gateway-example/gateway` 的 `pom.xml` 都显式添加了可选模块
+> `encryptor-sm`（它们的 `application.yml` 带 SM2 演示密钥）；starter 本身不传递该依赖。
+> `gateway-example/web` 依旧完全不引入 encryptor。
+
 ## web-example
 
 | 文件 | 内容 |
@@ -35,14 +39,14 @@
 
 ```text
 终端 A：mvn -pl encryptor-examples/web-example -am install   # 先装 starter，再启动
-        mvn -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
+        mvn -pl encryptor-examples/web-example org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
 终端 B：跑 web-example 的 HttpTest（见下方"怎么跑端到端"；当前它已带断言）
 网关场景：
-终端 A：gateway-example/web（8081，普通下游）→ mvn -pl encryptor-examples/gateway-example/web org.springframework.boot:spring-boot-maven-plugin:2.4.2:run
-终端 B：mvn -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.4.2:run（8080）
+终端 A：gateway-example/web（8081，普通下游）→ mvn -pl encryptor-examples/gateway-example/web org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
+终端 B：mvn -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.7.18:run（8080）
 ```
 
-> ⚠️ `mvn spring-boot:run` 这个**前缀在本仓不可用**（POM 没有声明 `spring-boot-maven-plugin`，只能写全坐标 `org.springframework.boot:spring-boot-maven-plugin:2.4.2:run`）。
+> ⚠️ `mvn spring-boot:run` 这个**前缀在本仓不可用**（POM 没有声明 `spring-boot-maven-plugin`，只能写全坐标 `org.springframework.boot:spring-boot-maven-plugin:2.7.18:run`）。
 > ⚠️ 网关场景的**下游必须是没有引入 encryptor 的 `gateway-example/web`**；拿 `web-example` 当下游会 400（网关转发的是明文参数，下游 starter 会再解密，见 `security-review.md` S16）。
 > ⚠️ 这两个 `HttpTest` 被 surefire **刻意排除**，要跑得显式放开：`-Dtest=HttpTest -Dsurefire.excludes= -DfailIfNoTests=false -DtrimStackTrace=false`。
 

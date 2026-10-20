@@ -1,7 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.gateway.discovery;
 
-import cn.hutool.json.JSONUtil;
-import io.github.cuukenn.encryptor.jose.PublicKeyInfo;
+import io.github.cuukenn.encryptor.jose.JwksDocument;
 import io.github.cuukenn.encryptor.jose.ServerKeyStore;
 import io.github.cuukenn.encryptor.reactive.config.DiscoveryConfig;
 import org.springframework.core.Ordered;
@@ -16,11 +15,6 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * 网关侧 JWKS 只读发现端点：{@code GET ${discovery.path}} → 只含公钥的 JWKS，网关自己响应、不转发下游。
@@ -51,8 +45,9 @@ public class JwksEndpointFilter implements WebFilter, Ordered {
         this.path = discovery.getPath();
         this.enable = discovery.isEnable();
         this.cacheControl = "public, max-age=" + discovery.getCacheMaxAgeSeconds();
-        this.body = jwksJson(keys).getBytes(StandardCharsets.UTF_8);
-        this.etag = "\"" + sha256Hex(this.body) + "\"";
+        JwksDocument document = new JwksDocument(keys);
+        this.body = document.body().getBytes(StandardCharsets.UTF_8);
+        this.etag = document.etag();
         this.order = order;
     }
 
@@ -78,29 +73,5 @@ public class JwksEndpointFilter implements WebFilter, Ordered {
     @Override
     public int getOrder() {
         return order;
-    }
-
-    private static String jwksJson(ServerKeyStore keys) {
-        List<Map<String, Object>> jwks = new ArrayList<>();
-        for (PublicKeyInfo info : keys.publicKeys()) {
-            jwks.add(info.jwk());
-        }
-        Map<String, Object> root = new LinkedHashMap<>();
-        root.put("keys", jwks);
-        root.put("activeKid", keys.activeKid());
-        return JSONUtil.toJsonStr(root);
-    }
-
-    private static String sha256Hex(byte[] data) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(data);
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("计算 JWKS ETag 失败", e);
-        }
     }
 }

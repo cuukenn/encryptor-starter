@@ -49,15 +49,19 @@ class FilterChainOrderTest {
     }
 
     /** 生产同一个装配入口：五个过滤器都从这里取（不是 new 出来的）。 */
-    private List<Filter> orderedFilters() {
+    private List<FilterRegistrationBean<? extends Filter>> registrations() {
         WebEncryptorConfiguration configuration = new WebEncryptorConfiguration();
-        List<FilterRegistrationBean<? extends Filter>> registrations = new ArrayList<>(Arrays.asList(
+        return new ArrayList<>(Arrays.asList(
             configuration.jwksDiscoveryFilter(webConfig, protocolConfig, support.protocol),
             configuration.webEncryptorFilter(webConfig, protocolConfig, support.protocol, support.protocol.runtime()),
             configuration.encryptorRequestParameterFilterFilterRegistrationBean(webConfig),
             configuration.encryptorRequestBodyFilterFilterRegistrationBean(webConfig),
             configuration.encryptorResponseFilterFilterRegistrationBean(
                 webConfig, protocolConfig, support.protocol, support.protocol.runtime())));
+    }
+
+    private List<Filter> orderedFilters() {
+        List<FilterRegistrationBean<? extends Filter>> registrations = registrations();
         registrations.sort(Comparator.comparingInt(FilterRegistrationBean::getOrder));
         return registrations.stream().map(FilterRegistrationBean::getFilter).collect(Collectors.toList());
     }
@@ -80,6 +84,25 @@ class FilterChainOrderTest {
         assertThat(orderedFilters().stream().map(f -> f.getClass().getSimpleName()).collect(Collectors.toList()))
             .containsExactly("JwksEndpointFilter", "EncryptorWebFilter", "EncryptorRequestParameterFilter",
                 "EncryptorRequestBodyFilter", "EncryptorResponseFilter");
+    }
+
+    @Test
+    void 注册名使用小写简单类名() {
+        assertThat(registrations().stream().map(FilterChainOrderTest::nameOf).collect(Collectors.toList()))
+            .containsExactly("jwksendpointfilter", "encryptorwebfilter", "encryptorrequestparameterfilter",
+                "encryptorrequestbodyfilter", "encryptorresponsefilter");
+    }
+
+    /** RegistrationBean 只有 setName，没有公开 getter；测试用反射读取实际注册名。 */
+    private static String nameOf(FilterRegistrationBean<? extends Filter> bean) {
+        try {
+            java.lang.reflect.Field field = org.springframework.boot.web.servlet.DynamicRegistrationBean.class
+                .getDeclaredField("name");
+            field.setAccessible(true);
+            return (String) field.get(bean);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test
@@ -145,7 +168,7 @@ class FilterChainOrderTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicReference<byte[]> cek = new AtomicReference<>();
         runRealChain(request, response, (req, resp) -> {
-            cek.set(WebContext.current().getJweContext().cek());
+            cek.set(copyCek());
             ((HttpServletResponse) resp).setContentType("application/json");
             resp.getWriter().write("{\"ok\":true}");
         });
@@ -164,6 +187,12 @@ class FilterChainOrderTest {
         });
         // 参数过滤器(-11)在链尾 clear()：线程池复用下不得把上一个请求的上下文留给下一个
         assertThat(WebContext.current().isReqEncryptor()).isFalse();
+    }
+
+    /** 客户端视角持有自己的 CEK；服务端上下文在请求结束后会被清零，测试必须先复制。 */
+    private static byte[] copyCek() {
+        byte[] cek = WebContext.current().getJweContext().cek();
+        return Arrays.copyOf(cek, cek.length);
     }
 
     /** 以业务层视角读请求体（请求体过滤器已把它换成明文流）。 */

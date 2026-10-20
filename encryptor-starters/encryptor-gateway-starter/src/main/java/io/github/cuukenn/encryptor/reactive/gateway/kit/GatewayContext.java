@@ -2,6 +2,8 @@ package io.github.cuukenn.encryptor.reactive.gateway.kit;
 
 import io.github.cuukenn.encryptor.jose.JweContext;
 
+import java.util.Arrays;
+
 /**
  * 单次请求的加解密上下文（存 exchange attribute，无 ThreadLocal —— reactive 线程会跳）。
  *
@@ -50,5 +52,19 @@ public class GatewayContext {
 
     public void setEncrypted(boolean encrypted) {
         this.encrypted = encrypted;
+    }
+
+    /**
+     * 请求生命周期结束时 best-effort 清零明文与 CEK，并断开引用。
+     */
+    public void destroy() {
+        if (jweContext != null) {
+            jweContext.destroy();
+        }
+        if (plaintextBody != null) {
+            Arrays.fill(plaintextBody, (byte) 0);
+        }
+        jweContext = null;
+        plaintextBody = null;
     }
 }

@@ -14,9 +14,33 @@
             <groupId>io.github.cuukenn</groupId>
             <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
         </dependency>
+        <!-- gateway 侧使用 hutool 的 JSONUtil；core 不再传递该依赖 -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway</artifactId>
+            <!--
+                spring-cloud-starter -> spring-security-rsa 会传递 BC 1.69（jdk15on）。
+                网关链路不使用 spring-security-rsa；这里排除旧 BC 系，避免与用户显式添加的
+                encryptor-sm（BC 1.78.1 / jdk18on）在 classpath 上出现两套同名包。
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcpkix-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcutil-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -26,6 +50,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 国密用例：SM 套件/解析器是可选模块，测试侧显式添加（不会被 starter 传给消费者） -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-sm</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

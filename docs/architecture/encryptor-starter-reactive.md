@@ -39,15 +39,12 @@
 
 ## ⚠️ 双写警告
 
-以下三对文件是**逐行重复**的，改任何一边都必须同步另一边：
+v2 的通用配置模型已下沉到 core 的 `io.github.cuukenn.encryptor.config.base`（`EncryptorConfigBase` + `KeyMaterialConfigBase`/`BypassConfigBase`/`DiscoveryConfigBase`）。两侧 `EncryptorConfig` 只保留 `@ConfigurationProperties` 前缀：
 
-| servlet 侧 | reactive 侧 |
-| --- | --- |
-| `encryptor-starter/.../config/CryptoConfig.java` | `encryptor-starter-reactive/.../reactive/config/CryptoConfig.java` |
-| `encryptor-starter/.../config/EncryptorConfig.java` | `encryptor-starter-reactive/.../reactive/config/EncryptorConfig.java` |
-| `encryptor-starter/.../constant/EncryptorConstant.java` | `encryptor-starter-reactive/.../reactive/constant/EncryptorConstant.java` |
+- servlet：`encryptor.config`
+- reactive：`encryptor.config.reactive`
 
-（`CryptoConfig` 两边连注释和默认值都一样；`EncryptorConfig` 只差 `PREFIX` 常量——servlet 是 `encryptor.config`，reactive 是 `encryptor.config.reactive`。）
+仍需成对维护的是 `constant/EncryptorConstant`、SM 测试支持类、响应/网关测试，以及示例前端 `jwe.js`（完整清单见 `AGENTS.md` 的「必须同步修改的地方」）。
 
 ## 坑
 

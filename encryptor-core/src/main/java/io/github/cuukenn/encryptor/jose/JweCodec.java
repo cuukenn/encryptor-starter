@@ -16,6 +16,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,11 +42,16 @@ public class JweCodec {
     public static final String DEFAULT_ALG = JWEAlgorithm.RSA_OAEP_256.getName();
     public static final String DEFAULT_ENC = EncryptionMethod.A256GCM.getName();
 
-    /** AEAD 的标准 IV 长度（GCM 12 字节）。 */
-    private static final int IV_LENGTH = 12;
+    /**
+     * nonce 最大长度：nonce 会作为防重放存储的 key，公钥公开意味着任何人都能构造合法报文，
+     * 不限制长度会造成内存放大（几十万条超长 key 即可打爆堆）。
+     */
+    public static final int MAX_NONCE_LENGTH = 128;
 
     private final ServerKeyStore keys;
-    private final List<CipherSuite> suites;
+    /** 构造期建立 alg/enc → suite 索引，热路径不再线性扫描套件列表。 */
+    private final Map<String, CipherSuite> algSuites;
+    private final Map<String, CipherSuite> encSuites;
     private final Set<String> allowedAlgs;
     private final Set<String> allowedEncs;
     private final SecureRandom random = new SecureRandom();
@@ -73,9 +79,11 @@ public class JweCodec {
             throw new EncryptorException("必须装配至少一个 CipherSuite");
         }
         this.keys = keys;
-        this.suites = Collections.unmodifiableList(new ArrayList<>(suites));
-        this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), installed(true), "alg");
-        this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), installed(false), "enc");
+        List<CipherSuite> installedSuites = Collections.unmodifiableList(new ArrayList<>(suites));
+        this.algSuites = index(installedSuites, true);
+        this.encSuites = index(installedSuites, false);
+        this.allowedAlgs = validate(effective(allowedAlgs, DEFAULT_ALG), algSuites.keySet(), "alg");
+        this.allowedEncs = validate(effective(allowedEncs, DEFAULT_ENC), encSuites.keySet(), "enc");
         if (listener == null || listener == EncryptorListener.NONE) {
             this.listener = EncryptorListener.NONE;
         } else if (listener instanceof CompositeEncryptorListener) {
@@ -146,17 +154,23 @@ public class JweCodec {
 
         Long ts = longParam(header, ContextAad.CLAIM_TS);
         String nonce = stringParam(header, ContextAad.CLAIM_NONCE);
-        if (ts == null || nonce == null || nonce.isEmpty()) {
-            throw fail(EncryptorFailure.BAD_HEADER, "绑上下文缺少 ts/nonce");
+        if (ts == null) {
+            throw fail(EncryptorFailure.BAD_HEADER, "绑上下文缺少 ts");
         }
+        validateNonce(nonce);
 
         byte[] aad = aadOf(token);
         byte[] iv = jwe.getIV().decode();
+        CipherSuite unwrapSuite = suiteOfAlg(alg);
+        CipherSuite aeadSuite = suiteOfEnc(enc);
+        int expectedIvLength = aeadSuite.ivLength(enc);
+        if (iv.length != expectedIvLength) {
+            throw fail(EncryptorFailure.BAD_HEADER,
+                "IV 长度非法: " + iv.length + "，" + enc + " 要求 " + expectedIvLength + " 字节");
+        }
         byte[] cipherText = jwe.getCipherText().decode();
         byte[] authTag = jwe.getAuthTag().decode();
 
-        CipherSuite unwrapSuite = suiteOfAlg(alg);
-        CipherSuite aeadSuite = suiteOfEnc(enc);
         byte[] cek;
         try {
             // encrypted_key 段对 dir/ECDH-ES 等直接协商类算法为空（nimbus 可能给 null 或空段），
@@ -235,7 +249,7 @@ public class JweCodec {
                 .customParams(ContextAad.claims(uri, method, Direction.RESPONSE, ts, nonce))
                 .build();
             byte[] aad = header.toBase64URL().toString().getBytes(StandardCharsets.US_ASCII);
-            byte[] iv = new byte[IV_LENGTH];
+            byte[] iv = new byte[suite.ivLength(enc)];
             random.nextBytes(iv);
             byte[] packed = suite.aeadEncrypt(enc, cek, iv, body == null ? new byte[0] : body, aad);
             if (packed.length < tagLength) {
@@ -269,12 +283,11 @@ public class JweCodec {
     }
 
     private CipherSuite suiteOfAlg(String alg) {
-        for (CipherSuite suite : suites) {
-            if (suite.algorithms().contains(alg)) {
-                return suite;
-            }
+        CipherSuite suite = algSuites.get(alg);
+        if (suite == null) {
+            throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "没有套件支持该 alg: " + alg);
         }
-        throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "没有套件支持该 alg: " + alg);
+        return suite;
     }
 
     private CipherSuite suiteOfEnc(String enc) {
@@ -283,24 +296,27 @@ public class JweCodec {
 
     /** @param encrypting true 表示响应方向：找不到套件时按 {@code ENCRYPT_FAILED} 报错 */
     private CipherSuite suiteOfEnc(String enc, boolean encrypting) {
-        for (CipherSuite suite : suites) {
-            if (suite.encryptionMethods().contains(enc)) {
-                return suite;
+        CipherSuite suite = encSuites.get(enc);
+        if (suite == null) {
+            if (encrypting) {
+                throw fail(EncryptorFailure.ENCRYPT_FAILED, "没有套件支持该 enc: " + enc);
             }
+            throw fail(EncryptorFailure.ENC_NOT_ALLOWED, "没有套件支持该 enc: " + enc);
         }
-        if (encrypting) {
-            throw fail(EncryptorFailure.ENCRYPT_FAILED, "没有套件支持该 enc: " + enc);
-        }
-        throw fail(EncryptorFailure.ENC_NOT_ALLOWED, "没有套件支持该 enc: " + enc);
+        return suite;
     }
 
-    /** 已装配套件声明的 alg / enc（白名单只能取自这里）。 */
-    private Set<String> installed(boolean algorithms) {
-        Set<String> union = new LinkedHashSet<>();
+    /** 已装配套件声明的 alg / enc（同名以先装配的套件为准）。 */
+    private static Map<String, CipherSuite> index(List<CipherSuite> suites, boolean algorithms) {
+        Map<String, CipherSuite> index = new LinkedHashMap<>();
         for (CipherSuite suite : suites) {
-            union.addAll(algorithms ? suite.algorithms() : suite.encryptionMethods());
+            for (String name : algorithms ? suite.algorithms() : suite.encryptionMethods()) {
+                if (!index.containsKey(name)) {
+                    index.put(name, suite);
+                }
+            }
         }
-        return union;
+        return Collections.unmodifiableMap(index);
     }
 
     private static Set<String> effective(Set<String> configured, String fallback) {
@@ -366,6 +382,21 @@ public class JweCodec {
     private static String stringParam(JWEHeader header, String name) {
         Object value = header.getCustomParam(name);
         return value == null ? null : String.valueOf(value);
+    }
+
+    /**
+     * nonce 必须非空且不超过 {@link #MAX_NONCE_LENGTH}：它会被当作防重放存储的 key，
+     * 未认证/已认证的超长输入都不应进入存储。{@link ReplayGuard} 也复用本校验。
+     */
+    static void validateNonce(String nonce) {
+        if (nonce == null || nonce.isEmpty()) {
+            throw fail(EncryptorFailure.BAD_HEADER, "报文缺少 nonce");
+        }
+        int byteLength = nonce.getBytes(StandardCharsets.UTF_8).length;
+        if (byteLength > MAX_NONCE_LENGTH) {
+            throw fail(EncryptorFailure.BAD_HEADER,
+                "nonce 超过最大长度 " + MAX_NONCE_LENGTH + " 字节: " + byteLength);
+        }
     }
 
     /** 便捷方法：把 base64url 段解码（供后续任务复用同一套 AAD 规则时使用）。 */

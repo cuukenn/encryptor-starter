@@ -1,9 +1,8 @@
 package io.github.cuukenn.encryptor.web.discovery;
 
-import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.DiscoveryConfig;
 import io.github.cuukenn.encryptor.jose.ContextAad;
-import io.github.cuukenn.encryptor.jose.PublicKeyInfo;
+import io.github.cuukenn.encryptor.jose.JwksDocument;
 import io.github.cuukenn.encryptor.jose.ServerKeyStore;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -12,12 +11,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * JWKS 只读发现端点：{@code GET ${discovery.path}} → 只含公钥的 JWKS（免加密、可缓存、支持 304）。
@@ -39,8 +32,9 @@ public class JwksEndpointFilter extends OncePerRequestFilter {
         this.path = discovery.getPath();
         this.enable = discovery.isEnable();
         this.cacheControl = "public, max-age=" + discovery.getCacheMaxAgeSeconds();
-        this.body = jwksJson(keys);
-        this.etag = "\"" + sha256Hex(body) + "\"";
+        JwksDocument document = new JwksDocument(keys);
+        this.body = document.body();
+        this.etag = document.etag();
     }
 
     @Override
@@ -59,29 +53,5 @@ public class JwksEndpointFilter extends OncePerRequestFilter {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write(body);
-    }
-
-    private static String jwksJson(ServerKeyStore keys) {
-        List<Map<String, Object>> jwks = new ArrayList<>();
-        for (PublicKeyInfo info : keys.publicKeys()) {
-            jwks.add(info.jwk());
-        }
-        Map<String, Object> root = new LinkedHashMap<>();
-        root.put("keys", jwks);
-        root.put("activeKid", keys.activeKid());
-        return JSONUtil.toJsonStr(root);
-    }
-
-    private static String sha256Hex(String text) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("计算 JWKS ETag 失败", e);
-        }
     }
 }

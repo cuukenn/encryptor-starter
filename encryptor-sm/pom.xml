@@ -1,0 +1,46 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.cuukenn</groupId>
+        <artifactId>encryptor-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+    <artifactId>encryptor-sm</artifactId>
+    <name>encryptor-sm</name>
+    <packaging>jar</packaging>
+    <description>国密（SM2/SM4-GCM）可选模块：唯一依赖 BouncyCastle 的制品</description>
+    <dependencies>
+        <!--
+            只依赖 core 的 SPI（KeyEntryParser / CipherSuite）与协议类型。
+            本模块是"国密用户显式添加"的可选制品：core 与各 starter 不传递依赖它，
+            因此不使用国密的消费者 classpath 里不会出现 BouncyCastle。
+        -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-core</artifactId>
+        </dependency>
+        <!--
+            仅使用 BouncyCastle 轻量级 API（SM2Engine/SM4Engine/GCMBlockCipher/ASN.1），
+            不注册全局 JCA Provider。版本由 encryptor-dependencies BOM 管理。
+        -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

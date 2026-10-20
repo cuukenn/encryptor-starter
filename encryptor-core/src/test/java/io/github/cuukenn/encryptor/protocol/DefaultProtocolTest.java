@@ -18,6 +18,14 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class DefaultProtocolTest {
 
+    @Test
+    void keys集合为null时给出明确错误() {
+        EncryptorException error = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder().keys(null));
+
+        assertTrue(error.getMessage().contains("null"), "错误信息应说明 keys 不能为 null");
+    }
+
     private static DefaultProtocol.KeyMaterial rsaKey(String kid) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
@@ -25,29 +33,6 @@ class DefaultProtocolTest {
         return new DefaultProtocol.KeyMaterial(kid, KeyType.RSA,
             Base64.getEncoder().encodeToString(keyPair.getPrivate().getEncoded()),
             Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
-    }
-
-    private static DefaultProtocol.KeyMaterial sm2Key(String kid) throws Exception {
-        org.bouncycastle.asn1.x9.X9ECParameters params =
-            org.bouncycastle.crypto.ec.CustomNamedCurves.getByName("sm2p256v1");
-        org.bouncycastle.crypto.params.ECDomainParameters domain =
-            new org.bouncycastle.crypto.params.ECDomainParameters(params.getCurve(), params.getG(),
-                params.getN(), params.getH());
-        org.bouncycastle.crypto.generators.ECKeyPairGenerator generator =
-            new org.bouncycastle.crypto.generators.ECKeyPairGenerator();
-        generator.init(new org.bouncycastle.crypto.params.ECKeyGenerationParameters(domain,
-            new java.security.SecureRandom()));
-        org.bouncycastle.crypto.AsymmetricCipherKeyPair pair = generator.generateKeyPair();
-
-        byte[] privPkcs8 = org.bouncycastle.crypto.util.PrivateKeyInfoFactory
-            .createPrivateKeyInfo(((org.bouncycastle.crypto.params.ECPrivateKeyParameters) pair.getPrivate()))
-            .getEncoded(org.bouncycastle.asn1.ASN1Encoding.DER);
-        byte[] pubSpki = org.bouncycastle.crypto.util.SubjectPublicKeyInfoFactory
-            .createSubjectPublicKeyInfo(((org.bouncycastle.crypto.params.ECPublicKeyParameters) pair.getPublic()))
-            .getEncoded(org.bouncycastle.asn1.ASN1Encoding.DER);
-        return new DefaultProtocol.KeyMaterial(kid, KeyType.SM2,
-            Base64.getEncoder().encodeToString(privPkcs8),
-            Base64.getEncoder().encodeToString(pubSpki));
     }
 
     private static DefaultProtocol.KeyMaterial ecKey(String kid) throws Exception {
@@ -66,14 +51,6 @@ class DefaultProtocolTest {
         assertTrue(protocol.allowedAlgs().contains("ECDH-ES"), "有 EC 密钥时默认可接受 ECDH-ES");
         assertFalse(protocol.allowedAlgs().contains("RSA-OAEP-256"), "只有 EC 密钥时默认不接受 RSA");
         assertTrue(protocol.allowedEncs().contains("A256GCM"), "EC 密钥默认走 AES-GCM");
-    }
-
-    @Test
-    void EC与SM2并存时enc白名单同时含AES与SM4GCM() throws Exception {
-        DefaultProtocol protocol = DefaultProtocol.builder().key(ecKey("ec1")).key(sm2Key("sm1")).build();
-
-        assertTrue(protocol.allowedEncs().contains("A256GCM"), "有 EC 密钥时默认可接受 A256GCM");
-        assertTrue(protocol.allowedEncs().contains("SM4-GCM"), "有 SM2 密钥时默认可接受 SM4-GCM");
     }
 
     @Test
@@ -99,12 +76,6 @@ class DefaultProtocolTest {
             "只有 RSA 密钥时默认不接受 SM2");
         assertEquals(Collections.singleton("A256GCM"), rsaOnly.allowedEncs(), "RSA 默认只收 A256GCM");
 
-        DefaultProtocol mixed = DefaultProtocol.builder()
-            .key(rsaKey("k1"))
-            .key(sm2Key("k2"))
-            .build();
-        assertTrue(mixed.allowedAlgs().contains("SM2"), "混钥时默认应接受 SM2");
-        assertTrue(mixed.allowedAlgs().contains("RSA-OAEP-256"));
     }
 
     @Test
@@ -147,32 +118,59 @@ class DefaultProtocolTest {
     }
 
     @Test
+    void nonce保留期短于时间窗时构造期失败() throws Exception {
+        EncryptorException e = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder()
+                .key(rsaKey("k1"))
+                .ttlMillis(60_000L)
+                .nonceRetentionMillis(30_000L)
+                .build());
+        assertTrue(e.getMessage().contains("nonce-retention"),
+            "错误信息应点名 nonce-retention: " + e.getMessage());
+    }
+
+    @Test
+    void 自定义NonceChecker时nonce保留期短于时间窗仍可构造() throws Exception {
+        io.github.cuukenn.encryptor.jose.NonceChecker custom = nonce -> true;
+        DefaultProtocol protocol = DefaultProtocol.builder()
+            .key(rsaKey("k1"))
+            .ttlMillis(60_000L)
+            .nonceRetentionMillis(30_000L)
+            .nonceChecker(custom)
+            .build();
+
+        assertSame(custom, protocol.nonceChecker(),
+            "自定义 NonceChecker 不使用 nonce-retention，应允许短于 ttl");
+    }
+
+    @Test
+    void nonce保留期等于时间窗时构造失败() throws Exception {
+        EncryptorException e = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder()
+                .key(rsaKey("k1"))
+                .ttlMillis(60_000L)
+                .nonceRetentionMillis(60_000L)
+                .build());
+        assertTrue(e.getMessage().contains("2*ttl"),
+            "错误信息应说明需要覆盖未来时间戳: " + e.getMessage());
+    }
+
+    @Test
+    void nonce保留期等于2倍时间窗时构造成功() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder()
+            .key(rsaKey("k1"))
+            .ttlMillis(60_000L)
+            .nonceRetentionMillis(120_000L)
+            .build();
+
+        assertNotNull(protocol.nonceChecker());
+    }
+
+    @Test
     void 只有RSA密钥时默认enc白名单不含SM4GCM() throws Exception {
         DefaultProtocol protocol = DefaultProtocol.builder().key(rsaKey("k1")).build();
         assertTrue(protocol.allowedEncs().contains("A256GCM"), "RSA 默认应接受 A256GCM");
         assertFalse(protocol.allowedEncs().contains("SM4-GCM"), "无 SM2 密钥时默认不应接受 SM4-GCM");
-    }
-
-    @Test
-    void SM2密钥默认enc白名单联动含SM4GCM() throws Exception {
-        DefaultProtocol protocol = DefaultProtocol.builder().key(sm2Key("k1")).build();
-        assertTrue(protocol.allowedEncs().contains("SM4-GCM"), "有 SM2 密钥时默认可接受 SM4-GCM");
-    }
-
-    @Test
-    void 混钥默认enc白名单含两套() throws Exception {
-        DefaultProtocol protocol = DefaultProtocol.builder().key(rsaKey("k1")).key(sm2Key("k2")).build();
-        assertTrue(protocol.allowedEncs().contains("A256GCM"));
-        assertTrue(protocol.allowedEncs().contains("SM4-GCM"));
-    }
-
-    @Test
-    void SM2密钥但显式enc白名单缺SM4GCM时构造期失败() throws Exception {
-        EncryptorException e = assertThrows(EncryptorException.class, () -> DefaultProtocol.builder()
-            .key(sm2Key("k1"))
-            .allowedEncs(Collections.singleton("A256GCM"))
-            .build());
-        assertTrue(e.getMessage().contains("SM4-GCM"), "错误信息应点明缺失的 enc: " + e.getMessage());
     }
 
     @Test
@@ -183,5 +181,15 @@ class DefaultProtocolTest {
             .nonceChecker(custom)
             .build();
         assertSame(custom, protocol.nonceChecker());
+    }
+
+    @Test
+    void SM2密钥在缺少encryptor_sm时启动期失败并给出提示() {
+        // core 测试 classpath 没有 encryptor-sm；KeyMaterial 合法与否不重要：解析器缺失必须先生效
+        DefaultProtocol.KeyMaterial material = new DefaultProtocol.KeyMaterial("sm2-1", KeyType.SM2, "AAAA", "BBBB");
+        EncryptorException e = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder().key(material).build());
+        assertTrue(e.getMessage().contains("encryptor-sm"),
+            "错误信息必须提示显式添加 encryptor-sm 依赖: " + e.getMessage());
     }
 }

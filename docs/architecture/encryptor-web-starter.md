@@ -62,11 +62,11 @@
 
 ## 请求上下文
 
-`kit/WebContext`：`ThreadLocal`（`ThreadUtil.createThreadLocal`）持有 `encryptor` / `reqEncryptor` / `resEncryptor` / `encryptorFacade` / `config`。
+`kit/WebContext`：`ThreadLocal`（`ThreadUtil.createThreadLocal`）持有 `reqEncryptor` / `jweContext` / `carrier` / `bodyPlaintext` / `parameters` / `config` / `protocol`。
 
-- `WebContext.current()` 取当前线程上下文。
-- `WebContext.isResEncryptorEnable(response)` = `reqEncryptor && 响应 Content-Type 不在 blackResContentType`。
-- ⚠️ **异步请求 / 跨线程会有问题**：`ThreadLocal` 不会传递到业务自定义线程池。
+- `WebContext.current()` 取当前线程上下文；`WebContext.clear()` 在参数过滤器最外层 `finally` 清理并清零明文/CEK。
+- 异步请求：所有过滤器注册为 `asyncSupported`；响应过滤器拦截 `startAsync()`，在 `AsyncListener.onComplete` 中加密响应，`onError` / `onTimeout` 回空 500。异步周期结束前，CEK 的所有权会从 ThreadLocal 转移给监听器，不会被参数过滤器提前销毁。
+- ⚠️ **业务自定义线程池仍不会自动传递 `WebContext`**：异步业务代码若需要读取解密参数，必须由调用方显式传递数据，不能依赖 `ThreadLocal`。
 
 ## 配置
 

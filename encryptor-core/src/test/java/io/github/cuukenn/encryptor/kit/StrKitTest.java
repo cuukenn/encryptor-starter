@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * 锁定 black-uris / crypto-config 这类"正则 key"的匹配契约。
@@ -51,5 +52,24 @@ public class StrKitTest {
     public void test_best_match_returns_null_when_nothing_matches() {
         Assertions.assertNull(StrKit.getBestMatchStr("/pay", Arrays.asList("^/test/.*")));
         Assertions.assertNull(StrKit.getBestMatchStr("/test", null));
+    }
+
+    @Test
+    public void test_precompile_named_reports_config_and_regex() {
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+            () -> StrKit.precompile("crypto-config", Arrays.asList("[")));
+
+        Assertions.assertTrue(error.getMessage().contains("crypto-config"));
+        Assertions.assertTrue(error.getMessage().contains("["));
+        Assertions.assertTrue(error.getCause() instanceof PatternSyntaxException);
+    }
+
+    @Test
+    public void test_precompile_named_rejects_null_regex_with_config_name() {
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+            () -> StrKit.precompile("skip-uris", Arrays.asList((String) null)));
+
+        Assertions.assertTrue(error.getMessage().contains("skip-uris"));
+        Assertions.assertTrue(error.getMessage().contains("null"));
     }
 }

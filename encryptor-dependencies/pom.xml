@@ -17,6 +17,7 @@
             本计划只做 JWE（RFC 7516）的编码/解码与 key 解析，不使用 Nimbus 的 JWT 部分。
         -->
         <nimbus-jose-jwt.version>9.37.3</nimbus-jose-jwt.version>
+        <bouncycastle.version>1.78.1</bouncycastle.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -24,6 +25,11 @@
             <dependency>
                 <groupId>io.github.cuukenn</groupId>
                 <artifactId>encryptor-core</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-sm</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>
@@ -65,8 +71,13 @@
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
                 <artifactId>bcpkix-jdk18on</artifactId>
-                <version>1.78.1</version>
+                <version>${bouncycastle.version}</version>
             </dependency>
             <!--JOSE/JWE：新协议的唯一外部密码学依赖（Java 8 兼容线 9.x）-->
             <dependency>

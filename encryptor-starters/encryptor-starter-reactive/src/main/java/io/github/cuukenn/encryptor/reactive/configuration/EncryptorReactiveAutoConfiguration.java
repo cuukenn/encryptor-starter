@@ -3,9 +3,11 @@ package io.github.cuukenn.encryptor.reactive.configuration;
 import io.github.cuukenn.encryptor.audit.CompositeEncryptorListener;
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
 import io.github.cuukenn.encryptor.jose.NonceChecker;
+import io.github.cuukenn.encryptor.kit.DigestKit;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.config.KeyMaterialConfig;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
+import io.github.cuukenn.encryptor.protocol.ProtocolAssembler;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,9 +18,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 
 /**
@@ -40,40 +39,24 @@ public class EncryptorReactiveAutoConfiguration {
     @ConditionalOnMissingBean
     public DefaultProtocol defaultProtocol(EncryptorConfig config, ObjectProvider<EncryptorListener> listener,
                                            ObjectProvider<NonceChecker> nonceChecker) {
-        DefaultProtocol.Builder builder = DefaultProtocol.builder();
-        for (KeyMaterialConfig key : config.getKeys()) {
-            builder.key(new DefaultProtocol.KeyMaterial(key.getKid(), key.getType(), key.getPrivateKey(), key.getPublicKey()));
-        }
-        if (config.getActiveKid() != null && !config.getActiveKid().isEmpty()) {
-            builder.activeKid(config.getActiveKid());
-        }
-        if (!config.getAllowedAlgs().isEmpty()) {
-            builder.allowedAlgs(new LinkedHashSet<>(config.getAllowedAlgs()));
-        }
-        if (!config.getAllowedEncs().isEmpty()) {
-            builder.allowedEncs(new LinkedHashSet<>(config.getAllowedEncs()));
-        }
-        if (config.getTtl() != null) {
-            builder.ttlMillis(config.getTtl().toMillis());
-        }
-        if (config.getNonceRetention() != null) {
-            builder.nonceRetentionMillis(config.getNonceRetention().toMillis());
-        }
-        builder.nonceCapacity(config.getNonceCapacity());
-        // 多实例网关：注册自己的 NonceChecker bean（如 Redis 共享存储）即可替换内存实现，
-        // 无需覆盖整个 DefaultProtocol（否则连密钥库一起换掉）
-        NonceChecker sharedNonceChecker = nonceChecker.getIfAvailable();
-        if (sharedNonceChecker != null) {
-            builder.nonceChecker(sharedNonceChecker);
-        }
         // 容器里可以有多个监听器（如业务审计 + Micrometer 指标），按 @Order/注册顺序组合后交给协议栈
         EncryptorListener contextListener = CompositeEncryptorListener.of(
             listener.orderedStream().collect(Collectors.toList()));
-        if (contextListener != EncryptorListener.NONE) {
-            builder.listener(contextListener);
-        }
-        DefaultProtocol protocol = builder.build();
-        protocol.runtime().setBypass(config.getBypass().isRequest(), config.getBypass().isResponse());
+        DefaultProtocol protocol = ProtocolAssembler.assemble(
+            config.getKeys().stream()
+                .map(key -> new DefaultProtocol.KeyMaterial(
+                    key.getKid(), key.getType(), key.getPrivateKey(), key.getPublicKey()))
+                .collect(Collectors.toList()),
+            config.getActiveKid(),
+            config.getAllowedAlgs(),
+            config.getAllowedEncs(),
+            config.getTtl() == null ? null : config.getTtl().toMillis(),
+            config.getNonceRetention() == null ? null : config.getNonceRetention().toMillis(),
+            config.getNonceCapacity(),
+            nonceChecker.getIfAvailable(),
+            contextListener,
+            config.getBypass().isRequest(),
+            config.getBypass().isResponse());
         warnRiskyConfig(config);
         logSummary(config, protocol);
         return protocol;
@@ -114,7 +97,7 @@ public class EncryptorReactiveAutoConfiguration {
             }
             kids.append(key.getKid())
                 .append('(').append(key.getType())
-                .append(", fp=").append(fingerprint(protocol.keys().spkiBase64(key.getKid())))
+                .append(", fp=").append(DigestKit.fingerprint(protocol.keys().spkiBase64(key.getKid())))
                 .append(')');
         }
         logger.info("encryptor v2 协议生效(reactive): activeKid={}, keys=[{}], allowedAlgs={}, allowedEncs={}, ttlMs={}, "
@@ -124,20 +107,5 @@ public class EncryptorReactiveAutoConfiguration {
             config.isRequireEncrypted(), config.getFailureStatus(), config.getMaxRequestSize(), config.getMaxResponseSize(),
             config.getBypass().isRequest(), config.getBypass().isResponse(),
             config.getDiscovery().isEnable(), config.getDiscovery().getPath());
-    }
-
-    /** 公钥指纹（SPKI 的 SHA-256 前 6 字节 hex），用于启动摘要与运维核对。 */
-    private static String fingerprint(String spkiBase64) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                .digest(spkiBase64.getBytes(StandardCharsets.US_ASCII));
-            StringBuilder hex = new StringBuilder(12);
-            for (int i = 0; i < 6; i++) {
-                hex.append(String.format("%02x", digest[i]));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("计算公钥指纹失败", e);
-        }
     }
 }

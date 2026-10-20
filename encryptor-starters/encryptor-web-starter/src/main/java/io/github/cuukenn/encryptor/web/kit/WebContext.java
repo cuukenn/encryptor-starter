@@ -5,6 +5,7 @@ import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
 
+import java.util.Arrays;
 import java.util.Map;
 
 /**
@@ -105,6 +106,13 @@ public class WebContext {
     }
 
     public static void clear() {
+        WebContext context = CONTEXT.get();
+        if (context.jweContext != null) {
+            context.jweContext.destroy();
+        }
+        if (context.bodyPlaintext != null) {
+            Arrays.fill(context.bodyPlaintext, (byte) 0);
+        }
         CONTEXT.remove();
     }
 

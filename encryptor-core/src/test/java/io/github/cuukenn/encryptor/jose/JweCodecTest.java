@@ -165,6 +165,31 @@ class JweCodecTest {
     }
 
     @Test
+    void nonce超过上限一律拒绝() throws Exception {
+        String nonce = repeat('a', 129);
+        String compact = clientJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST",
+            System.currentTimeMillis(), nonce,
+            JWEAlgorithm.RSA_OAEP_256, EncryptionMethod.A256GCM, KID);
+
+        assertEquals(EncryptorFailure.BAD_HEADER,
+            assertThrows(EncryptorException.class, () -> codec.decryptRequest(compact, URI, "POST")).failure(),
+            "超长 nonce 必须在进入 nonce 存储前拒绝");
+    }
+
+    @Test
+    void nonce上限按UTF8字节数而不是字符数计算() throws Exception {
+        // 64 个中文字符 = 192 UTF-8 字节；按 chars 计数会漏过，按存储 key 的实际字节数必须拒绝
+        String nonce = repeat('中', 64);
+        String compact = clientJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST",
+            System.currentTimeMillis(), nonce,
+            JWEAlgorithm.RSA_OAEP_256, EncryptionMethod.A256GCM, KID);
+
+        assertEquals(EncryptorFailure.BAD_HEADER,
+            assertThrows(EncryptorException.class, () -> codec.decryptRequest(compact, URI, "POST")).failure(),
+            "nonce 长度必须按 UTF-8 字节数限制");
+    }
+
+    @Test
     void 响应可被同一CEK解回并绑定res方向() throws Exception {
         long ts = System.currentTimeMillis();
         String compact = clientJwe("req".getBytes(StandardCharsets.UTF_8), URI, "POST", ts, "n1",
@@ -229,6 +254,31 @@ class JweCodecTest {
     }
 
     @Test
+    void IV长度非12字节一律拒绝() throws Exception {
+        String compact = fakeJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST", 1L, "n1");
+        String[] parts = compact.split("\\.");
+        parts[2] = b64url(new byte[16]);
+        String badIv = String.join(".", parts);
+
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        assertEquals(EncryptorFailure.BAD_HEADER,
+            assertThrows(EncryptorException.class, () -> fake.decryptRequest(badIv, URI, "POST")).failure(),
+            "AES-GCM/SM4-GCM 的 IV 必须是 96-bit");
+    }
+
+    @Test
+    void IV长度由套件声明() throws Exception {
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new LongIvSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        String compact = fakeJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST", 1L, "n1", 16);
+
+        JweContext context = fake.decryptRequest(compact, URI, "POST");
+
+        assertEquals("hi", new String(context.plaintext(), StandardCharsets.UTF_8));
+    }
+
+    @Test
     void 白名单来自已装配套件() {
         // 只有 JCE 套件时，TEST-ALG/TEST-ENC 必须在构造期被拒（不硬编码、也不放行未知算法）
         assertThrows(EncryptorException.class,
@@ -271,8 +321,7 @@ class JweCodecTest {
     }
 
     /** 假套件：alg=TEST-ALG / enc=TEST-ENC（CEK 4 字节、xor 加密、tag = CEK 首字节）。用于证明分派来自套件而非硬编码。 */
-    static final class FakeSuite implements CipherSuite {
-
+    static class FakeSuite implements CipherSuite {
         @Override
         public java.util.Set<String> algorithms() {
             return Collections.singleton("TEST-ALG");
@@ -321,14 +370,27 @@ class JweCodecTest {
         }
     }
 
+    /** 声明 128-bit IV 的假套件，用于证明 IV 长度来自套件而不是 JweCodec 硬编码。 */
+    static final class LongIvSuite extends FakeSuite {
+        @Override
+        public int ivLength(String enc) {
+            return 16;
+        }
+    }
+
     private static String fakeJwe(byte[] plaintext, String uri, String method, long ts, String nonce) throws Exception {
+        return fakeJwe(plaintext, uri, method, ts, nonce, 12);
+    }
+
+    private static String fakeJwe(byte[] plaintext, String uri, String method, long ts, String nonce,
+                                  int ivLength) throws Exception {
         JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("TEST-ALG"), EncryptionMethod.parse("TEST-ENC"))
             .keyID(KID)
             .customParams(ContextAad.claims(uri, method, Direction.REQUEST, ts, nonce))
             .build();
         String protectedHeader = header.toBase64URL().toString();
         byte[] cek = "cek1".getBytes(StandardCharsets.UTF_8);
-        byte[] iv = new byte[12];
+        byte[] iv = new byte[ivLength];
         new java.security.SecureRandom().nextBytes(iv);
         byte[] packed = new FakeSuite().aeadEncrypt("TEST-ENC", cek, iv, plaintext,
             protectedHeader.getBytes(StandardCharsets.US_ASCII));
@@ -367,6 +429,14 @@ class JweCodecTest {
         char first = copy[index].charAt(0);
         copy[index] = (first == 'A' ? 'B' : 'A') + copy[index].substring(1);
         return String.join(".", copy);
+    }
+
+    private static String repeat(char c, int count) {
+        StringBuilder builder = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            builder.append(c);
+        }
+        return builder.toString();
     }
 
     private static String base64(byte[] bytes) {
