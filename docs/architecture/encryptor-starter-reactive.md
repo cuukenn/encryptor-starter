@@ -12,7 +12,7 @@
 | artifactId | `encryptor-spring-boot-starter-reactive`（`jar`） |
 | 包名 | `io.github.cuukenn.encryptor.reactive` |
 | 依赖 | `encryptor-core`、`spring-boot-starter`、`spring-boot-configuration-processor`(optional) |
-| 自动装配入口 | `spring.factories` → `io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration` |
+| 自动装配入口 | `spring.factories` + `AutoConfiguration.imports`（双注册） → `io.github.cuukenn.encryptor.reactive.configuration.EncryptorReactiveAutoConfiguration` |
 
 ## 职责
 

@@ -47,7 +47,7 @@ Spring Boot / Spring Cloud / Spring Cloud Alibaba 的版本**不在这里**，�
 ## 常见任务
 
 - **升级 hutool / bouncycastle**：只改本模块 `<properties>`（`hutool.version` / `bouncycastle.version`）。
-- **升级 Spring Boot / Cloud**：改根 `pom.xml` 的属性。Boot 2.7 仍兼容 `META-INF/spring.factories` 自动装配（已弃用）；当前项目继续使用它，迁移到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 时需同步四个 starter。
+- **升级 Spring Boot / Cloud**：改根 `pom.xml` 的属性。`META-INF/spring.factories`（已弃用）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 项目内已双注册（5 个 starter 各两份文件指向同一装配类）；删除 `spring.factories` 前需确认放弃 Boot < 2.7 兼容，并同步 5 个 starter。
 - **新增一个 starter 制品**：必须同时在本模块补 `dependencyManagement` 条目，否则消费方要写版本号。
 
 ## 坑

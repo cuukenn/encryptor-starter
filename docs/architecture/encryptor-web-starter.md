@@ -12,7 +12,7 @@
 | artifactId | `encryptor-web-spring-boot-starter`（`jar`） |
 | 依赖 | `encryptor-spring-boot-starter`、`spring-boot-starter-web`、`spring-boot-configuration-processor`(optional) |
 | 包名 | `io.github.cuukenn.encryptor.web` |
-| 自动装配入口 | `spring.factories` → `io.github.cuukenn.encryptor.web.configuration.WebEncryptorConfiguration` |
+| 自动装配入口 | `spring.factories` + `AutoConfiguration.imports`（双注册） → `io.github.cuukenn.encryptor.web.configuration.WebEncryptorConfiguration` |
 
 ## 职责
 

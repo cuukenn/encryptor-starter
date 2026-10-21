@@ -9,7 +9,7 @@
 - 语言/构建：**Java 8** + Maven 多模块
 - 版本：Spring Boot `2.7.18`、Spring Cloud `2021.0.8`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
 - groupId：`io.github.cuukenn`，版本 `1.0.0`（发布版；`v1.0.0` 标签已打）
-- ⚠️ **Boot 2.7 仍兼容 `META-INF/spring.factories` 自动装配**（已弃用），本项目当前继续使用；后续可迁移到 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+- ⚠️ **自动装配现在双注册**：每个 starter 同时保留 `META-INF/spring.factories`（旧机制，Boot < 2.7 兜底）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（新机制，Boot ≥ 2.7 推荐），指向同一装配类（Boot 会去重，不会重复注册）。**彻底删除 `spring.factories` 前必须先确认放弃 Boot < 2.7 兼容**，且需同步 5 个 starter（含 micrometer）
 
 ## 安全边界（必须记住）
 

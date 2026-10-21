@@ -2,6 +2,11 @@
 
 > 从 [open-issues.md](open-issues.md) 拆出，记录 v2 协议重做及之后的复查/修复；v1 原始记录见 [docs/archive/open-issues-v1.md](../archive/open-issues-v1.md)。
 
+## 2026-10-21 工程收尾
+
+- **P2-2 翻绿**：`open-issues.md` 状态表更新——CI（`ci.yml`）已含 `mvn -B -Pall-modules -DskipTests package`（示例 + bench 编译闸门）与两份 `jwe.js` 的 `diff` 守卫（2026-10-18 落地，本日复核确认）。
+- **`AutoConfiguration.imports` 迁移（保守双写）**：5 个 starter（starter/reactive/web/gateway/micrometer）各新增 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（内容为对应装配类 FQCN 单行），与既有 `spring.factories` 并存（Boot 去重，不重复注册）；不加 `@AutoConfiguration` 注解、零 main 源码改动。`mvn -B -Pmain-module clean install` → BUILD SUCCESS。删除 `spring.factories` 需先确认放弃 Boot < 2.7 兼容。
+
 ## 2026-10-20 当前分支整分支复核修复
 
 > 对本轮 BC 可选化、双写面抽取、nonce 分片、servlet 异步响应加密的完整工作树做独立复核；无 Critical，Important 5 条已修，Minor 逐条记录。

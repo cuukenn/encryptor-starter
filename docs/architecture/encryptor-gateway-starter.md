@@ -12,7 +12,7 @@
 | artifactId | `encryptor-gateway-spring-boot-starter`（`jar`） |
 | 依赖 | `encryptor-spring-boot-starter-reactive`、`spring-cloud-starter-gateway`、`spring-boot-configuration-processor`(optional) |
 | 包名 | `io.github.cuukenn.encryptor.reactive.gateway` |
-| 自动装配入口 | `spring.factories` → `io.github.cuukenn.encryptor.reactive.gateway.configuration.GatewayEncryptorConfiguration` |
+| 自动装配入口 | `spring.factories` + `AutoConfiguration.imports`（双注册） → `io.github.cuukenn.encryptor.reactive.gateway.configuration.GatewayEncryptorConfiguration` |
 
 ## 职责
 

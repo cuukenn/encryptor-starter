@@ -12,7 +12,7 @@
 | artifactId | `encryptor-spring-boot-starter`（`jar`） |
 | 包名 | `io.github.cuukenn.encryptor`（与 core 同名不同类：`config` / `configuration` / `constant`） |
 | 依赖 | `encryptor-core`、`spring-boot-starter`、`spring-boot-configuration-processor`(optional) |
-| 自动装配入口 | `src/main/resources/META-INF/spring.factories` → `io.github.cuukenn.encryptor.configuration.EncryptorAutoConfiguration` |
+| 自动装配入口 | `src/main/resources/META-INF/spring.factories` + `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（双注册） → `io.github.cuukenn.encryptor.configuration.EncryptorAutoConfiguration` |
 
 ## 职责
 
@@ -78,5 +78,5 @@ encryptor:
 ## 坑
 
 - 只有 `enable=true` 且 `matchIfMissing=true`（即默认开）时本自动装配才生效；排查"没加密"先看 `encryptor.enable`。
-- `spring.factories` 在 Boot 2.7 仍兼容但已弃用。工程当前保留该写法；后续迁移时改用 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`。
+- `spring.factories` 在 Boot 2.7 已弃用但仍兼容。工程已双注册：`META-INF/spring.factories`（Boot < 2.7 兜底）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（新机制）并存，删除前者前需确认放弃 Boot < 2.7 兼容。
 - `CryptoConfig.getOrDefaultFill` 的语义是"某个字段为空才用默认"，不是整体替换；uri 级覆盖配置依赖它。
