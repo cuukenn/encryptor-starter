@@ -1,0 +1,14 @@
+# Boot 3.5 共享 jar 验证工程（独立运行通常不需要 main 配置；测试用 @DynamicPropertySource 注入密钥与下游地址）
+spring:
+  application:
+    name: gateway-boot3-verify
+
+# 共享候选 jar 的生产形态配置示例（保留为 boot3 示例起点的注记）：
+# encryptor:
+#   config:
+#     reactive:
+#       keys:
+#         - kid: demo-k1
+#           type: RSA
+#           private-key: <Base64 PKCS#8>
+#           public-key: <Base64 SPKI>

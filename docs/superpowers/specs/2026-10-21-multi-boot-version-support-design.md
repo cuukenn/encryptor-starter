@@ -72,7 +72,10 @@ encryptor-starters/
   1. SCG 过滤器 ordering：`NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1`（`GatewayFilterConfig.java:19`）在 SCG 3.1→4.x 的内部排序变化，响应加密次序需重新验证（不能假设一致）；
   2. `onErrorResume(DataBufferLimitException.class, ...)` 413 路径（`EncryptorGatewayFilter`/`EncryptorResponseFilter`）：Spring 6.x `maxInMemorySize` 异常浮出点可能变化；
   3. `@AutoConfigureAfter` 在 Boot 3 的语义（Boot 推 `@AutoConfiguration(after=)`）：共享 jar 走 legacy 注解，验证装配次序仍被尊重。
-- **裁定（用户确认 2026-10-21）**：gateway starter 实测通过三个风险点才共享，否则复制为 `-boot3`；reactive/micrometer 倾向共享（验证风险点 2/3 + 行为对等）。最终拓扑锁定进实施计划。
+- **裁定（Task 2 实测，2026-10-21，见 `.superpowers/sdd/2026-10-21-multi-boot-version-support/task-2-report.md`）**：
+  1. **gateway starter：复制为 `-boot3`（实测未通过）。** 共享 jar 在 Boot 3.5/SCG 2025.0 下任何请求都无法处理——Spring 6.x 删改了两个 reactive API，字节码级 NoSuchMethodError：①`ServerHttpRequest.getMethodValue()` 已被移除（`JwksEndpointFilter.java:56`、`EncryptorGatewayFilter.java:77`、`EncryptorResponseFilter.java:104/153`）；②`ServerHttpResponse.getStatusCode()` 返回类型 `HttpStatus`→`HttpStatusCode`（`EncryptorResponseFilter.java:151/159/167`）。JWKS 过滤器是 order -14 的 WebFilter，端到端链路在第一个请求即断连（client 侧表现为 PrematureClose），风险点 1/2 无法在共享 jar 上验证。**且注意：机械包名替换（Task 3 脚本）修不了这两处——boot3 复制对这两类调用点需源码级修改（`getMethod().name()`、`getResponseCode`/`HttpStatusCode` 口径），diff 守卫必须把这几处列入 whitelist，或由 Task 5 复制时人工修订并在守卫脚本中登记。**
+  2. **reactive starter：共享（实测通过）。** Boot 3.5 下 `EncryptorReactiveAutoConfiguration` 正常装配（配置绑定/bean 接线/fail-fast 全部正常），协议栈行为对等（nibus 封送 → openRequest → encryptResponse → dir 解密 全绿，重放被 REPLAY 拒绝）该模块 main 源码无被删 API。
+  3. **micrometer starter：共享（实测通过，带一条跟进项）。** 真实 Boot 3.5 应用（含 actuator）中 `@AutoConfigureAfter(MetricsAutoConfiguration)` 被尊重：listener 装配成功、计数器注册齐、真实协议调用驱动计数递增。跟进项：runner（局部 ApplicationContextRunner）发现仅声明 `AutoConfigureAfter(MetricsAutoConfiguration)` 与 boot 的 SimpleMetricsExport（真正提供 SimpleMeterRegistry bean 的配置）之间无排序约束，靠全量 imports 排序偶然落在其后——若上游调整该配置的排序，listener 会静默缺失；建议 Task 4/5 若建 micrometer-boot3 副本（或维持共享）时把 `@AutoConfigureAfter` 扩名到 `MetricsAutoConfiguration + SimpleMetricsExportAutoConfiguration` 两个名字（legacy name 形式，javax 线不动）。
 
 ### 6.3 jakarta 迁移的复制规则（web-starter / spring-boot3-starter 为主）
 
@@ -109,7 +112,7 @@ encryptor-starters/
 | artifactId 策略 | `-boot3` 后缀（绑定 Spring 大版本，非 `-jakarta`） |
 | 新线锚点 | Boot 3.5 + SC 2025.0 + SCA 2025.0，JDK 17/21（**两者都进 CI 矩阵**） |
 | 新线版本起始 | `3.0.0`（与 Boot 代际对齐） |
-| 共享 jar 裁定 | gateway starter：三个风险点（SCG ordering / 413 / `@AutoConfigureAfter`）**实测通过才共享，否则复制**；reactive/micrometer：倾向共享，验证覆盖 `@AutoConfigureAfter` + 行为对等后定 |
+| 共享 jar 裁定 | gateway starter：**复制**（Task 2 实测失败：`getMethodValue`/`getStatusCode` 两处 Spring 6 删改 → NoSuchMethodError，见 §6.2）；reactive：**共享**；micrometer：**共享**（跟进项：`@AutoConfigureAfter` 建议扩名到 SimpleMetricsExportAutoConfiguration） |
 | 发布形态 | 混合版本（parent 1.0.0 + boot3 制品 3.0.0）先 spike 验证 `central-publishing` 可行性，不行再改版本方案 |
 | 测试对等口径 | P0 = 安全关键子集（三载体往返/重放/篡改/失败面/配置绑定，约 30 个）；全量对等移植 = P2 跟进 |
 | Boot patch 节奏 | 季度主动复盘 Boot 3.5.x / SC 2025.0.x / SCA patch 升级，CVE 随时插队 |
