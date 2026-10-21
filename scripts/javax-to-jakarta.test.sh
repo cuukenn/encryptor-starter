@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+#
+# javax-to-jakarta.test.sh — scripts/javax-to-jakarta.sh 的自测脚本。
+# 覆盖四类场景（boot3 双线复制对的实际口径）：
+#   T1 stdin 变换正确性：HttpServletRequest/AsyncContext 替换、javax.crypto 不动、
+#      注释/字符串里的 javax.servlet 同口径替换、幂等（变换两遍结果一致）。
+#   T2 web/starter 型纯机械复制对：--diff 全量 PASS（exit 0），pom.xml 差异被默认排除。
+#   T3 --exclude 追加排除 + 更深层含 Servlet API 文件的正确替换（exit 0）。
+#   T4 漂移捕获：exit 1 且 DIFF 行定位到具体文件。
+#   T5 gateway 型复制对：--expect-diff 登记命中 → exit 0；
+#      漏登记 → exit 1 且 DIFF 定位漏登记文件；登记失真 → EXEMPT-PATTERN-UNMATCHED。
+#   T6 退出码语义：--help exit 0；未识别模式/目录不存在 exit 2。
+#
+# 运行：bash scripts/javax-to-jakarta.test.sh   （全 PASS → exit 0）
+#
+# @author changgg
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+S="$SCRIPT_DIR/javax-to-jakarta.sh"
+
+if [ ! -x "$S" ]; then
+  echo "FAIL: 主脚本不存在或不可执行: $S" >&2
+  exit 2
+fi
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/jx2j-test.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+
+PASS=0
+FAIL=0
+LAST_OUT="$WORK/last.out"
+LAST_RC=0
+
+ok()   { PASS=$((PASS+1)); echo "PASS: $*"; }
+fail() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
+
+# 运行命令并记录退出码与输出（test 脚本自身不设 -e，自行检查退出码）。
+run() {
+  "$@" > "$LAST_OUT" 2>&1
+  LAST_RC=$?
+  return 0
+}
+
+assert_rc() {
+  local want="$1" desc="$2"
+  if [ "$LAST_RC" = "$want" ]; then
+    ok "$desc (exit=$LAST_RC)"
+  else
+    fail "$desc —— 期望 exit=$want 实际 exit=$LAST_RC"
+    echo "----- 输出（尾部 25 行）-----" >&2
+    tail -n 25 "$LAST_OUT" >&2 || true
+    echo "------------------------------" >&2
+  fi
+}
+
+assert_out_contains() {
+  local needle="$1" desc="$2"
+  if grep -qF -- "$needle" "$LAST_OUT"; then
+    ok "$desc"
+  else
+    fail "$desc —— 输出中未找到: $needle"
+    echo "----- 输出（尾部 25 行）-----" >&2
+    tail -n 25 "$LAST_OUT" >&2 || true
+    echo "------------------------------" >&2
+  fi
+}
+
+# 写入文本文件（每参数一行）。
+put() {
+  local file="$1"
+  shift
+  mkdir -p "$(dirname "$file")"
+  printf '%s\n' "$@" > "$file"
+}
+
+# ============================================================
+# 样例：Servlet API + javax.crypto + 注释 + 字符串 混合内容
+# ============================================================
+SAMPLE_IN="$WORK/sample.javax.java"
+put "$SAMPLE_IN" \
+  'package io.github.cuukenn.demo;' \
+  '' \
+  'import javax.servlet.http.HttpServletRequest;' \
+  'import javax.servlet.AsyncContext;' \
+  'import javax.servlet.ServletException;' \
+  'import javax.crypto.Cipher;' \
+  'import javax.crypto.spec.SecretKeySpec;' \
+  '// comment: javax.servlet.http.HttpServletRequest 也在注释里出现（应替换）。' \
+  'class Demo {' \
+  '  void f(javax.servlet.http.HttpServletRequest req) throws Exception {' \
+  '    String tip = "form 载体 jwe=..., 格言里 javax.servlet 保留与替换同口径";' \
+  '    Cipher c = Cipher.getInstance("AES/GCM/NoPadding");' \
+  '    AsyncContext ac = req.startAsync();' \
+  '    throw new ServletException("demo");' \
+  '  }' \
+  '}'
+
+EXPECTED_OUT="$WORK/sample.jakarta.java"
+put "$EXPECTED_OUT" \
+  'package io.github.cuukenn.demo;' \
+  '' \
+  'import jakarta.servlet.http.HttpServletRequest;' \
+  'import jakarta.servlet.AsyncContext;' \
+  'import jakarta.servlet.ServletException;' \
+  'import javax.crypto.Cipher;' \
+  'import javax.crypto.spec.SecretKeySpec;' \
+  '// comment: jakarta.servlet.http.HttpServletRequest 也在注释里出现（应替换）。' \
+  'class Demo {' \
+  '  void f(jakarta.servlet.http.HttpServletRequest req) throws Exception {' \
+  '    String tip = "form 载体 jwe=..., 格言里 jakarta.servlet 保留与替换同口径";' \
+  '    Cipher c = Cipher.getInstance("AES/GCM/NoPadding");' \
+  '    AsyncContext ac = req.startAsync();' \
+  '    throw new ServletException("demo");' \
+  '  }' \
+  '}'
+
+# ------------------------------------------------------------
+echo "== T1: stdin 变换正确性 =="
+run bash "$S" < "$SAMPLE_IN"
+assert_rc 0 "T1.1 stdin 模式 exit 0"
+bash "$S" < "$SAMPLE_IN" > "$WORK/t1.real.out"
+if diff -u "$EXPECTED_OUT" "$WORK/t1.real.out" > "$WORK/t1.diff" 2>&1; then
+  ok "T1.2 输出与期望逐字节一致"
+else
+  fail "T1.2 输出与期望不一致"
+  cat "$WORK/t1.diff" >&2 || true
+fi
+bash "$S" < "$WORK/t1.real.out" > "$WORK/t1.twice.out"
+if cmp -s "$WORK/t1.real.out" "$WORK/t1.twice.out"; then
+  ok "T1.3 幂等：已变换内容再过一遍不变"
+else
+  fail "T1.3 幂等失败"
+fi
+if grep -qF 'javax.crypto.Cipher' "$WORK/t1.real.out" && grep -qF 'javax.crypto.spec.SecretKeySpec' "$WORK/t1.real.out"; then
+  ok "T1.4 javax.crypto import 原样保留"
+else
+  fail "T1.4 javax.crypto 被误改"
+fi
+if grep -F 'javax.servlet' "$WORK/t1.real.out" > /dev/null 2>&1; then
+  fail "T1.5 输出残留 javax.servlet"
+else
+  ok "T1.5 输出不含任何残留 javax.servlet"
+fi
+
+# ------------------------------------------------------------
+echo "== T2: web/starter 型纯机械复制对 → 全量 PASS =="
+BASE2="$WORK/web/base"
+COPY2="$WORK/web/copy"
+put "$BASE2/src/main/java/io/github/cuukenn/web/filter/F.java" \
+  'package io.github.cuukenn.web.filter;' \
+  'import javax.servlet.http.HttpServletRequest;' \
+  'class F { Object c(HttpServletRequest r) { return r.getContentType(); } }'
+put "$BASE2/src/main/resources/META-INF/spring.factories" \
+  'org.springframework.boot.autoconfigure.EnableAutoConfiguration=\' \
+  'io.github.cuukenn.web.configuration.WebEncryptorConfiguration'
+put "$BASE2/src/main/java/io/github/cuukenn/web/NoJavax.java" \
+  'package io.github.cuukenn.web;' \
+  'class NoJavax { long f() { return 42L; } }'
+# pom.xml 两侧刻意不同（boot3 模块 pom 结构差异是预期值，默认排除）。
+put "$BASE2/pom.xml" '<project><artifactId>encryptor-spring-boot-starter</artifactId></project>'
+put "$COPY2/pom.xml" '<project><artifactId>encryptor-spring-boot3-starter</artifactId><extra/></project>'
+
+# 复制器的真实生成路径：逐文件 stdin 变换写入 copy 侧。
+(cd "$BASE2" && find . -type f) | sed 's|^\./||' | while IFS= read -r rf; do
+  mkdir -p "$COPY2/$(dirname "$rf")"
+  bash "$S" < "$BASE2/$rf" > "$COPY2/$rf"
+done
+
+run bash "$S" --diff "$BASE2" "$COPY2"
+assert_rc 0 "T2.1 纯机械对 --diff exit 0（pom.xml 差异默认排除）"
+assert_out_contains "uniform=3" "T2.2 统计：3 个文件全量一致"
+
+# ------------------------------------------------------------
+echo "== T3: --exclude 追加排除 + 深层 Servlet API 文件 =="
+put "$BASE2/src/main/java/io/github/cuukenn/web/filter/Deep.java" \
+  'package io.github.cuukenn.web.filter;' \
+  'import javax.servlet.ServletOutputStream;' \
+  'class Deep { ServletOutputStream out; }'
+mkdir -p "$COPY2/src/main/java/io/github/cuukenn/web/filter"
+bash "$S" < "$BASE2/src/main/java/io/github/cuukenn/web/filter/Deep.java" \
+  > "$COPY2/src/main/java/io/github/cuukenn/web/filter/Deep.java"
+# copy 侧多一个工件文件，用 --exclude 登记（path 含 '/' → 相对路径后缀匹配）。
+put "$COPY2/logs/generated.evict" 'boot3 生成工件，登记排除'
+
+run bash "$S" --diff "$BASE2" "$COPY2" --exclude logs/generated.evict
+assert_rc 0 "T3.1 --exclude 追加排除后 exit 0"
+if grep -qF 'import jakarta.servlet.ServletOutputStream;' "$COPY2/src/main/java/io/github/cuukenn/web/filter/Deep.java"; then
+  ok "T3.2 深层文件 import 正确替换"
+else
+  fail "T3.2 深层文件 import 替换缺失"
+fi
+
+# ------------------------------------------------------------
+echo "== T4: 漂移捕获 + 定位 =="
+put "$COPY2/src/main/java/io/github/cuukenn/web/filter/F.java" \
+  'package io.github.cuukenn.web.filter;' \
+  'import jakarta.servlet.http.HttpServletRequest;' \
+  'class F { Object c(HttpServletRequest r) { return r.getContentType(); } /* copy 侧漂移 */ }'
+printf '%s\n' '// copy 侧追加行 → 模拟漂移' >> "$COPY2/src/main/java/io/github/cuukenn/web/NoJavax.java"
+
+run bash "$S" --diff "$BASE2" "$COPY2"
+assert_rc 1 "T4.1 漂移对 exit 1"
+assert_out_contains "DIFF: src/main/java/io/github/cuukenn/web/filter/F.java" "T4.2 DIFF 行定位漂移文件 1"
+assert_out_contains "DIFF: src/main/java/io/github/cuukenn/web/NoJavax.java" "T4.3 DIFF 行定位漂移文件 2"
+
+# ------------------------------------------------------------
+echo "== T5: gateway 型复制对 + --expect-diff 豁免 =="
+GBASE="$WORK/gw/base"
+GCOPY="$WORK/gw/copy"
+GWPKG="src/main/java/io/github/cuukenn/encryptor/reactive/gateway/filter"
+put "$GBASE/$GWPKG/EncryptorGatewayFilter.java" \
+  'package io.github.cuukenn.encryptor.reactive.gateway.filter;' \
+  'import javax.servlet.http.HttpServletRequest;' \
+  'class EncryptorGatewayFilter {' \
+  '  Object f(javax.servlet.http.HttpServletRequest req) {' \
+  '    HttpMethod m = req.getMethodValue();' \
+  '    return m;' \
+  '  }' \
+  '}'
+put "$GBASE/$GWPKG/EncryptorResponseFilter.java" \
+  'package io.github.cuukenn.encryptor.reactive.gateway.filter;' \
+  'class EncryptorResponseFilter {' \
+  '  Object f(javax.servlet.http.HttpServletRequest req) {' \
+  '    return req.getStatusCode();' \
+  '  }' \
+  '}'
+put "$GBASE/$GWPKG/Mechanical.java" \
+  'package io.github.cuukenn.encryptor.reactive.gateway.filter;' \
+  'import javax.servlet.AsyncContext;' \
+  'class Mechanical { AsyncContext ac; }'
+
+# copy 侧：Mechanical 走机械替换；另两个为"已知 Spring API 改写"（模拟 Task 5 的源码级修订）。
+mkdir -p "$GCOPY/$GWPKG"
+bash "$S" < "$GBASE/$GWPKG/Mechanical.java" > "$GCOPY/$GWPKG/Mechanical.java"
+sed -e 's/javax\.servlet/jakarta.servlet/g' \
+    -e 's/getMethodValue()/getMethod().name()/' \
+    "$GBASE/$GWPKG/EncryptorGatewayFilter.java" > "$GCOPY/$GWPKG/EncryptorGatewayFilter.java"
+sed -e 's/javax\.servlet/jakarta.servlet/g' \
+    -e 's/getStatusCode()/getStatusCode().value()/g' \
+    "$GBASE/$GWPKG/EncryptorResponseFilter.java" > "$GCOPY/$GWPKG/EncryptorResponseFilter.java"
+
+GWPF="$GWPKG/EncryptorGatewayFilter.java"
+GWPR="$GWPKG/EncryptorResponseFilter.java"
+
+run bash "$S" --diff "$GBASE" "$GCOPY" --expect-diff "$GWPF" --expect-diff "$GWPR"
+assert_rc 0 "T5.1 gateway 带 --expect-diff 登记命中 → exit 0"
+assert_out_contains "EXEMPT: $GWPF" "T5.2 EXEMPT 行列出登记文件 1"
+assert_out_contains "EXEMPT: $GWPR" "T5.3 EXEMPT 行列出登记文件 2"
+
+assert_out_contains "differing=0 missing=0" "T5.4 未登记文件无漂移"
+
+# 反例：漏登记 → DIFF 精确定位
+run bash "$S" --diff "$GBASE" "$GCOPY" --expect-diff "$GWPF"
+assert_rc 1 "T5.5 漏登记 response 过滤器 → exit 1"
+assert_out_contains "DIFF: $GWPR" "T5.6 DIFF 行定位漏登记文件（人审入口）"
+
+# 反例：登记 pattern 拼错 → EXEMPT-PATTERN-UNMATCHED 定位
+run bash "$S" --diff "$GBASE" "$GCOPY" --expect-diff "$GWPF.jmsuffix"
+assert_rc 1 "T5.7 登记失真（未命中任何文件）→ exit 1"
+assert_out_contains "EXEMPT-PATTERN-UNMATCHED: --expect-diff ${GWPF}.jmsuffix" "T5.8 输出 EXEMPT-PATTERN-UNMATCHED 定位登记项"
+
+# ------------------------------------------------------------
+echo "== T6: 用法与退出码语义 =="
+run bash "$S" --help
+assert_rc 0 "T6.1 --help exit 0"
+assert_out_contains "--expect-diff" "T6.2 help 列出 --expect-diff"
+run bash "$S" --bogus-mode
+assert_rc 2 "T6.3 未识别模式 exit 2"
+run bash "$S" --diff "$WORK/nonexistent-dir" "$GCOPY"
+assert_rc 2 "T6.4 base 目录不存在 exit 2"
+
+# ------------------------------------------------------------
+echo
+echo "== 自测汇总: PASS=$PASS FAIL=$FAIL =="
+if [ "$FAIL" -gt 0 ]; then
+  exit 1
+fi
+exit 0
