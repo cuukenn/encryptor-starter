@@ -134,7 +134,8 @@
                 <java.version>17</java.version>
             </properties>
             <modules>
-            <!-- 新模块逐个加入 -->
+                <module>encryptor-starters/encryptor-spring-boot3-starter</module>
+                <module>encryptor-starters/encryptor-web-boot3-starter</module>
             </modules>
         </profile>
         <profile>

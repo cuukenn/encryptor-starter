@@ -1,0 +1,111 @@
+<!--
+    boot3 双线工程（javax 线 encryptor-web-spring-boot-starter 的 jakarta 复制对）：
+    - 协议逻辑零改动：src 与 javax 对位模块仅差 javax.servlet → jakarta.servlet 机械替换
+      与装配注册文件（只保留 AutoConfiguration.imports，删 spring.factories），
+      由 scripts/javax-to-jakarta.sh 的 diff 守卫（见 Task 3/4 执行记录）。
+    - 版本自管 3.0.0（parent 仍为 encryptor-starters 1.0.0），仅在 -Pboot3 下构建：
+      Spring Boot/Cloud/SCA 版本由根 pom 的 boot3 profile 属性锚定（3.5.16/2025.0.3/2025.0.0.0）。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.cuukenn</groupId>
+        <artifactId>encryptor-starters</artifactId>
+        <version>1.0.0</version>
+    </parent>
+    <artifactId>encryptor-web-boot3-starter</artifactId>
+    <version>3.0.0</version>
+    <name>encryptor-web-boot3-starter</name>
+    <description>Encryptor Spring Boot 3 Starter</description>
+    <packaging>jar</packaging>
+    <!--
+        显式 dependencyManagement 兜底：根 pom 的 BOM import 用 ${project.version} 插值，
+        本模块自管版本 3.0.0 后会误解析为 encryptor-dependencies:3.0.0（不存在），
+        这里固定回 BOM 实际版本 1.0.0（依赖解析其余继承根 pom，Spring 版本仍锚定 boot3 profile 属性）。
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.cuukenn</groupId>
+                <artifactId>encryptor-dependencies</artifactId>
+                <version>1.0.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <dependencies>
+        <!--
+            starter 间依赖换 -boot3 对位：BOM（encryptor-dependencies）只管理 javax 线坐标，
+            这里显式给 3.0.0（新模块自管版本）。
+        -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-spring-boot3-starter</artifactId>
+            <version>3.0.0</version>
+        </dependency>
+        <!-- web 侧使用 hutool 的 JSONUtil/IoUtil/ThreadUtil；core 不再传递该依赖 -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 国密用例：SM 套件/解析器是可选模块，测试侧显式添加（不会被 starter 传给消费者） -->
+        <dependency>
+            <groupId>io.github.cuukenn</groupId>
+            <artifactId>encryptor-sm</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <!--
+                boot3 线以 release 17 编译（javax 线为 Java 8）：显式 pin 插件版本 + release，
+                不依赖 Maven 默认值。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <release>17</release>
+                </configuration>
+            </plugin>
+            <!--
+                Boot3 线的 JUnit 平台（随 Boot 3.5.16）需要与 surefire 自带的
+                junit-platform-launcher 对齐，surefire 2.22.2 会报
+                OutputDirectoryProvider not available（Jupiter engine 无法发现测试），
+                显式升级到 3.x；excludes 保持与根 pom 约定一致 (HttpTest 需要先启动服务)。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/HttpTest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
