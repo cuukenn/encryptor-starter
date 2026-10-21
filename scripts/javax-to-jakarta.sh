@@ -22,15 +22,17 @@
 #   scripts/javax-to-jakarta.sh --help
 #
 # --diff 选项（均可重复）：
-#   --exclude <pattern>      在默认排除之外追加排除（不参与文件清单与逐字节比对）
+#   --exclude <pattern>      在默认排除之外追加排除（被排除文件不参与清单与逐字节比对）
 #   --expect-diff <pattern>  登记已知源码级改写文件（diff-inspected）：
 #                            仅校验双侧存在 + pattern 命中，不参与逐字节比对
 #
-# pattern 匹配规则：
-#   含 '/' → 作为相对路径后缀匹配（如 web/filter/X.java 命中 …/web/filter/X.java）
-#   不含 '/' → 仅按 basename 匹配（如 pom.xml 命中任意深度的 pom.xml）
+# pattern 匹配规则（glob 语法生效：* 匹配任意子串，`.` 按字面匹配；两个分支同为严格匹配，非子串匹配）：
+#   含 '/' → 相对路径严格后缀匹配（rel 以 pattern 结尾才算命中，如 web/filter/X.java）
+#   不含 '/' → basename 匹配（如 pom.xml / .DS_Store 命中任意深度、任意目录；*.evict 类通配亦可用）
 #
-# 默认排除（预期差异，不计为漂移）：pom.xml（boot3 模块的 pom 结构差异）、.DS_Store（mac 噪音）
+# 默认排除（预期差异，不计为漂移）：pom.xml（boot3 模块的 pom 结构差异）、.DS_Store（mac 噪音）——
+# 均为 basename pattern，任意深度命中。追加排除的 glob 用法示例：--exclude 'logs/generated.*'；
+# ⚠️ 模块根级（非 src 级）diff 会碰见 target/ 构建产物，建议追加以 --exclude 'target/*' 登记排除。
 #
 # 退出码：0 = 所有参与比对文件变换后逐字节一致（或全部属已登记豁免）；
 #         1 = 发现漂移（DIFF / MISSING / EXEMPT-PATTERN-UNMATCHED 行定位到具体文件）；
@@ -59,22 +61,30 @@ transform() {
   LC_ALL=C perl -pe 's/javax\.servlet/jakarta.servlet/g'
 }
 
-# pattern 是否命中相对路径：含 '/' → 相对路径后缀或整串匹配；不含 '/' → basename 匹配。
+# pattern 是否命中相对路径（glob 语法生效，`*` 为任意子串；两分支均为严格匹配而非子串匹配）：
+#   不含 '/' → basename 匹配（如 pom.xml 命中任意深度的同名文件）
+#   含 '/'   → 相对路径严格后缀匹配（rel 以 pattern 结尾；也支持整串相等）
 pattern_matches() {
   local pat="$1" rel="$2"
   if [ "${pat#*/}" = "$pat" ]; then
-    [ "${rel##*/}" = "$pat" ]
-  else
-    [ "$rel" = "$pat" ] || [ "${rel#*"$pat"}" != "$rel" ]
+    case "${rel##*/}" in
+      $pat) return 0 ;;
+    esac
+    return 1
   fi
+  case "$rel" in
+    */$pat) return 0 ;;
+    $pat)   return 0 ;;
+  esac
+  return 1
 }
 
-list_contains() {
-  local want="$1"
-  shift
-  local item
-  for item in "$@"; do
-    if [ "$item" = "$want" ]; then
+# 排除判定：--exclude/default 排除均走 pattern 匹配（basename pattern → 任意深度命中；含 '/' pattern → 严格后缀命中）。
+excluded() {
+  local rel="$1"
+  local pat
+  for pat in "${EXCLUDES[@]}"; do
+    if pattern_matches "$pat" "$rel"; then
       return 0
     fi
   done
@@ -153,7 +163,9 @@ if [ ! -d "$COPY_DIR" ]; then
   die "copy 目录不存在: $COPY_DIR"
 fi
 
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/jx2j-diff.XXXXXX")"
+if ! WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/jx2j-diff.XXXXXX")"; then
+  die "无法创建临时工作目录（检查 TMPDIR=${TMPDIR:-/tmp} 是否可写）"
+fi
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # 文件清单（相对路径，C 顺序，保证输出确定性）。
@@ -200,10 +212,11 @@ compare_one() {
   LC_ALL=C diff -u "$WORKDIR/candidate.tmp" "$copy_f" > "$WORKDIR/drift.diff" 2>&1 || true
   if [ "$MAX_DIFF_LINES" -gt 0 ]; then
     LC_ALL=C head -n "$MAX_DIFF_LINES" "$WORKDIR/drift.diff" || true
-    local total_lines
+    local total_lines hidden_lines
     total_lines="$(LC_ALL=C wc -l < "$WORKDIR/drift.diff" | LC_ALL=C tr -d ' ')"
-    if [ "$total_lines" -gt "$MAX_DIFF_LINES" ]; then
-      echo "...（diff 截断：仅展示前 $MAX_DIFF_LINES 行，另有 $((total_lines - MAX_DIFF_LINES)) 行；JX2J_DIFF_MAX_LINES=$total_lines 可看全）"
+    hidden_lines=$((total_lines - MAX_DIFF_LINES))
+    if [ "$hidden_lines" -gt 0 ]; then
+      echo "...（diff 截断：仅展示前 $MAX_DIFF_LINES 行，未展示 $hidden_lines 行；复跑时设 JX2J_DIFF_MAX_LINES=$total_lines 即可看到全部 $total_lines 行）"
     fi
   else
     LC_ALL=C cat "$WORKDIR/drift.diff" || true
@@ -214,7 +227,7 @@ compare_one() {
 # ---------- 1) base 清单：缺失/豁免/比对 ----------
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
-  if list_contains "$rel" "${EXCLUDES[@]}"; then
+  if excluded "$rel"; then
     continue
   fi
   if [ ! -f "$COPY_DIR/$rel" ]; then
@@ -245,7 +258,7 @@ done < "$WORKDIR/base.list"
 # ---------- 2) copy 清单：多余文件（base 没有而 copy 有 → 漂移） ----------
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
-  if list_contains "$rel" "${EXCLUDES[@]}"; then
+  if excluded "$rel"; then
     continue
   fi
   if [ ! -f "$BASE_DIR/$rel" ]; then

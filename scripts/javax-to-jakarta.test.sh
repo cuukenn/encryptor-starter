@@ -4,12 +4,15 @@
 # 覆盖四类场景（boot3 双线复制对的实际口径）：
 #   T1 stdin 变换正确性：HttpServletRequest/AsyncContext 替换、javax.crypto 不动、
 #      注释/字符串里的 javax.servlet 同口径替换、幂等（变换两遍结果一致）。
-#   T2 web/starter 型纯机械复制对：--diff 全量 PASS（exit 0），pom.xml 差异被默认排除。
-#   T3 --exclude 追加排除 + 更深层含 Servlet API 文件的正确替换（exit 0）。
+#   T2 web/starter 型纯机械复制对：--diff 全量 PASS（exit 0），pom.xml 差异被默认排除；
+#      任意深度嵌套 pom.xml/.DS_Store 仍被 basename pattern 排除（非全路径精确相等）。
+#   T3 --exclude glob 登记排除（logs/generated.* 一类扫掉）+ 严格后缀/ basename 语义（子串不放宽）
+#      + 更深层含 Servlet API 文件的正确替换（exit 0）。
 #   T4 漂移捕获：exit 1 且 DIFF 行定位到具体文件。
 #   T5 gateway 型复制对：--expect-diff 登记命中 → exit 0；
-#      漏登记 → exit 1 且 DIFF 定位漏登记文件；登记失真 → EXEMPT-PATTERN-UNMATCHED。
-#   T6 退出码语义：--help exit 0；未识别模式/目录不存在 exit 2。
+#      漏登记 → exit 1 且 DIFF 定位漏登记文件；登记失真 → EXEMPT-PATTERN-UNMATCHED；
+#      豁免文件在 copy 侧缺失 → MISSING IN COPY + exit 1。
+#   T6 退出码语义：--help exit 0；未识别模式/目录不存在/mktemp 失败 exit 2。
 #
 # 运行：bash scripts/javax-to-jakarta.test.sh   （全 PASS → exit 0）
 #
@@ -171,6 +174,14 @@ run bash "$S" --diff "$BASE2" "$COPY2"
 assert_rc 0 "T2.1 纯机械对 --diff exit 0（pom.xml 差异默认排除）"
 assert_out_contains "uniform=3" "T2.2 统计：3 个文件全量一致"
 
+# 嵌套深度（Important 修复回归）：pom.xml/.DS_Store 是 basename/任意深度 pattern，不是全路径精确相等。
+put "$BASE2/docs/pom.xml" '<project><artifactId>base-组内说明</artifactId></project>'
+put "$COPY2/docs/pom.xml" '<project><artifactId>boot3-组内说明不同</artifactId></project>'
+put "$COPY2/.meta/.DS_Store" 'junk'
+run bash "$S" --diff "$BASE2" "$COPY2"
+assert_rc 0 "T2.3 嵌套 pom.xml（双侧内容不同）与嵌套 .DS_Store 仍被默认排除 → exit 0"
+assert_out_contains "uniform=3" "T2.4 统计仍 3（嵌套排除物未计入）"
+
 # ------------------------------------------------------------
 echo "== T3: --exclude 追加排除 + 深层 Servlet API 文件 =="
 put "$BASE2/src/main/java/io/github/cuukenn/web/filter/Deep.java" \
@@ -180,11 +191,15 @@ put "$BASE2/src/main/java/io/github/cuukenn/web/filter/Deep.java" \
 mkdir -p "$COPY2/src/main/java/io/github/cuukenn/web/filter"
 bash "$S" < "$BASE2/src/main/java/io/github/cuukenn/web/filter/Deep.java" \
   > "$COPY2/src/main/java/io/github/cuukenn/web/filter/Deep.java"
-# copy 侧多一个工件文件，用 --exclude 登记（path 含 '/' → 相对路径后缀匹配）。
+# copy 侧多两个工件文件（不同扩展名），用 glob pattern --exclude 一次登记整类（Glob 生效回归）。
 put "$COPY2/logs/generated.evict" 'boot3 生成工件，登记排除'
+put "$COPY2/logs/generated.bin" '另一生成工件，同被 glob 覆盖'
 
-run bash "$S" --diff "$BASE2" "$COPY2" --exclude logs/generated.evict
-assert_rc 0 "T3.1 --exclude 追加排除后 exit 0"
+run bash "$S" --diff "$BASE2" "$COPY2" --exclude 'logs/generated.*'
+assert_rc 0 "T3.1 glob --exclude logs/generated.* 后 exit 0"
+# 子串不命中（严格匹配语义回归）：pattern 含 '/' 走严格后缀，非后缀/非 basename 的子串不放宽。
+run bash "$S" --diff "$BASE2" "$COPY2" --exclude 'b/generated.ev'
+assert_rc 1 "T3.3 子串 pattern 不命中（严格后缀/basename 语义）→ exit 1"
 if grep -qF 'import jakarta.servlet.ServletOutputStream;' "$COPY2/src/main/java/io/github/cuukenn/web/filter/Deep.java"; then
   ok "T3.2 深层文件 import 正确替换"
 else
@@ -260,6 +275,15 @@ run bash "$S" --diff "$GBASE" "$GCOPY" --expect-diff "$GWPF.jmsuffix"
 assert_rc 1 "T5.7 登记失真（未命中任何文件）→ exit 1"
 assert_out_contains "EXEMPT-PATTERN-UNMATCHED: --expect-diff ${GWPF}.jmsuffix" "T5.8 输出 EXEMPT-PATTERN-UNMATCHED 定位登记项"
 
+# 反例：豁免文件在 copy 侧缺失（只生成了纯机械文件）→ 漂移 + MISSING 定位（豁免登记不掩盖缺失）
+GONLY="$WORK/gw/partial-copy"
+mkdir -p "$GONLY/$GWPKG"
+bash "$S" < "$GBASE/$GWPKG/Mechanical.java" > "$GONLY/$GWPKG/Mechanical.java"
+run bash "$S" --diff "$GBASE" "$GONLY" --expect-diff "$GWPF" --expect-diff "$GWPR"
+assert_rc 1 "T5b.1 豁免文件在 copy 侧缺失 → exit 1"
+assert_out_contains "MISSING IN COPY: $GWPF" "T5b.2 MISSING IN COPY 定位豁免文件 1"
+assert_out_contains "MISSING IN COPY: $GWPR" "T5b.3 MISSING IN COPY 定位豁免文件 2"
+
 # ------------------------------------------------------------
 echo "== T6: 用法与退出码语义 =="
 run bash "$S" --help
@@ -269,6 +293,8 @@ run bash "$S" --bogus-mode
 assert_rc 2 "T6.3 未识别模式 exit 2"
 run bash "$S" --diff "$WORK/nonexistent-dir" "$GCOPY"
 assert_rc 2 "T6.4 base 目录不存在 exit 2"
+run env TMPDIR="$WORK/absent-tmp" bash "$S" --diff "$GBASE" "$GCOPY"
+assert_rc 2 "T6.5 mktemp 失败（TMPDIR 不可用）→ exit 2"
 
 # ------------------------------------------------------------
 echo
