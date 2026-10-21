@@ -115,6 +115,28 @@
                 <module>encryptor-starters</module>
             </modules>
         </profile>
+        <!--
+            Boot3 双线工程（SRP: Multi Boot 版本支持）：显式激活 `-Pboot3` 后，
+            javax 线既有 profiles（all-modules/main-module）与 boot3 互不重叠，
+            两条产品线各自独立构建。
+            版本锚点（2026-10 时点，均为 Spring 官方 3.5.16 / 2025.0.3 / SCA 2025.0.0.0 的最终 OSS release）：
+            属性覆写是首选路径 —— 根 pom 的 BOM import 用 ${spring-boot.version} 等插值，
+            boot3 模块一旦加入，其 effective model 会以本 profile 提供的属性值解析（spike 见 task 执行记录）。
+        -->
+        <profile>
+            <id>boot3</id>
+            <properties>
+                <spring-boot.version>3.5.16</spring-boot.version>
+                <spring-cloud.version>2025.0.3</spring-cloud.version>
+                <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <java.version>17</java.version>
+            </properties>
+            <modules>
+            <!-- 新模块逐个加入 -->
+            </modules>
+        </profile>
         <profile>
             <id>release</id>
             <build>
