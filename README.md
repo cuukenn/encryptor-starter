@@ -11,6 +11,32 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
 - **不是 TLS 的替代**：它是 TLS 之上的纵深防御 / 合规外壳，不是安全边界。
 - **客户端要求**：WebCrypto（RSA-OAEP + AES-GCM）。浏览器须在 `https://` 或 `localhost`（安全上下文）；Node ≥ 16（`require('crypto').webcrypto`）。
 
+## 选型：按运行环境选 artifact
+
+单仓双产品线：**原名 artifact = Boot 2.7 线（javax）**，**`-boot3` 后缀 = Boot 3 线（jakarta，版本从 3.0.0 起始）**。协议（core）只有一份，两线共享。
+
+| 运行环境 | JDK | Spring Boot | Spring Cloud / Alibaba | 用哪条线 |
+| --- | --- | --- | --- | --- |
+| 存量/兜底（servlet） | 8/11/17 | 2.7.x | 2021.0.x / 2021.1 | **1.x 原名线** |
+| 新项目（servlet） | 17/21 | 3.5.x | 2025.0.x | **3.0.0 `-boot3` 线** |
+
+starter 对照（groupId `io.github.cuukenn`；两线 starter **不可混用**，否则装配/字节码代际错配）：
+
+| 模块 | 1.x 线（Boot 2.7） | 3.0.0 线（Boot 3.5） |
+| --- | --- | --- |
+| 协议核心（两线同一份，JDK 8 编译通用） | `encryptor-core` | 同左 |
+| 国密可选模块（两线同一份，显式添加） | `encryptor-sm` | 同左 |
+| servlet 通用装配 | `encryptor-spring-boot-starter` | `encryptor-spring-boot3-starter` |
+| servlet web | `encryptor-web-spring-boot-starter` | `encryptor-web-boot3-starter`（内部依赖上者） |
+| 网关（SCG） | `encryptor-gateway-spring-boot-starter` | `encryptor-gateway-boot3-starter`（**复制线**，理由见下） |
+| reactive 通用装配 | `encryptor-spring-boot-starter-reactive` | **共享同一 artifact**（实测 Boot 3.5 可用，不复制） |
+| Micrometer 指标 | `encryptor-micrometer-spring-boot-starter` | **共享同一 artifact**（实测 Boot 3.5 可用；跟进项见下） |
+| 网关示例 | `encryptor-examples/gateway-example`（Boot 2.7） | `encryptor-examples/boot3-example`（Boot 3.5） |
+
+- **网关为何复制**：Spring 6.2 移除了 `ServerHttpRequest#getMethodValue()`（4 处调用点）且 `ServerHttpResponse#getStatusCode()` 返回类型变为 `HttpStatusCode`（3 处）——1.x 网关 jar 在 Boot 3.5 下任何请求都会链首 `NoSuchMethodError`；`encryptor-gateway-boot3-starter:3.0.0` 做了最小签名适配（语义零变更，diff 守卫按文件登记）。
+- **reactive/micrometer 为何共享**：main 源码零被删 API，且在真实 Boot 3.5 应用/运行期验证装配与协议行为对等（三载体往返、防重放、计数器、JWKS）。micrometer 的跟进项：`@AutoConfigureAfter` 只声明了 `MetricsAutoConfiguration`，与 `SimpleMetricsExportAutoConfiguration` 之间无排序约束，当前全量 imports 排序下正确，季度复盘 Boot patch 时复核。
+- **网关下游约束两线相同**：网关解密后转发的是明文，下游必须是**不带 encryptor** 的普通应用。boot3 示例自带一个 JDK HttpServer 回显下游（随机端口），也可换同形态的 8082 普通 web 应用。
+
 ## 特性
 
 - **协议**：JWE Compact 单字段载体（query 参数 / JSON `{"jwe":…}` / form 字段 `jwe`），响应复用请求 CEK（`alg=dir`，客户端不需密钥对）。
@@ -25,7 +51,7 @@ encryptor-starter 是一个基于 Spring Boot 的报文层安全启动器：为 
 
 ## 使用方法
 
-- 1、导入 pom
+- 1、导入 pom（Boot 3 项目把 starter 坐标换成上表 3.0.0 线对位，如 `encryptor-web-boot3-starter` / `encryptor-gateway-boot3-starter`，协议 core/sm 坐标不变）
     - 普通项目
         ```xml
         <!-- 具体发布版本可通过以下地址查询 -->

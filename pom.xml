@@ -136,6 +136,8 @@
             <modules>
                 <module>encryptor-starters/encryptor-spring-boot3-starter</module>
                 <module>encryptor-starters/encryptor-web-boot3-starter</module>
+                <module>encryptor-starters/encryptor-gateway-boot3-starter</module>
+                <module>encryptor-examples/boot3-example</module>
             </modules>
         </profile>
         <profile>
