@@ -13,6 +13,9 @@
 #      漏登记 → exit 1 且 DIFF 定位漏登记文件；登记失真 → EXEMPT-PATTERN-UNMATCHED；
 #      豁免文件在 copy 侧缺失 → MISSING IN COPY + exit 1。
 #   T6 退出码语义：--help exit 0；未识别模式/目录不存在/mktemp 失败 exit 2。
+#   T7 守卫加固回归：--expect-diff 命中文件的 EYE-DIFF 眼审输出与 EXEMPT-FILES-INSPECT
+#      标记（不改变退出码语义）；--exclude spring.factories 的反向渗入断言——
+#      boot3 侧已删除该文件 → PASS，重新引入 → SPRING-FACTORIES-CREEP + exit 1。
 #
 # 运行：bash scripts/javax-to-jakarta.test.sh   （全 PASS → exit 0）
 #
@@ -295,6 +298,59 @@ run bash "$S" --diff "$WORK/nonexistent-dir" "$GCOPY"
 assert_rc 2 "T6.4 base 目录不存在 exit 2"
 run env TMPDIR="$WORK/absent-tmp" bash "$S" --diff "$GBASE" "$GCOPY"
 assert_rc 2 "T6.5 mktemp 失败（TMPDIR 不可用）→ exit 2"
+
+# ------------------------------------------------------------
+echo "== T7: 守卫加固回归（EYE-DIFF 眼审输出 + spring.factories 反向渗入断言）=="
+# T7 建独立 fixture（EYES/EYEC：豁免文件 2 + 纯机械 1），不污染前面节的 fixture。
+EYES="$WORK/eye/base"
+EYEC="$WORK/eye/copy"
+EYPKG="src/main/java/io/github/cuukenn/encryptor/eye/filter"
+put "$EYES/$EYPKG/EyeExemptOne.java" \
+  'package io.github.cuukenn.encryptor.eye.filter;' \
+  'import javax.servlet.http.HttpServletRequest;' \
+  'class EyeExemptOne {' \
+  '  Object f(javax.servlet.http.HttpServletRequest req) {' \
+  '    return req.getStatusCode();' \
+  '  }' \
+  '}'
+put "$EYES/$EYPKG/EyeExemptTwo.java" \
+  'package io.github.cuukenn.encryptor.eye.filter;' \
+  'import javax.servlet.AsyncContext;' \
+  'class EyeExemptTwo { AsyncContext ac; }'
+put "$EYES/$EYPKG/EyeUniform.java" \
+  'package io.github.cuukenn.encryptor.eye.filter;' \
+  'import javax.servlet.ServletOutputStream;' \
+  'class EyeUniform { ServletOutputStream out; }'
+# boot3 侧：按登记口径生成——两个豁免文件做"已知源码级改写"，其余机械替换。
+mkdir -p "$EYEC/$EYPKG"
+bash "$S" < "$EYES/$EYPKG/EyeUniform.java" > "$EYEC/$EYPKG/EyeUniform.java"
+sed -e 's/javax\.servlet/jakarta.servlet/g' \
+    -e 's/getStatusCode()/getStatusCode().value()/' \
+    "$EYES/$EYPKG/EyeExemptOne.java" > "$EYEC/$EYPKG/EyeExemptOne.java"
+bash "$S" < "$EYES/$EYPKG/EyeExemptTwo.java" > "$EYEC/$EYPKG/EyeExemptTwo.java"
+EYE1="$EYPKG/EyeExemptOne.java"
+EYE2="$EYPKG/EyeExemptTwo.java"
+
+# 正例：豁免命中 → exit 0 语义不变，且产出 EYE-DIFF 眼审 diff + 汇总尾部 EXEMPT-FILES-INSPECT 标记。
+run bash "$S" --diff "$EYES" "$EYEC" --expect-diff "$EYE1" --expect-diff "$EYE2"
+assert_rc 0 "T7.1 豁免文件眼审输出不改变退出码（豁免命中仍 exit 0）"
+assert_out_contains "EYE-DIFF: $EYE1" "T7.2 豁免文件 1 打印 EYE-DIFF 眼审 diff"
+assert_out_contains "EXEMPT-FILES-INSPECT: 2 files printed above" "T7.3 汇总尾部打印 EXEMPT-FILES-INSPECT 标记（计数=豁免文件数）"
+
+# 反例（反向渗入红例）：--exclude spring.factories 的复制对在 boot3 侧重新引入旧装配文件；
+# 该文件同时被 exclude 名义豁免吞掉（copy 清单多余文件不另报 MISSING），必须由断言本身转红。
+put "$EYEC/main/resources/META-INF/spring.factories" \
+  'org.springframework.boot.autoconfigure.EnableAutoConfiguration=\' \
+  'io.github.cuukenn.encryptor.eye.configuration.EyeConfiguration'
+run bash "$S" --diff "$EYES" "$EYEC" --exclude spring.factories --expect-diff "$EYE1" --expect-diff "$EYE2"
+assert_rc 1 "T7.4 boot3 侧重新引入 spring.factories → exit 1"
+assert_out_contains "SPRING-FACTORIES-CREEP: boot3 copy reintroduced spring.factories: main/resources/META-INF/spring.factories" "T7.5 SPRING-FACTORIES-CREEP 行定位渗入文件"
+
+# 正例（当前口径回归）：boot3 复制模块已删除 spring.factories（红例文件移除）→ 复制对重回全量 PASS。
+rm -f "$EYEC/main/resources/META-INF/spring.factories"
+rmdir "$(dirname "$EYEC/main/resources/META-INF/spring.factories")" 2>/dev/null || true
+run bash "$S" --diff "$EYES" "$EYEC" --exclude spring.factories --expect-diff "$EYE1" --expect-diff "$EYE2"
+assert_rc 0 "T7.6 boot3 侧已删 spring.factories 的存活复制对 → exit 0（反向断言不出假红）"
 
 # ------------------------------------------------------------
 echo

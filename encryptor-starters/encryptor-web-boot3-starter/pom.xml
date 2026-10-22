@@ -17,7 +17,7 @@
     <artifactId>encryptor-web-boot3-starter</artifactId>
     <version>3.0.0</version>
     <name>encryptor-web-boot3-starter</name>
-    <description>Encryptor Spring Boot 3 Starter</description>
+    <description>Encryptor Web Spring Boot 3 Starter</description>
     <packaging>jar</packaging>
     <!--
         显式 dependencyManagement 兜底：根 pom 的 BOM import 用 ${project.version} 插值，

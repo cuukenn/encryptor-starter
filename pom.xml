@@ -125,6 +125,7 @@
         -->
         <profile>
             <id>boot3</id>
+            <!-- 跑 -Pboot3 必须 JDK 17（release=17；本机默认 java 11 会报不支持发行版本），如：JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home mvn -B -Pboot3 clean install -->
             <properties>
                 <spring-boot.version>3.5.16</spring-boot.version>
                 <spring-cloud.version>2025.0.3</spring-cloud.version>

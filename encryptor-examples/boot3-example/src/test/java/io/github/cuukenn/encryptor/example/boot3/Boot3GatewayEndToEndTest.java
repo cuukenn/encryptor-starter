@@ -16,7 +16,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import reactor.core.publisher.Flux;
 
 import java.nio.charset.StandardCharsets;

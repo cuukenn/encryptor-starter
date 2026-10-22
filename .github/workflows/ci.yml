@@ -50,6 +50,9 @@ jobs:
           mvn -B -pl encryptor-core,encryptor-starters/encryptor-starter,encryptor-starters/encryptor-starter-reactive,encryptor-starters/encryptor-web-starter,encryptor-starters/encryptor-gateway-starter \
             dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
             -DoutputFile=/tmp/encryptor-runtime-tree.txt -DappendOutput=true
+          # 依赖树守卫的正向证据：outputFile 非空才可信（插件异常但 mvn 退出 0 的边缘
+          # 场景会产出空文件，guard 若照常 grep 会平绿）。空/缺失一律 fail 并说明。
+          test -s /tmp/encryptor-runtime-tree.txt || { echo "dependency:tree 未产出输出，guard 不可信" >&2; exit 1; }
           if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-runtime-tree.txt; then
             echo "BouncyCastle or encryptor-sm leaked into a core/starter runtime tree" >&2
             cat /tmp/encryptor-runtime-tree.txt >&2
@@ -114,6 +117,8 @@ jobs:
           mvn -B -Pboot3 -pl encryptor-starters/encryptor-spring-boot3-starter,encryptor-starters/encryptor-web-boot3-starter,encryptor-starters/encryptor-gateway-boot3-starter \
             dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
             -DoutputFile=/tmp/encryptor-boot3-runtime-tree.txt -DappendOutput=true
+          # 同 build job JDK 8 档：outputFile 非空才可信，空/缺失一律 fail 并说明。
+          test -s /tmp/encryptor-boot3-runtime-tree.txt || { echo "dependency:tree 未产出输出，guard 不可信" >&2; exit 1; }
           if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-boot3-runtime-tree.txt; then
             echo "BouncyCastle or encryptor-sm leaked into a boot3 starter runtime tree" >&2
             cat /tmp/encryptor-boot3-runtime-tree.txt >&2

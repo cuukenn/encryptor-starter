@@ -11,10 +11,17 @@
 #      （如 getMethodValue 移除、getStatusCode 返回类型变更）登记为 diff-inspected：
 #      豁免逐字节比对，但强制双侧文件存在、登记 pattern 必须真实命中；
 #      其余未豁免文件仍要求逐字节一致。
+#      豁免不等于黑箱：每个命中文件会非失败地打印"javax 侧经机械变换后 vs boot3 侧"
+#      的 EYE-DIFF（进 CI 日志供眼审/人审），并在汇总尾部给出
+#      `EXEMPT-FILES-INSPECT: <n> files printed above` 明显标记；这不改变退出码语义——
+#      豁免文件不参与红/绿判定，红绿仍由未豁免漂移与登记真实性负责。
 #      web/starter 型纯机械对不带任何 --expect-diff 即可全量 PASS。
 #   注意：白名单只有一条——javax.servlet → jakarta.servlet；任何其他差异（pom、
 #   装配注解、Spring API）只能通过 --exclude / --expect-diff 显式登记，不得黑箱扩白。
 #   协议逻辑（JWE/AAD/防重放）不进复制对、也不允许经此脚本豁免式漂移。
+#   反向渗入断言：keyed `--exclude spring.factories`（boot3 复制模块删旧装配文件的
+#   登记口径）同时断言 boot3 侧不存在任何 spring.factories——复制对若重新引入旧装配
+#   文件（违反 plan「boot3 禁带 spring.factories」），同样判 drift exit 1。
 #
 # 用法：
 #   scripts/javax-to-jakarta.sh                                    # stdin → stdout
@@ -24,8 +31,9 @@
 # --diff 选项（均可重复）：
 #   --exclude <pattern>      在默认排除之外追加排除（被排除文件不参与清单与逐字节比对）
 #   --expect-diff <pattern>  登记已知源码级改写文件（diff-inspected）：
-#                            仅校验双侧存在 + pattern 命中，不参与逐字节比对
-#
+#                            仅校验双侧存在 + pattern 命中，不参与逐字节比对（不参与红/绿）；
+#                            命中文件非失败地打印 EYE-DIFF（javax 机械变换后 vs boot3 侧，
+#                            进 CI 日志眼审），汇总尾部打印 EXEMPT-FILES-INSPECT: <n> 标记。
 # pattern 匹配规则（glob 语法生效：* 匹配任意子串，`.` 按字面匹配；两个分支同为严格匹配，非子串匹配）：
 #   含 '/' → 相对路径严格后缀匹配（rel 以 pattern 结尾才算命中，如 web/filter/X.java）
 #   不含 '/' → basename 匹配（如 pom.xml / .DS_Store 命中任意深度、任意目录；*.evict 类通配亦可用）
@@ -35,7 +43,7 @@
 # ⚠️ 模块根级（非 src 级）diff 会碰见 target/ 构建产物，建议追加以 --exclude 'target/*' 登记排除。
 #
 # 退出码：0 = 所有参与比对文件变换后逐字节一致（或全部属已登记豁免）；
-#         1 = 发现漂移（DIFF / MISSING / EXEMPT-PATTERN-UNMATCHED 行定位到具体文件）；
+#         1 = 发现漂移（DIFF / MISSING / EXEMPT-PATTERN-UNMATCHED / SPRING-FACTORIES-CREEP 行定位到具体文件）；
 #         2 = 用法错误 / IO 错误
 #
 # CI 参数：JX2J_DIFF_MAX_LINES（默认 40；单个漂移文件的 diff 展示上限；0 = 不截断）
@@ -191,6 +199,38 @@ differing=0
 missing=0
 rc_final=0
 
+# 豁免（--expect-diff 命中）文件的眼审输出：非失败地打印
+# "javax 侧经机械变换后 vs boot3 侧"的统一 diff（进 CI 日志供眼审/人审）。
+# 函数保证返回 0：豁免文件不参与红/绿判定，本函数只产出日志，不改变退出码语义。
+# EYE-DIFF 展示受 MAX_DIFF_LINES 截断（0=全量），截断口径与 compare_one 一致。
+print_eye_diff() {
+  local rel="$1"
+  local base_f="$BASE_DIR/$rel"
+  local copy_f="$COPY_DIR/$rel"
+  echo "EYE-DIFF: ${rel}（javax 侧机械变换后 vs boot3 侧；豁免文件不参与红/绿，仅供眼审）"
+  if ! transform < "$base_f" > "$WORKDIR/eye-base.tmp"; then
+    echo "EYE-DIFF-TRANSFORM-ERROR: ${rel}（机械变换失败，无法产出眼审 diff）"
+    return 0
+  fi
+  LC_ALL=C diff -u "$WORKDIR/eye-base.tmp" "$copy_f" > "$WORKDIR/eye.diff" 2>&1 || true
+  if [ ! -s "$WORKDIR/eye.diff" ]; then
+    echo "EYE-DIFF: ${rel}（变换后与 boot3 侧逐字节一致，无差异可审）"
+    return 0
+  fi
+  if [ "$MAX_DIFF_LINES" -gt 0 ]; then
+    LC_ALL=C head -n "$MAX_DIFF_LINES" "$WORKDIR/eye.diff" || true
+    local total_lines hidden_lines
+    total_lines="$(LC_ALL=C wc -l < "$WORKDIR/eye.diff" | LC_ALL=C tr -d ' ')"
+    hidden_lines=$((total_lines - MAX_DIFF_LINES))
+    if [ "$hidden_lines" -gt 0 ]; then
+      echo "...（EYE-DIFF 截断：仅展示前 $MAX_DIFF_LINES 行，未展示 $hidden_lines 行；复跑时设 JX2J_DIFF_MAX_LINES=$total_lines 即可看到全部 $total_lines 行）"
+    fi
+  else
+    LC_ALL=C cat "$WORKDIR/eye.diff" || true
+  fi
+  return 0
+}
+
 # 单文件比较：变换后 cmp；漂移则打印 DIFF 行定位（diff 展示受 MAX_DIFF_LINES 截断，0=全量）。
 # 函数保证返回 0（计数器在调用侧累计，不依赖返回值，避免 set -e 中断 while read 循环）。
 compare_one() {
@@ -249,6 +289,7 @@ while IFS= read -r rel; do
   if [ -n "$ematch" ]; then
     exempt=$((exempt+1))
     echo "EXEMPT: ${rel}（diff-inspected 登记命中 → 人工核对）"
+    print_eye_diff "$rel"
     continue
   fi
   checked=$((checked+1))
@@ -278,6 +319,19 @@ while [ "$ei" -lt "${#EXEMPT_PATTERNS[@]}" ]; do
   ei=$((ei+1))
 done
 
+# ---------- 4) 反向渗入断言：keyed `--exclude spring.factories` 的复制对，
+# boot3 侧不得重新引入旧装配文件（存在 = exit 1 drift，防 exclude 名义豁免把渗入吞掉）。
+case " ${EXCLUDES[*]} " in
+  *" spring.factories "*)
+    while IFS= read -r sfp; do
+      [ -n "$sfp" ] || continue
+      rc_final=1
+      echo "SPRING-FACTORIES-CREEP: boot3 copy reintroduced spring.factories: ${sfp#./}"
+    done < <(cd "$COPY_DIR" && find . -type f -name 'spring.factories')
+    ;;
+esac
+
+echo "EXEMPT-FILES-INSPECT: $exempt files printed above（豁免文件的眼审 diff 见上方 EYE-DIFF 输出；不参与红/绿，人审面）"
 echo "=== 统计: checked=$checked uniform=$uniform exempt=$exempt differing=$differing missing=$missing ==="
 if [ "$rc_final" -eq 0 ]; then
   echo "=== 结果: UNIFORM (exit 0) ==="

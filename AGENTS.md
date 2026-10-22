@@ -28,7 +28,7 @@ java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rf
 ```
 
 - Maven 在 **`/usr/local/maven/3.8.9/bin/mvn`**（不在 PATH）；`java` 11。
-- 根 `pom.xml` **没有** checkstyle/spotless；surefire 固定 `2.22.2`。
+- 根 `pom.xml` **没有** checkstyle/spotless；surefire 固定 `2.22.2`（boot3 复制对 pom 各自 pin `3.5.4`，root 2.22.2 × JU Platform 1.12 会 Tests run: 0 假绿，见 pom 注释）。
 - `**/HttpTest.java` 被 surefire 排除（需先起服务）；`encryptor-examples/*/front/test.js` 也需先起服务。
 - surefire 默认 `trimStackTrace=true`，定位失败加 `-DtrimStackTrace=false`。
 - **改 reactive/gateway 前必须先 `mvn -pl encryptor-core install -DskipTests`**（下游编译用本地仓库 jar）。
@@ -139,7 +139,7 @@ javax 线源码经脚本机械替换（`javax.servlet` → `jakarta.servlet`）�
 | `encryptor-web-starter/src` | `encryptor-web-boot3-starter/src` | 零豁免（同上，uniform=24） |
 | `encryptor-gateway-starter/src` | `encryptor-gateway-boot3-starter/src` | `--expect-diff` 登记 3 文件的 API 签名适配（`getMethodValue()` → `getMethod().name()` ×4 处、`getStatusCode()` → `HttpStatusCode` ×2 处 + import），uniform=14 exempt=3 |
 
-- 改 javax 线任一复制对源文件 = 必须同步改 boot3 对位（机械替换口径；CI 守卫会红）。改协议 = 三处一起（javax servlet / reactive 共享线 / boot3 复制线）。
+- 改 javax 线任一复制对源文件 = 必须同步改 boot3 对位（机械替换口径；CI 守卫会红）。改协议 = 三处一起（javax servlet / reactive 共享线 / boot3 复制线）。gateway 对的 3 个 `--expect-diff` 豁免文件不参与红/绿判定，属人审面（守卫脚本对它们非失败地打印 Eye-diff 输出在 CI 日志，汇总尾部有 `EXEMPT-FILES-INSPECT` 行标记）。另：keyed `--exclude spring.factories` 同时断言 boot3 侧不得重新引入 `spring.factories`（`SPRING-FACTORIES-CREEP` → 红）。
 - 登记口径：`--expect-diff` pattern 以 `main/java/...` 起头（src 级 diff 的相对路径无 `src/` 前缀，带 `src/` 前缀的登记恒不命中）；pom 与 `spring.factories` 差异默认豁免。
 - reactive / micrometer **无 boot3 副本**（main 源码零 `javax.*`，Task 2 实测 Boot 3.5 直接复用 javax 线 jar 共享）——它们的改动既影响 javax 线也直接进 boot3 线，无需复制同步，但测试面在 `encryptor-examples/boot3-example`（共享线对等用例）。
 

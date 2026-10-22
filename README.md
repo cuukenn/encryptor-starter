@@ -31,7 +31,9 @@ starter 对照（groupId `io.github.cuukenn`；两线 starter **不可混用**�
 | 网关（SCG） | `encryptor-gateway-spring-boot-starter` | `encryptor-gateway-boot3-starter`（**复制线**，理由见下） |
 | reactive 通用装配 | `encryptor-spring-boot-starter-reactive` | **共享同一 artifact**（实测 Boot 3.5 可用，不复制） |
 | Micrometer 指标 | `encryptor-micrometer-spring-boot-starter` | **共享同一 artifact**（实测 Boot 3.5 可用；跟进项见下） |
-| 网关示例 | `encryptor-examples/gateway-example`（Boot 2.7） | `encryptor-examples/boot3-example`（Boot 3.5） |
+| 网关下游 | `encryptor-examples/gateway-example`（Boot 2.7） | `encryptor-examples/boot3-example`（Boot 3.5） |
+
+命名注意：`encryptor-spring-boot3-starter`（starter 名）是 `-boot3` 系唯一命名词序例（没有 `-boot3-` 中缀，词序为 Boot 3 代际醒目；其余均为 `*-boot3-starter`）。
 
 - **网关为何复制**：Spring 6.2 移除了 `ServerHttpRequest#getMethodValue()`（4 处调用点）且 `ServerHttpResponse#getStatusCode()` 返回类型变为 `HttpStatusCode`（3 处）——1.x 网关 jar 在 Boot 3.5 下任何请求都会链首 `NoSuchMethodError`；`encryptor-gateway-boot3-starter:3.0.0` 做了最小签名适配（语义零变更，diff 守卫按文件登记）。
 - **reactive/micrometer 为何共享**：main 源码零被删 API，且在真实 Boot 3.5 应用/运行期验证装配与协议行为对等（三载体往返、防重放、计数器、JWKS）。micrometer 的跟进项：`@AutoConfigureAfter` 只声明了 `MetricsAutoConfiguration`，与 `SimpleMetricsExportAutoConfiguration` 之间无排序约束，当前全量 imports 排序下正确，季度复盘 Boot patch 时复核。

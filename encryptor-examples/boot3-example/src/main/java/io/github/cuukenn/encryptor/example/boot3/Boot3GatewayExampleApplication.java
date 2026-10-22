@@ -30,7 +30,9 @@ public class Boot3GatewayExampleApplication {
         DownstreamEchoServer.start();
         System.setProperty("downstream.base-uri", DownstreamEchoServer.baseUri());
         return SpringApplication.run(Boot3GatewayExampleApplication.class, args);
-    }    public static void main(String[] args) {
+    }
+
+    public static void main(String[] args) {
         // 独立运行：起普通回显下游 + 注 downstream.base-uri（网关解密后转发明文给它），启动后常驻
         run(args);
     }
