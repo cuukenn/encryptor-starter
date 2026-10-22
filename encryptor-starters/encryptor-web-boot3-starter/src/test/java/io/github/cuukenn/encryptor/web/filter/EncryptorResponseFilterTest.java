@@ -97,6 +97,18 @@ class EncryptorResponseFilterTest {
     }
 
     @Test
+    void 响应200空body封装为空明文JWE() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        runRealChain(encryptedRequest("POST", "/api/a"), response, (req, resp) -> cek.set(copyCek()));
+
+        String payload = response.getContentAsString();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(payload).contains("\"jwe\"");
+        assertThat(JweTestSupport.decryptResponse(payload, cek.get())).isEmpty();
+    }
+
+    @Test
     void HEAD响应不加密也不带body() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         runRealChain(encryptedRequest("HEAD", "/api/a"), response,

@@ -80,14 +80,9 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 long maxBytes = reactiveConfig.getMaxResponseSize();
                 int joinLimit = maxBytes > 0 ? (int) Math.min(maxBytes, Integer.MAX_VALUE) : -1;
                 return DataBufferUtils.join(body, joinLimit)
-                    // 空 3xx 在 HTTP 上允许没有 body；补一个空 buffer 让下面的分支统一走 setComplete，
-                    // 避免把空 body 封成 {"jwe":"…"}。
-                    .switchIfEmpty(Mono.defer(() -> {
-                        if (isRedirect()) {
-                            return Mono.just(getDelegate().bufferFactory().wrap(new byte[0]));
-                        }
-                        return Mono.empty();
-                    }))
+                    // 空 body 也要补一个空 buffer：3xx 走 completeEmpty（不加密），
+                    // 200/201 等则封装成 {"jwe":"<空明文>"}，保证客户端拿到的始终是 JWE 信封。
+                    .switchIfEmpty(Mono.defer(() -> Mono.just(getDelegate().bufferFactory().wrap(new byte[0]))))
                     .flatMap(buffer -> {
                         byte[] bytes = new byte[buffer.readableByteCount()];
                         buffer.read(bytes);

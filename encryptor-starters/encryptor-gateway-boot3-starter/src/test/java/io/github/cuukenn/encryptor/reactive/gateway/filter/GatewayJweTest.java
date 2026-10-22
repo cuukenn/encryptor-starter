@@ -450,6 +450,24 @@ class GatewayJweTest {
     }
 
     @Test
+    void 网关200空body也封装为空明文JWE() {
+        String envelope = "{\"jwe\":\"" + seal("{}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<byte[]> cek = new AtomicReference<>();
+        GatewayFilterChain inner = e -> {
+            GatewayContext ctx = e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR);
+            cek.set(Arrays.copyOf(ctx.getJweContext().cek(), ctx.getJweContext().cek().length));
+            return e.getResponse().writeWith(Flux.empty());
+        };
+        gateway().filter(exchange, e -> response().filter(e, inner)).block(TIMEOUT);
+        String payload = exchange.getResponse().getBodyAsString().block(TIMEOUT);
+        assertThat(payload).contains("\"jwe\"");
+        assertThat(decryptResponse(payload, cek.get())).isEmpty();
+        assertThat(exchange.getResponse().getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+    }
+
+    @Test
     void 网关204响应不加密也不带body() {
         String envelope = "{\"jwe\":\"" + seal("{}", "/api/a", "POST") + "\"}";
         MockServerWebExchange exchange = MockServerWebExchange.from(
