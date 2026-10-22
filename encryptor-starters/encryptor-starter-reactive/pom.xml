@@ -8,7 +8,7 @@
     </parent>
     <artifactId>encryptor-spring-boot-starter-reactive</artifactId>
     <name>encryptor-spring-boot-starter-reactive</name>
-    <description>Encryptor Spring Boot Starter Reactive</description>
+    <description>Encryptor Spring Boot Starter for WebFlux: reactive request/response payload encryption</description>
     <dependencies>
         <dependency>
             <groupId>io.github.cuukenn</groupId>

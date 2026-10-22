@@ -8,7 +8,7 @@
     <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>encryptor</name>
-    <description>encrypt and decrypt data</description>
+    <description>Spring Boot starter for payload-level encryption (JWE: RSA-OAEP-256 / ECDH-ES / SM2 with AES-GCM / SM4-GCM)</description>
     <url>https://github.com/cuukenn/encryptor-starter</url>
     <properties>
         <rversion>${version}</rversion>

@@ -8,7 +8,7 @@
     </parent>
     <artifactId>encryptor-web-spring-boot-starter</artifactId>
     <name>encryptor-web-spring-boot-starter</name>
-    <description>Encryptor Spring Boot Starter</description>
+    <description>Encryptor Spring Boot Servlet Starter: request/response payload encryption via servlet filters</description>
     <packaging>jar</packaging>
     <dependencies>
         <dependency>

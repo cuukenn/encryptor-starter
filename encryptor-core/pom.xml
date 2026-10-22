@@ -9,7 +9,7 @@
     <artifactId>encryptor-core</artifactId>
     <name>encryptor-core</name>
     <packaging>jar</packaging>
-    <description>Encryptor Core</description>
+    <description>Encryptor core: JWE codec, key material, anti-replay and protocol stack (no Spring, no BouncyCastle)</description>
     <dependencies>
         <!--
             JOSE/JWE 编解码（新协议的唯一密码学依赖）。

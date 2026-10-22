@@ -8,7 +8,7 @@
     </parent>
     <artifactId>encryptor-gateway-spring-boot-starter</artifactId>
     <name>encryptor-gateway-spring-boot-starter</name>
-    <description>Encryptor Spring Boot Starter Reactive</description>
+    <description>Encryptor Spring Cloud Gateway Starter: payload encryption via GlobalFilter chain</description>
     <dependencies>
         <dependency>
             <groupId>io.github.cuukenn</groupId>
