@@ -42,12 +42,14 @@
 > 使用 `type: SM2` 的服务必须自己添加 `io.github.cuukenn:encryptor-sm`；缺失时启动期失败并提示该依赖。
 > SM 路径只使用 BC 轻量级 API，不注册全局 JCA Provider。
 
-Spring Boot / Spring Cloud / Spring Cloud Alibaba 的版本**不在这里**，而在根 `pom.xml`：`spring-boot 2.7.18`、`spring-cloud 2021.0.8`、`spring-cloud-alibaba 2021.1`。
+Spring Boot / Spring Cloud / Spring Cloud Alibaba 的版本**不在这里**，而在根 `pom.xml` 的属性：javax 线 `spring-boot 2.7.18`、`spring-cloud 2021.0.8`、`spring-cloud-alibaba 2021.1`；boot3 线（root `boot3` profile 属性）`spring-boot 3.5.16`、`spring-cloud 2025.0.3`、`spring-cloud-alibaba 2025.0.0.0`。本 BOM 自身只有一份、只管 javax 线（1.0.0），boot3 模块（3.0.0 自管版本）各自在其 pom 内显式 `scope=import` 本 BOM 1.0.0（根 POM 的 BOM import 用 `${project.version}` 插值，自管版本子模块会误解析成 3.0.0 → 模块内兜底）。
 
 ## 常见任务
 
 - **升级 hutool / bouncycastle**：只改本模块 `<properties>`（`hutool.version` / `bouncycastle.version`）。
-- **升级 Spring Boot / Cloud**：改根 `pom.xml` 的属性。`META-INF/spring.factories`（已弃用）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 项目内已双注册（5 个 starter 各两份文件指向同一装配类）；删除 `spring.factories` 前需确认放弃 Boot < 2.7 兼容，并同步 5 个 starter。
+- **升级 Spring Boot / Cloud（javax 线）**：改根 `pom.xml` 的属性（`spring-boot.version` / `spring-cloud.version` / `spring-cloud-alibaba.version`）。`META-INF/spring.factories`（已弃用）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` 项目内已双注册（5 个 starter 各两份文件指向同一装配类）；删除 `spring.factories` 前需确认放弃 Boot < 2.7 兼容，并同步 5 个 starter。
+- **升级 Spring Boot / Cloud（boot3 线）**：改根 `pom.xml` `boot3` profile 的同名属性覆写（当前锚点 `3.5.16` / `2025.0.3` / `2025.0.0.0`）。根 POM 的 BOM import 对属性插值 → profile 属性覆写对"继承版本的普通子模块"直接生效；但 boot3 模块是 3.0.0 **自管版本**，`${project.version}` 插值会指错 BOM，所以每个 boot3 模块 pom 里都显式 import `encryptor-dependencies:1.0.0` 兜底（版本错位是结构性的，升 Boot 3 非大版本时这里不用动）。SCG 坐标注意：boot3 复制线用正名 `spring-cloud-starter-gateway-server-webflux` 并模块内 import `spring-cloud-gateway-dependencies`（2025.0.3 火车锚定值），javax 线维持旧坐标。
+- **版本节奏（Boot 3.5 / SC 2025.0 / SCA 2025.0）**：按季度主动复盘 patch 升级，CVE 随时插队（设计文档 §7 已定）。
 - **新增一个 starter 制品**：必须同时在本模块补 `dependencyManagement` 条目，否则消费方要写版本号。
 
 ## 坑

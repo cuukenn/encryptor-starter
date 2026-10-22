@@ -2,6 +2,41 @@
 
 > 从 [open-issues.md](open-issues.md) 拆出，记录 v2 协议重做及之后的复查/修复；v1 原始记录见 [docs/archive/open-issues-v1.md](../archive/open-issues-v1.md)。
 
+## 2026-10-22 boot3 双线
+
+> 设计来源：`docs/superpowers/specs/2026-10-21-multi-boot-version-support-design.md`（§1 意图：单分支、每代独立 Maven 模块、artifact `-boot3` 后缀；javax 线 1.0.0 不动，boot3 线 3.0.0 自管版本）。用户拍板见该文档 §7。本节记录验证型裁定与发布面 spike。
+
+### 拓扑裁定（验证先行）
+
+- **gateway starter：复制为 `encryptor-gateway-boot3-starter`（共享 jar 实测失败）**。共享 javax 线 jar 在 Boot 3.5 / SCG 2025.0 下任何请求都无法处理——Spring 6 删改两个 reactive API，字节码级 `NoSuchMethodError`：`ServerHttpRequest.getMethodValue()` 已移除、`getStatusCode()` 返回类型 `HttpStatus`→`HttpStatusCode`；JWKS 过滤器是 order -14 的 WebFilter，第一个请求即断连。复制面随后做了**最小 API 签名适配**（7 处，语义零变更：`getMethod().name()` ×4、`HttpStatusCode` ×2 + import），并在 diff 守卫脚本以 `--expect-diff` 登记——机械替换脚本修不了字节码描述符变化，这类改写必须"复制时人工修订 + 守卫登记"，不能指望纯机械。
+- **reactive starter：共享（实测通过）**。main 源码零 `javax.*`；Boot 3.5 下 `EncryptorReactiveAutoConfiguration` 装配、配置绑定、fail-fast、协议栈行为全对等（重放被 REPLAY 拒绝）。**micrometer starter：共享（实测通过）**——真实 Boot 3.5 应用内 `@AutoConfigureAfter(MetricsAutoConfiguration)` 被尊重、计数递增；跟进项：与真正提供 MeterRegistry 的 `SimpleMetricsExportAutoConfiguration` 之间无排序约束（靠全量 imports 排序偶然在后），扩名进**季度复盘**（javax 线不动）。成果：全项目只有 3 个 `-boot3` 模块（starter/web/gateway），reactive/micrometer 零复制。
+- **三风险点全部落成正向 gate 用例**（在 `encryptor-examples/boot3-example`）：SCG 过滤器 ordering（三载体经真实 Netty+SCG 2025.0 链路）、`DataBufferLimitException` 413 路径（限宽内/超限两侧）、`@AutoConfigureAfter` 装配次序（计数递增证据）。
+
+### 复制工程的两个最有价值事实
+
+- 🟡 **Surefire 假绿坑**：boot3 复制模块继承根 pluginManagement 的 surefire `2.22.2`，其自带 launcher 与 Boot 3.5.16 的 JUnit Platform 1.12 不对齐 → `OutputDirectoryProvider not available`，**先是 "Tests run: 0" + BUILD SUCCESS 假绿**（一个测试都没跑也算成功）。修法：boot3 模块 pom 内显式 pin surefire `3.5.4`（模块内自含，不动 javax 线）。⚠️ 升 surefire/JUnit 平台代际冲突时，测试"静默 0 跑过"是常态而非异常，必须核对测试计数而非只看 BUILD SUCCESS。
+- 🟡 **BOM 插值错位兜底**：root `pom.xml` 的 BOM import 写 `<version>${project.version}</version>`；boot3 模块自管 3.0.0 → 误解析成 `encryptor-dependencies:3.0.0`（不存在）→ 全部托管版本失效（首次构建 FATAL）。"属性覆写"（root `boot3` profile 锚 Boot/Cloud/SCA 版本）对**继承版本的普通子模块**可行，但覆盖不了自管版本子的 `${project.version}` 插值路径——每个 boot3 模块 pom 显式 import `encryptor-dependencies:1.0.0` 兜底。同理，gateway-boot3 换 SCG 正名坐标（`spring-cloud-starter-gateway-server-webflux`）后模块内需 import `spring-cloud-gateway-dependencies:4.3.5`（SC 2025.0.3 火车锚定值），否则单独 `-pl` 构建时 POM invalid。**教训：boot3 线每加一个新模块，都要自查"非 Boot-BOM 托管的依赖面"**。
+
+### CI / 守卫落点
+
+- CI 新 job `boot3`（temurin 17/21 矩阵）：先 `-Pmain-module -DskipTests install` 预装 javax 制品（`-Pboot3` reactor 不含 `encryptor-core`，从本地仓库解析），再 build+test（132 绿）；复制对 diff 守卫（三对：starter/web 零豁免、gateway 3 文件 expect-diff）与 boot3 依赖树守卫（三个 boot3 starter runtime 树零 BC / 零 encryptor-sm）跑 17 档。⚠️ `-Pmain-module,boot3` 组合激活会把 boot3 属性混进整个 reactor 掀掉 javax 线 BOM 锚点——两个 profile 只能分两条 Maven 命令先后跑，不得合并。
+
+### 发布面 dry-run spike（2026-10-22，未触网上传）
+
+插件为 `org.sonatype.central:central-publishing-maven-plugin:0.12.0`（root pom `release` profile）。问：parent 1.0.0 + boot3 3.0.0 **混合版本**在同一 reactor 的 bundle 上传是否可行。方法与结论：
+
+- **插件无 `-DdryRun` 参数**（反编译 0.12.0 字节码核实：`publish` goal 有 `skipUpload` / `skipPublishing`，无 dryRun）。本地可证路径 = **`-DskipUpload=true`**：完整走 staging/bundle/checksum 流程，仅在 `ArtifactUploader.upload` 前 return，日志 `Skipping the upload of the bundle at user's request (skipUpload)`——对 Central 零请求，属安全 dry-run。
+- **混合版本 bundle 组装成功**：`mvn -B -P'main-module,boot3,release' package + publish -DskipUpload=true`（JDK 17 JVM）→ `encryptor-dependencies/target/central-publishing/central-bundle.zip` 生成，内容含全部 javax 制品 1.0.0（BOM/core/sm/5 starter，sources 齐）+ 三个 boot3 starter **3.0.0（jar/sources/pom + checksums 齐）** + parent 1.0.0 pom，共 165 项。Central 接收的就是这一个 zip，混合 G/V 并存无结构性障碍。
+- `-DexcludeArtifacts=boot3-gateway-example` 实测有效（bundle 零 example 条目）——boot3 示例不发布可在发布时传参排除，零 pom 改动。
+- **过程坑（四条）**：①裸前缀 `central-publishing-maven-plugin:publish` 解析失败（插件的 group `org.sonatype.central` 不在默认 pluginGroups），要么 `-Prelease` 让插件进 build、要么写全限定 goal；②纯 `java ... publish` 独立目标对 jar 模块报 `The packaging for this project did not assign a file to the build artifact`——artifact 只在 `package`+ 阶段挂到 session，goal 必须与生命周期同跑；③`-P'main-module,boot3'` 若真跑生命周期，boot3 属性会污染 javax 模块编译（Boot 3.5 的 jakarta 类classpath）；④java 11 的 Maven JVM 加载不了 Boot 3.5 插件（class-file 61）→ 混合单命令必须 JDK 17 JVM + `-Dmaven.main.skip=true`（ javax 制品沿用既有 target 产物）。
+- **推荐发布形态**：维持 publish.yml 的 javax 一条命令不动（`-P '!all-modules,main-module,release' deploy`，v1.0.0 已用同款命令发出）；boot3 线真实发布另开一条 `JAVA_HOME=17 mvn -B -P'!all-modules,main-module,boot3,release' deploy -DexcludeArtifacts=boot3-gateway-example`（每线一个 reactor，属性零污染；混合单命令的 SPIKE 形态已证可行但须四个非默认 flag，不适合做常态）。**是否把 `excludeArtifacts` 固化进 root pom 的插件配置，留一次真实发布演练时再定**（本次不动 pom）。
+- **本地不可证，需 CI/真实发布人工验证**：①真实凭据上传（`publishingServerId=central` 的 Portal token 在 CI secrets，本地无凭据）；②Portal 校验段——本 dry-run bundle **零 `.asc`**（GPG 签名在 `verify` 阶段，dry-run 未跑签名），签名/javadoc 齐备性须真实 `verify` 流程出；③上传后 Portal 的校验/人工 Publish 按钮。判定：**bundle 组装与混合版本可行性本地已证；上传+校验留真实发布时人工验证**。
+
+### 收尾状态
+
+- 全量回归三绿（2026-10-22）：`-Pmain-module` 251 绿（JDK 11）、`-Pboot3` 132 绿（JDK 17）、`-Pall-modules` 251 绿 + 两示例 + bench 编译打包成功（JDK 11）。
+- 文档落地：README 选型表（Task 5）、AGENTS.md 模块表/依赖图/boot3 复制对守卫口径、`encryptor-dependencies.md` 双代升级口径（本节同批）。
+
 ## 2026-10-21 工程收尾
 
 - **P2-2 翻绿**：`open-issues.md` 状态表更新——CI（`ci.yml`）已含 `mvn -B -Pall-modules -DskipTests package`（示例 + bench 编译闸门）与两份 `jwe.js` 的 `diff` 守卫（2026-10-18 落地，本日复核确认）。

@@ -6,10 +6,10 @@
 
 `encryptor-starter`：一套**报文层安全**的 Spring Boot Starter（v2 协议，对齐 JOSE/JWE RFC 7516）。客户端用服务端公钥封装一把每请求新生成的 CEK——RSA-OAEP-256、国密 SM2，或 ECDH-ES（P-256 直接密钥协商）——业务数据用 AES-GCM（或 SM4-GCM）加密；服务端验上下文/防重放、解密、处理、再用同一 CEK 把响应回加密（`alg=dir`）。国密能力在**可选模块 `encryptor-sm`** 中，core/starter 本身不依赖 BouncyCastle。
 
-- 语言/构建：**Java 8** + Maven 多模块
-- 版本：Spring Boot `2.7.18`、Spring Cloud `2021.0.8`、Spring Cloud Alibaba `2021.1`、hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
-- groupId：`io.github.cuukenn`，版本 `1.0.0`（发布版；`v1.0.0` 标签已打）
-- ⚠️ **自动装配现在双注册**：每个 starter 同时保留 `META-INF/spring.factories`（旧机制，Boot < 2.7 兜底）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（新机制，Boot ≥ 2.7 推荐），指向同一装配类（Boot 会去重，不会重复注册）。**彻底删除 `spring.factories` 前必须先确认放弃 Boot < 2.7 兼容**，且需同步 5 个 starter（含 micrometer）
+- 语言/构建：**Java 8** + Maven 多模块；boot3 线（`-Pboot3`）为 **Java 17 + Boot 3.5**（`-boot3` 后缀 jakarta 复制对）
+- 版本：javax 线 Spring Boot `2.7.18`、Spring Cloud `2021.0.8`、Spring Cloud Alibaba `2021.1`；boot3 线 Boot `3.5.16`、Cloud `2025.0.3`、SCA `2025.0.0.0`；hutool `5.8.25`、nimbus-jose-jwt `9.37.3`、bcprov/bcpkix `1.78.1`
+- groupId：`io.github.cuukenn`，版本 `1.0.0`（发布版；`v1.0.0` 标签已打；boot3 模块自管 `3.0.0`）
+- ⚠️ **自动装配现在双注册**：每个 starter 同时保留 `META-INF/spring.factories`（旧机制，Boot < 2.7 兜底）与 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（新机制，Boot ≥ 2.7 推荐），指向同一装配类（Boot 会去重，不会重复注册）。**彻底删除 `spring.factories` 前必须先确认放弃 Boot < 2.7 兼容**，且需同步 5 个 starter（含 micrometer）。**boot3 复制模块只保留 `AutoConfiguration.imports`**（Boot 3 已移除 spring.factories 机制，复制时删除该文件是 diff 守卫的登记豁免）
 
 ## 安全边界（必须记住）
 
@@ -22,6 +22,7 @@
 ```bash
 mvn -B -Pall-modules clean install     # 全量（含 examples + JMH bench 模块声明）
 mvn -B -Pmain-module clean install     # 只构建 dependencies/core/starters，跳过 examples
+mvn -B -Pboot3 clean install           # boot3 线（JDK 17/21；reactor 不含 core，需先 install 过 javax 线制品 ~/.m2 才能解析 encryptor-core:1.0.0）
 mvn -pl encryptor-core test            # 单模块 + 它的依赖（先 install 过 core 才能编下游）
 java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rff encryptor-bench/target/bench.json && encryptor-bench/check-thresholds.sh   # JMH（RSA 并行度≥2.5x、bytes/op 基线±10%）
 ```
@@ -46,9 +47,13 @@ java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rf
 | `encryptor-starters/encryptor-web-starter/` | `encryptor-web-spring-boot-starter` | jar |
 | `encryptor-starters/encryptor-gateway-starter/` | `encryptor-gateway-spring-boot-starter` | jar |
 | `encryptor-starters/encryptor-micrometer-starter/` | `encryptor-micrometer-spring-boot-starter` | jar（可选：Micrometer 指标适配） |
+| `encryptor-starters/encryptor-spring-boot3-starter/` | `encryptor-spring-boot3-starter` | jar（**boot3 线**：jakarta 复制对，Boot 3.5 代际，`3.0.0` 自管版本，仅 `-Pboot3`） |
+| `encryptor-starters/encryptor-web-boot3-starter/` | `encryptor-web-boot3-starter` | jar（boot3 线：`encryptor-web-starter` 的 jakarta 复制对） |
+| `encryptor-starters/encryptor-gateway-boot3-starter/` | `encryptor-gateway-boot3-starter` | jar（boot3 线：`encryptor-gateway-starter` 的 jakarta 复制对） |
 | `encryptor-examples/web-example/` | `web-example` | jar |
 | `encryptor-examples/gateway-example/gateway/` | `gateway-example` | jar |
 | `encryptor-examples/gateway-example/web/` | `gateway-example-web` | jar（普通下游，**不引入 encryptor**） |
+| `encryptor-examples/boot3-example/` | `boot3-gateway-example` | jar（boot3 线示例，**不发布**） |
 | `encryptor-bench/` | `encryptor-bench` | jar（JMH，仅 all-modules，**不随发布**） |
 
 ## 依赖方向（只允许向下）
@@ -65,6 +70,12 @@ encryptor-core            ← JWE 编解码/密钥库/防重放/协议栈（无 
 encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optional ┈┈ encryptor-micrometer-spring-boot-starter
         （可选模块：依赖 core + micrometer-core，并 optional 依赖 gateway-starter 仅为读 CryptoExecutor；
           servlet 应用引它不会被拖进 Spring Cloud Gateway；core/两个 starter 的依赖面保持零 metrics）
+
+boot3 分叉（`-Pboot3`，Boot 3.5 / SC 2025.0 / SCA 2025.0 锚点在 root profile 属性；每个 boot3 模块 pom 内显式 import 本 BOM 1.0.0 兜底 ${project.version} 插值错位）：
+encryptor-core（1.0.0 单份共享，boot3 线也从 ~/.m2/仓库解析同名 jar——reactive/micrometer 无 -boot3 副本，Boot 3.5 下直接复用 javax 线 jar）
+        ├── encryptor-spring-boot3-starter（jakarta 复制自 encryptor-spring-boot-starter，3.0.0 自管版本）── encryptor-web-boot3-starter（复制自 encryptor-web-starter）
+        └── encryptor-gateway-boot3-starter（复制自 encryptor-gateway-starter；3 文件最小 API 签名适配见「必须同步修改」boot3 守卫行）
+                └── encryptor-examples/boot3-example（不发布；加密线 = 复制 3.0.0 + 共享 micrometer 1.0.0）
 ```
 
 ## 核心数据流（v2）
@@ -116,7 +127,21 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 | `encryptor-examples/web-example/front/encryptor/jwe.js` | `encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js` |
 | `encryptor-examples/web-example/src/main/resources/application.yml`（`ec-2026` EC + `sm-2026` SM2 演示密钥 + `/test/ec.*`、`/test/sm.*` 白名单） | `encryptor-examples/gateway-example/gateway/src/main/resources/application.yml`（`ec-gw-2026` + `sm-gw-2026`） |
 
-**协议变更（JWE 头字段、AAD claims、载体字段名 `jwe`、`kid` 语义）还要同步：** 两份 `HttpTest.java`（`encryptor-examples/*/src/test/**/HttpTest.java`，里面手工拼 compact 与解析逻辑）、两份 front 的 `jwe.js`、设计文档。
+**协议变更（JWE 头字段、AAD claims、载体字段名 `jwe`、`kid` 语义）还要同步：** 两份 `HttpTest.java`（`encryptor-examples/*/src/test/**/HttpTest.java`，里面手工拼 compact 与解析逻辑）、两份 front 的 `jwe.js`（现为**三份**，含 `encryptor-examples/boot3-example/front/encryptor/jwe.js`，CI pairwise diff）、设计文档。
+
+### boot3 复制对（`scripts/javax-to-jakarta.sh --diff` CI 守卫）
+
+javax 线源码经脚本机械替换（`javax.servlet` → `jakarta.servlet`）后，必须与 boot3 模块**逐字节一致**；守卫命令已在 CI boot3 job（JDK 17 档）执行：
+
+| javax 侧（源） | boot3 侧（复制对） | 守卫口径 |
+| --- | --- | --- |
+| `encryptor-starter/src` | `encryptor-spring-boot3-starter/src` | 零豁免（`--exclude spring.factories`，uniform=9） |
+| `encryptor-web-starter/src` | `encryptor-web-boot3-starter/src` | 零豁免（同上，uniform=24） |
+| `encryptor-gateway-starter/src` | `encryptor-gateway-boot3-starter/src` | `--expect-diff` 登记 3 文件的 API 签名适配（`getMethodValue()` → `getMethod().name()` ×4 处、`getStatusCode()` → `HttpStatusCode` ×2 处 + import），uniform=14 exempt=3 |
+
+- 改 javax 线任一复制对源文件 = 必须同步改 boot3 对位（机械替换口径；CI 守卫会红）。改协议 = 三处一起（javax servlet / reactive 共享线 / boot3 复制线）。
+- 登记口径：`--expect-diff` pattern 以 `main/java/...` 起头（src 级 diff 的相对路径无 `src/` 前缀，带 `src/` 前缀的登记恒不命中）；pom 与 `spring.factories` 差异默认豁免。
+- reactive / micrometer **无 boot3 副本**（main 源码零 `javax.*`，Task 2 实测 Boot 3.5 直接复用 javax 线 jar 共享）——它们的改动既影响 javax 线也直接进 boot3 线，无需复制同步，但测试面在 `encryptor-examples/boot3-example`（共享线对等用例）。
 
 ## 配置前缀一览
 
@@ -156,6 +181,8 @@ encryptor-spring-boot-starter-reactive（或其 gateway-starter）┈┈ optiona
 - 全量单测 **251 绿**（core 104、sm 18、starter 10、reactive 4、web 63、gateway 43、micrometer 9），fail/err 均 0。SM 相关用例（`SmCipherSuiteTest` 7、`SmKeyEntryParserTest` 6、`SmDefaultProtocolTest` 5）已从 core 迁到 `encryptor-sm`；core 另新增「SM2 无解析器时提示 encryptor-sm」的 fail-fast 用例（本轮双写面抽取再 +2：`JwksDocument`/`ProtocolAssembler`；配置模型随后下沉 core `config/base`，两侧 `EncryptorConfig` 只保留前缀，未新增用例；`InMemoryNonceStore` 分片 +2；servlet 异步响应加密 +1）。评审修复再加 4：core +1（`nonce-retention ≥ 2*ttl`）、web +2（JSON 明文透传 body 保留、异步交接后请求明文延迟清零）、gateway +1（JSON 明文透传 body 保留）；Minor 收尾 +2：core +2（`MAX_NONCE_LENGTH` 按 UTF-8 字节、`Builder.keys(null)` 明确错误）。此前的 P0/P1 加固（过滤器注册名、`JweContext`/`WebContext`/`GatewayContext` 清零、网关链路清理、网关 HEAD/204 无 body、网关 302 空/带 body、摘要工具与套件 IV 长度、`StrKit` 具名正则诊断、`sendError` 字符集/已提交响应）：core +7（nonce 上限、ReplayGuard 复用、retention 校验/边界、RSA 2048、IV 12、自定义 checker）、web +15（P0 的 204/304/HEAD、sendError/sendRedirect、近上限、302+body、业务异常兜底、reset/302 超限、配置校验，以及 P1 的表单 Content-Length 早检、空 JSON + `require-encrypted=false` 透传）、gateway +6（P0 的 chunked 请求/响应、配置校验，以及 P1 的 writeAndFlushWith 加密/黑名单透传）。增量构成：web +2 / gateway +4 来自 P3-4（`skip-*` 正名 + 旧名 `black-*` alias）的绑定用例；web +7 来自 P2-5 的链序守卫 `FilterChainOrderTest`（向 `WebEncryptorConfiguration` 取生产注册的 bean 按 order 组链，跑三载体往返 + 响应回加密 + 链尾清 ThreadLocal；把 `encryptorReqParamsFilterOrder` 改 -9 会红 2 例）；gateway +3 来自 D3 的 `CryptoExecutorTest`；micrometer 8 是 D1/D3 新增的可选模块（监听器计数 3 + 自动装配条件 4 + 接线证明 1）。本轮多监听器支持 +9：core +6（`CompositeEncryptorListenerTest` 5：按序扇出/单监听器异常隔离/多监听器互不影响/空集合等价 NONE/异常 WARN 日志含回调名与异常栈；`JweCodecListenerTest` 1：直接 `new JweCodec(...)` 时监听器异常也不改变结果）、servlet starter +1 与 reactive starter +1（两处都验证两个 listener bean 全部接上协议栈）、micrometer +1（用户监听器与指标监听器同时收到回调）。
 - CI（`.github/workflows/ci.yml`，temurin **8/11/17 矩阵**）已在本地 JDK 8/11/17 各跑过 `-Pmain-module clean install`（此前 228 绿）；本轮摘要工具/套件 IV/`StrKit`/`sendError` 改动后 JDK 11 为 **236 绿**，引入 `encryptor-sm` 拆分后 JDK 11 为 240 绿，双写面抽取（`JwksDocument`/`ProtocolAssembler`）后为 **242 绿**，`InMemoryNonceStore` 分片后为 244 绿，servlet 异步响应加密后为 **245 绿**，评审修复后为 249 绿，Minor 收尾及 `encryptor-sm` 包名迁移后 JDK 8/11/17 均为 **251 绿**（ECDH-ES 走 SunEC 的 `KeyAgreement ECDH`，含 nimbus `ECDHEncrypter` oracle 互通用例）；JDK 8 任务的 `-Pall-modules -DskipTests package` 也已在评审修复后复跑通过（保证示例与 bench 能编译），两份 `jwe.js` 的 `diff` 一致（双写面守卫）。JMH 阈值脚本**故意不进 CI**（共享 runner 上噪声大）。
 - CI 的 JDK 8 任务新增**依赖面守卫**：core + 四个 starter 的 runtime 依赖树不得出现 `org.bouncycastle` 或 `encryptor-sm`（`dependency:tree -Dincludes=... -Dscope=runtime -DoutputFile=...`），防止 BC/可选模块重新传递到消费者。
+- **boot3 线（2026-10-22 落地）**：`JAVA_HOME=…/jdk-17 mvn -B -Pboot3 clean install` → BUILD SUCCESS **132 绿**（spring-boot3-starter 10 / web-boot3 63 / gateway-boot3 43 / boot3-example 16，与 javax 线逐类对等）。CI 新 job `boot3`（temurin **17/21 矩阵**：先 `-Pmain-module -DskipTests install` 预装 javax 制品，再 build+test；复制对 diff 守卫与 boot3 依赖树守卫跑在 17 档）。⚠️ `-Pmain-module,boot3` 组合激活会把 boot3 的 `spring-boot.version=3.5.16` 等属性混进整个 reactor、掀掉 javax 线 BOM 锚点——两个 profile 只能分两条命令先后跑。
+- **发布面（boot3）**：`publish.yml` 仍只发 javax 线（`-P '!all-modules,main-module,release' deploy`）；boot3 线真实 `deploy` 命令与发布面 spike dry-run 结论见 `open-issues-v2-history.md`「2026-10-22 boot3 双线」。
 - `mvn -B -Pall-modules -DskipTests package` → BUILD SUCCESS：示例（web-example / gateway-example）与 bench 都能在"core/starters 无 BC、示例显式带 encryptor-sm"的依赖形态下编译打包；bench 的 runtime 树仍无 BC。
 - ⚠️ **示例测试源码必须能编过 JDK 8**（`mvn -Pall-modules` 会编 examples 的 test 源码）：`HttpTest.java` 曾用 `URLEncoder.encode(String, Charset)`（**Java 10+** 才有）→ JDK 8 下编译失败；已改为自带 `enc(String)` helper（`URLEncoder.encode(s, "UTF-8")` 包一层）。两份 `HttpTest.java` 是成对文件，改一处必须同步另一处。
 - P3-4（`skip-*` 正名 + 旧名 alias）：⚠️ 新旧名单**不能共用同一个 list**——Spring Boot 对集合属性是"就地绑定（clear + 回填到 getter 返回的 list）"，共用时后绑定的会把先绑定的清掉。现为「旧名独立字段 + `InitializingBean.afterPropertiesSet()` 合并去重」。
