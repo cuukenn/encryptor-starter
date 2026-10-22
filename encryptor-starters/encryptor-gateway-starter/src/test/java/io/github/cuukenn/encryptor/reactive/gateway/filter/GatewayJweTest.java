@@ -193,6 +193,22 @@ class GatewayJweTest {
     }
 
     @Test
+    void query载体明文含中文与空格时可构建URI() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("q=张三&x=a b", "/api/a", "GET")));
+        AtomicReference<URI> uri = new AtomicReference<>();
+        AtomicReference<MultiValueMap<String, String>> params = new AtomicReference<>();
+        gateway().filter(exchange, e -> {
+            uri.set(e.getRequest().getURI());
+            params.set(e.getRequest().getQueryParams());
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat(params.get().getFirst("q")).isEqualTo("张三");
+        assertThat(params.get().getFirst("x")).isEqualTo("a b");
+        assertThat(uri.get().toString()).isEqualTo("/api/a?q=%E5%BC%A0%E4%B8%89&x=a%20b");
+    }
+
+    @Test
     void JSON明文body可被二次订阅() {
         String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
         MockServerWebExchange exchange = MockServerWebExchange.from(
