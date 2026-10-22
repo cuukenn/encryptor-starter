@@ -68,6 +68,49 @@ class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper
         super.flushBuffer();
     }
 
+    /**
+     * 父类的 {@code setContentLength} 会 {@code content.resize(len)} 预分配。
+     * 声明长度超过上限时必须在分配之前拦截：置溢出交给外层回 500，
+     * 而不是先吃掉 100MB 堆再发现超限。
+     */
+    @Override
+    public void setContentLength(int len) {
+        if (acceptDeclaredLength(len)) {
+            super.setContentLength(len);
+        }
+    }
+
+    @Override
+    public void setContentLengthLong(long len) {
+        if (acceptDeclaredLength(len)) {
+            super.setContentLengthLong(len);
+        }
+    }
+
+    @Override
+    public void setBufferSize(int size) {
+        if (size < 0) {
+            return;
+        }
+        // buffer size 只是提示，不代表响应体一定超限：收敛到上限即可，不能据此判定溢出
+        super.setBufferSize((int) Math.min(size, limit));
+    }
+
+    /**
+     * 声明长度的准入判断：负值忽略；超过上限置溢出；未配置上限时忽略父类无法表示（>2GB）的声明，
+     * 交给实际写入决定，避免把 {@link IllegalArgumentException} 抛进业务代码。
+     */
+    private boolean acceptDeclaredLength(long len) {
+        if (len < 0) {
+            return false;
+        }
+        if (len > limit) {
+            overflow = true;
+            return false;
+        }
+        return len <= Integer.MAX_VALUE;
+    }
+
     /** {@code reset()} 会清空缓存、头与状态，计数/溢出标记也必须一起复位。 */
     @Override
     public void reset() {
