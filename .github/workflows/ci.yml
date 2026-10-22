@@ -32,10 +32,15 @@ jobs:
       - name: Build examples & bench (no tests)
         if: matrix.java == '8'
         run: mvn -B -Pall-modules -DskipTests package
-      # 双写面守卫：两份前端参考实现必须逐字节一致（AGENTS.md 的成对文件表）
-      - name: Front-end reference impl must stay in sync
+      # 双写面守卫：三份前端参考实现必须两两侧字节一致
+      # （javax web-example / javax gateway-example / boot3-example —— 第三份是逐字节拷贝，见 task-5）。
+      # 三对全数 diff：任何一份漂移都会 fail。
+      - name: Front-end reference impl must stay in sync (three copies)
         if: matrix.java == '8'
-        run: diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
+        run: |
+          diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
+          diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
+          diff -u encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
       # 依赖面守卫：core 与四个 starter 的 runtime/compile 依赖树不得出现 BC 或 encryptor-sm。
       # encryptor-sm 只允许被显式引入（示例/SM 用户），starter 不能把它或 BC 传递给消费者。
       - name: Guard BC-free runtime for core and starters
@@ -48,5 +53,69 @@ jobs:
           if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-runtime-tree.txt; then
             echo "BouncyCastle or encryptor-sm leaked into a core/starter runtime tree" >&2
             cat /tmp/encryptor-runtime-tree.txt >&2
+            exit 1
+          fi
+
+  boot3:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # boot3 双线矩阵：17 是 Boot 3.5 的最低基线，21 用来提前发现新 JDK 的
+        # JCE/反射/模块化差异；javax 线（build job）矩阵保持不变。
+        java: [ '17', '21' ]
+    steps:
+      - name: Checkout Git Repo
+        uses: actions/checkout@v4
+      - name: Setup JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java }}
+          cache: maven
+      # -Pboot3 的 reactor 只含 4 个 boot3 模块（root pom 的模块表都在 profile 里，
+      #  显式 -P 会停用 activeByDefault 的 all-modules）；boot3 复制线对
+      # encryptor-core:1.0.0 的依赖经本地仓库解析，因此先把 javax 线制品装进 ~/.m2。
+      # 跳过测试：javax 线的测试闸门已由 build job 负责，本 job 只需要它的制品。
+      - name: Install javax-line prerequisites (core/starters into ~/.m2)
+        run: mvn -B -Pmain-module -DskipTests clean install
+      - name: Build & Test boot3 line
+        run: mvn -B -Pboot3 -DtrimStackTrace=false clean install
+      # 复制对 diff 守卫：三对 boot3 复制模块与 javax 对位做
+      # "javax.servlet→jakarta.servlet 变换后逐字节一致"比对（共享的 reactive/micrometer
+      # 无复制对，不在此 step）。gateway 对的 3 个 Spring API 改写文件按 task-5 口径
+      # 登记 --expect-diff（pattern 必须以 main/java/... 起头，src 前缀不命中）。
+      # --exclude spring.factories 登记的是 boot3 复制模块删旧装配文件（base 有 / copy 无）。
+      # 两档矩阵里只跑一次，避免重复。
+      - name: Guard copy-pair parity (javax vs jakarta line)
+        if: matrix.java == '17'
+        run: |
+          bash scripts/javax-to-jakarta.sh --diff \
+            encryptor-starters/encryptor-starter/src encryptor-starters/encryptor-spring-boot3-starter/src \
+            --exclude spring.factories
+          bash scripts/javax-to-jakarta.sh --diff \
+            encryptor-starters/encryptor-web-starter/src encryptor-starters/encryptor-web-boot3-starter/src \
+            --exclude spring.factories
+          bash scripts/javax-to-jakarta.sh --diff \
+            encryptor-starters/encryptor-gateway-starter/src encryptor-starters/encryptor-gateway-boot3-starter/src \
+            --exclude spring.factories \
+            --expect-diff main/java/io/github/cuukenn/encryptor/reactive/gateway/filter/EncryptorGatewayFilter.java \
+            --expect-diff main/java/io/github/cuukenn/encryptor/reactive/gateway/filter/EncryptorResponseFilter.java \
+            --expect-diff main/java/io/github/cuukenn/encryptor/reactive/gateway/discovery/JwksEndpointFilter.java
+      # 依赖面守卫（boot3 线，同 build job JDK 8 档口径）：三个 boot3 starter 的
+      # runtime 树不得出现 BC 或 encryptor-sm。encryptor-core 不在 -Pboot3 reactor，
+      # 但它作为 boot3 starter 的依赖被解析进这棵树，传递闭包一并被扫；
+      # core 直接树的守卫已由 build job（JDK 8 档）覆盖。
+      # 两档矩阵里只跑一次，避免重复。
+      - name: Guard BC-free runtime for boot3 starters
+        if: matrix.java == '17'
+        run: |
+          rm -f /tmp/encryptor-boot3-runtime-tree.txt
+          mvn -B -Pboot3 -pl encryptor-starters/encryptor-spring-boot3-starter,encryptor-starters/encryptor-web-boot3-starter,encryptor-starters/encryptor-gateway-boot3-starter \
+            dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
+            -DoutputFile=/tmp/encryptor-boot3-runtime-tree.txt -DappendOutput=true
+          if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-boot3-runtime-tree.txt; then
+            echo "BouncyCastle or encryptor-sm leaked into a boot3 starter runtime tree" >&2
+            cat /tmp/encryptor-boot3-runtime-tree.txt >&2
             exit 1
           fi
