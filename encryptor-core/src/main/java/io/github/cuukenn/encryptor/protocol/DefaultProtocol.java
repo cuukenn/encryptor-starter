@@ -23,6 +23,9 @@ import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 默认协议栈组装（纯 Java，无 Spring）：密钥库 + 编解码器 + 防重放 + 运行期开关。
  *
@@ -32,6 +35,8 @@ import java.util.Set;
  * @author changgg
  */
 public class DefaultProtocol {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultProtocol.class);
 
     /** 默认防重放时间窗（毫秒）。 */
     public static final long DEFAULT_TTL_MILLIS = 5 * 60 * 1000L;
@@ -233,7 +238,7 @@ public class DefaultProtocol {
                 throw new EncryptorException("active-kid 不存在: " + active);
             }
             if (ttlMillis <= 0) {
-                ttlMillis = DEFAULT_TTL_MILLIS;
+                throw new EncryptorException("ttl 必须 > 0，实际: " + ttlMillis + "ms");
             }
 
             ServerKeyStore.Builder keys = ServerKeyStore.builder();
@@ -260,6 +265,11 @@ public class DefaultProtocol {
 
             Set<String> effectiveAlgs = allowedAlgs == null || allowedAlgs.isEmpty()
                 ? Collections.unmodifiableSet(algs) : Collections.unmodifiableSet(new LinkedHashSet<>(allowedAlgs));
+            if (Collections.disjoint(effectiveAlgs, algs)) {
+                // 白名单与密钥类型完全不相交：启动能过，但每个请求都会 400，必须在装配期拒绝
+                throw new EncryptorException("allowed-algs 与已配置密钥不匹配: allowed=" + effectiveAlgs
+                    + ", 当前密钥可用=" + algs);
+            }
             Set<String> effectiveEncs;
             if (allowedEncs == null || allowedEncs.isEmpty()) {
                 // 默认 enc 跟密钥类型联动：有 SM2 密钥就必须接受 SM4-GCM，
@@ -294,6 +304,12 @@ public class DefaultProtocol {
                     + "ms) 不能小于 2*ttl(" + ttlMillis + "ms)，否则未来时间戳会留下重放缺口");
             }
             long retention = nonceRetentionMillis <= 0 ? safeDouble(ttlMillis) : nonceRetentionMillis;
+            if (nonceChecker == null) {
+                long perSecond = nonceCapacity * 1000L / retention;
+                log.info("防重放预算: nonce-capacity={}, retention={}ms => 稳态上限约 {} req/s；"
+                    + "超过后开始驱逐窗口内 nonce（存在重放风险，可调大 capacity 或改用共享 nonce 存储）",
+                    nonceCapacity, retention, perSecond);
+            }
             NonceChecker effectiveNonceChecker = nonceChecker != null
                 ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
             ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);

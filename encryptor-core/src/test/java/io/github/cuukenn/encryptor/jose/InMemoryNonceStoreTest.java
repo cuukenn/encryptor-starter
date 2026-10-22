@@ -1,6 +1,10 @@
 package io.github.cuukenn.encryptor.jose;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,6 +49,27 @@ class InMemoryNonceStoreTest {
         assertTrue(store.consume("a"));
         assertTrue(store.consume("b"));
         assertEquals(1L, store.evictedCount());
+    }
+
+    @Test
+    void 首次驱逐只打印一次告警() {
+        Logger logger = (Logger) LoggerFactory.getLogger(InMemoryNonceStore.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            InMemoryNonceStore store = new InMemoryNonceStore(60_000L, 1);
+            assertTrue(store.consume("a"));
+            assertTrue(store.consume("b"));
+            assertTrue(store.consume("c"));
+
+            assertEquals(1, appender.list.size(), "容量告警只应打印一次，不能每个请求刷屏");
+            String message = appender.list.get(0).getFormattedMessage();
+            assertTrue(message.contains("驱逐"), "告警必须说明已发生驱逐: " + message);
+            assertTrue(message.contains("capacity=1"), "告警必须带容量: " + message);
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

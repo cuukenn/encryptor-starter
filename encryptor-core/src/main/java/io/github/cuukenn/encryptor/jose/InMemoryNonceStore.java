@@ -1,10 +1,14 @@
 package io.github.cuukenn.encryptor.jose;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -29,6 +33,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class InMemoryNonceStore implements NonceChecker {
 
+    private static final Logger log = LoggerFactory.getLogger(InMemoryNonceStore.class);
+
     /** 分片数上限：足够抵消全局锁竞争，又避免小容量被切得过碎。 */
     private static final int MAX_SHARDS = 16;
     /** 单个分片的最小目标容量；容量太小就减少分片数。 */
@@ -39,6 +45,9 @@ public class InMemoryNonceStore implements NonceChecker {
     private final Segment[] segments;
     /** 进程内随机哈希种子：nonce 由客户端提供，加盐避免攻击者定向打爆某一个分片。 */
     private final int hashSeed = ThreadLocalRandom.current().nextInt();
+    private final long retentionMillis;
+    private final int capacity;
+    private final AtomicBoolean evictionWarned = new AtomicBoolean();
 
     public InMemoryNonceStore(long retentionMillis, int capacity) {
         this(retentionMillis, capacity, defaultShards(capacity));
@@ -62,6 +71,8 @@ public class InMemoryNonceStore implements NonceChecker {
             throw new IllegalArgumentException("shards must be in [1, capacity]");
         }
         this.segments = new Segment[shards];
+        this.retentionMillis = retentionMillis;
+        this.capacity = capacity;
         int base = capacity / shards;
         int remainder = capacity % shards;
         for (int i = 0; i < shards; i++) {
@@ -74,7 +85,13 @@ public class InMemoryNonceStore implements NonceChecker {
         if (nonce == null) {
             return false;
         }
-        return segmentFor(nonce).consume(nonce);
+        boolean first = segmentFor(nonce).consume(nonce);
+        if (first && !evictionWarned.get() && evictedCount() > 0 && evictionWarned.compareAndSet(false, true)) {
+            log.warn("nonce 存储达到容量上限，开始驱逐窗口内记录（capacity={}, retention={}ms）："
+                + "被驱逐的 nonce 在时间窗内可再次使用，即存在重放缺口；请调大 nonce-capacity 或改用共享存储",
+                capacity, retentionMillis);
+        }
+        return first;
     }
 
     /** 已驱逐的记录数（可观测性：被灌满的迹象）。 */

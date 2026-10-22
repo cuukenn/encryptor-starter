@@ -88,12 +88,12 @@ class EncryptorConfigBindingTest {
     }
 
     @Test
-    void allowedAlgs覆盖默认白名单() {
+    void allowedAlgs绑定生效() {
         runner.withPropertyValues(rsaKeyProps("k1"))
-            .withPropertyValues("encryptor.config.allowed-algs=SM2")
+            .withPropertyValues("encryptor.config.allowed-algs=RSA-OAEP-256")
             .run(context -> {
                 DefaultProtocol protocol = context.getBean(DefaultProtocol.class);
-                assertThat(protocol.allowedAlgs()).containsExactly("SM2");
+                assertThat(protocol.allowedAlgs()).containsExactly("RSA-OAEP-256");
             });
     }
 
@@ -138,6 +138,18 @@ class EncryptorConfigBindingTest {
             .run(context -> {
                 assertThat(context).hasFailed();
                 assertThat(rootCause(context.getStartupFailure())).hasMessageContaining("active-kid 不存在");
+            });
+    }
+
+    @Test
+    void failureStatus非法时启动失败() {
+        runner.withPropertyValues(rsaKeyProps("bad-status"))
+            .withPropertyValues("encryptor.config.failure-status=42")
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(rootCause(context.getStartupFailure()))
+                    .hasMessageContaining("failure-status")
+                    .hasMessageContaining("42");
             });
     }
 

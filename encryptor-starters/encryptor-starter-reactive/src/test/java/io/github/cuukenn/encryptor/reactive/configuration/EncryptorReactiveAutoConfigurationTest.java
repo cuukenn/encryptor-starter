@@ -79,4 +79,18 @@ class EncryptorReactiveAutoConfigurationTest {
                 assertThat(config.getBypass().isResponse()).isFalse();
             });
     }
+
+    @Test
+    void failureStatus非法时启动失败() {
+        runner.withPropertyValues(rsaKeyProps("bad-status"))
+            .withPropertyValues("encryptor.config.reactive.failure-status=42")
+            .run(context -> {
+                assertThat(context).hasFailed();
+                Throwable t = context.getStartupFailure();
+                while (t.getCause() != null) {
+                    t = t.getCause();
+                }
+                assertThat(t).hasMessageContaining("failure-status").hasMessageContaining("42");
+            });
+    }
 }

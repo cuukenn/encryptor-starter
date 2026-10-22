@@ -2,7 +2,11 @@ package io.github.cuukenn.encryptor.protocol;
 
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.jose.KeyType;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -70,6 +74,28 @@ class DefaultProtocolTest {
     }
 
     @Test
+    void 默认配置打印防重放容量预算() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(DefaultProtocol.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            DefaultProtocol.builder().key(rsaKey("k1")).build();
+
+            boolean budgetLogged = false;
+            for (ILoggingEvent event : appender.list) {
+                if (event.getFormattedMessage().contains("166")) {
+                    budgetLogged = true;
+                    break;
+                }
+            }
+            assertTrue(budgetLogged, "默认 100000 容量 / 600000ms 保留期应打印约 166 req/s 的预算");
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
     void 空白名单默认跟密钥类型联动() throws Exception {
         DefaultProtocol rsaOnly = DefaultProtocol.builder().key(rsaKey("k1")).build();
         assertEquals(Collections.singleton("RSA-OAEP-256"), rsaOnly.allowedAlgs(),
@@ -103,18 +129,30 @@ class DefaultProtocolTest {
     }
 
     @Test
-    void ttl非法回退默认值() throws Exception {
-        DefaultProtocol protocol = DefaultProtocol.builder()
-            .key(rsaKey("k1"))
-            .ttlMillis(0)
-            .build();
-        assertEquals(DefaultProtocol.DEFAULT_TTL_MILLIS, protocol.ttlMillis());
+    void ttl非法启动失败() throws Exception {
+        EncryptorException error = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder()
+                .key(rsaKey("k1"))
+                .ttlMillis(0)
+                .build());
+        assertTrue(error.getMessage().contains("ttl"), "错误信息应点名 ttl: " + error.getMessage());
 
         DefaultProtocol explicit = DefaultProtocol.builder()
             .key(rsaKey("k1"))
             .ttlMillis(60_000L)
             .build();
         assertEquals(60_000L, explicit.ttlMillis());
+    }
+
+    @Test
+    void allowedAlgs与已配置密钥无交集时启动失败() throws Exception {
+        EncryptorException error = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder()
+                .key(rsaKey("k1"))
+                .allowedAlgs(Collections.singleton("ECDH-ES"))
+                .build());
+        assertTrue(error.getMessage().contains("allowed-algs"),
+            "错误信息应点名 allowed-algs: " + error.getMessage());
     }
 
     @Test

@@ -6,6 +6,7 @@ import io.github.cuukenn.encryptor.jose.NonceChecker;
 import io.github.cuukenn.encryptor.kit.DigestKit;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.config.KeyMaterialConfig;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.protocol.ProtocolAssembler;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
@@ -39,6 +40,7 @@ public class EncryptorReactiveAutoConfiguration {
     @ConditionalOnMissingBean
     public DefaultProtocol defaultProtocol(EncryptorConfig config, ObjectProvider<EncryptorListener> listener,
                                            ObjectProvider<NonceChecker> nonceChecker) {
+        validateFailureStatus(config.getFailureStatus(), "encryptor.config.reactive.");
         // 容器里可以有多个监听器（如业务审计 + Micrometer 指标），按 @Order/注册顺序组合后交给协议栈
         EncryptorListener contextListener = CompositeEncryptorListener.of(
             listener.orderedStream().collect(Collectors.toList()));
@@ -60,6 +62,15 @@ public class EncryptorReactiveAutoConfiguration {
         warnRiskyConfig(config);
         logSummary(config, protocol);
         return protocol;
+    }
+
+    /**
+     * 失败响应状态码必须是合法的 4xx/5xx；写错（如 42）会让失败路径本身抛 IllegalArgumentException。
+     */
+    private static void validateFailureStatus(int status, String prefix) {
+        if (status < 400 || status > 599) {
+            throw new EncryptorException(prefix + "failure-status 非法: " + status + "（必须是 400..599）");
+        }
     }
 
     /**
