@@ -56,6 +56,8 @@ public class JweCodec {
     private final Set<String> allowedEncs;
     private final SecureRandom random = new SecureRandom();
     private final EncryptorListener listener;
+    /** 非 null 时在认证/解密成功之后、成功回调之前校验防重放（协议栈装配路径使用）。 */
+    private final ReplayGuard replayGuard;
 
     /** 仅装配 JCE 套件（RSA-OAEP-256 + AES-GCM）的便捷构造。 */
     public JweCodec(ServerKeyStore keys, Set<String> allowedAlgs, Set<String> allowedEncs) {
@@ -75,6 +77,20 @@ public class JweCodec {
      */
     public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs,
                     EncryptorListener listener) {
+        this(keys, suites, allowedAlgs, allowedEncs, listener, null);
+    }
+
+    /**
+     * @param suites      装配的算法套件（至少一个；白名单只允许取自这里声明的 alg/enc）
+     * @param allowedAlgs 允许的封装算法；为空 = 协议默认
+     * @param allowedEncs 允许的内容加密方法；为空 = 协议默认
+     * @param listener    可观测性回调（成功/失败），可为 {@link EncryptorListener#NONE}；
+     *                    监听器异常会记 WARN 并隔离，不改变加解密结果
+     * @param replayGuard 防重放校验；非 null 时在 AEAD tag 校验通过后执行，失败会销毁上下文并回调失败分类；
+     *                    为 null = 不做防重放（直接使用 codec 的场景）
+     */
+    public JweCodec(ServerKeyStore keys, List<CipherSuite> suites, Set<String> allowedAlgs, Set<String> allowedEncs,
+                    EncryptorListener listener, ReplayGuard replayGuard) {
         if (suites == null || suites.isEmpty()) {
             throw new EncryptorException("必须装配至少一个 CipherSuite");
         }
@@ -91,6 +107,7 @@ public class JweCodec {
         } else {
             this.listener = CompositeEncryptorListener.of(Collections.singletonList(listener));
         }
+        this.replayGuard = replayGuard;
     }
 
     /**
@@ -104,6 +121,16 @@ public class JweCodec {
     public JweContext decryptRequest(String compact, String uri, String method) {
         try {
             JweContext context = doDecryptRequest(compact, uri, method);
+            if (replayGuard != null) {
+                try {
+                    // 必须放在 AEAD tag 校验之后：未认证输入不得污染 nonce 存储
+                    replayGuard.verify(context.ts(), context.nonce());
+                } catch (EncryptorException e) {
+                    // 重放/过期同样是"解密失败"：清掉已解出的明文与 CEK 再按分类抛出
+                    context.destroy();
+                    throw e;
+                }
+            }
             listener.onDecryptSuccess(context);
             return context;
         } catch (EncryptorException e) {

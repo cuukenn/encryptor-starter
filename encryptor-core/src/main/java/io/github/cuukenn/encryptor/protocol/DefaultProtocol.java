@@ -101,9 +101,8 @@ public class DefaultProtocol {
 
     /** 便捷方法：解请求 + 防重放，一步到位（两侧过滤器共用）。 */
     public JweContext openRequest(String compactJwe, String uri, String method) {
-        JweContext context = codec.decryptRequest(compactJwe, uri, method);
-        replayGuard.verify(context.ts(), context.nonce());
-        return context;
+        // codec 持有同一个 ReplayGuard：校验在 tag 之后、成功回调之前，失败会销毁上下文并回调分类
+        return codec.decryptRequest(compactJwe, uri, method);
     }
 
     public static Builder builder() {
@@ -286,7 +285,6 @@ public class DefaultProtocol {
                 throw new EncryptorException("检测到 SM2 密钥但当前 classpath 没有 SM2 套件：请显式添加 "
                     + "encryptor-sm 依赖（io.github.cuukenn:encryptor-sm）");
             }
-            JweCodec codec = new JweCodec(store, suites, effectiveAlgs, effectiveEncs, listener);
             // 自定义 NonceChecker 的过期策略由实现方决定，nonce-retention 不会生效；
             // 只有内置 InMemoryNonceStore 才需要保证保留期覆盖整个时间窗。
             // 时间窗是对称的：接受 [now-ttl, now+ttl]。一条 ts 偏未来的报文最晚可在
@@ -299,6 +297,7 @@ public class DefaultProtocol {
             NonceChecker effectiveNonceChecker = nonceChecker != null
                 ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
             ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);
+            JweCodec codec = new JweCodec(store, suites, effectiveAlgs, effectiveEncs, listener, guard);
             return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, effectiveAlgs, effectiveEncs);
         }
 
