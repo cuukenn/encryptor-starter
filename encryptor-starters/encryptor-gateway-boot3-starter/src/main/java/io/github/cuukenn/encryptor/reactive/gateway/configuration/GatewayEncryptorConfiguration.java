@@ -36,7 +36,7 @@ public class GatewayEncryptorConfiguration {
      * 密码学有界执行器：请求解密与响应加密共用同一个（队列满 → 503）。
      * 指标模块从同一实例读队列深度；需要自己的线程/队列策略时覆盖本 bean。
      */
-    @Bean
+    @Bean(destroyMethod = "dispose")
     @ConditionalOnMissingBean
     public CryptoExecutor cryptoExecutor() {
         return CryptoExecutor.create();

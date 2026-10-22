@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.gateway.runtime;
 
+import org.springframework.beans.factory.DisposableBean;
 import reactor.core.Disposable;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
@@ -26,7 +27,7 @@ import java.util.function.Supplier;
  *
  * @author changgg
  */
-public class CryptoExecutor {
+public class CryptoExecutor implements DisposableBean {
 
     /** 调度器名（同时是线程名前缀）。 */
     public static final String SCHEDULER_NAME = "encryptor-crypto";
@@ -81,9 +82,15 @@ public class CryptoExecutor {
         return rejected.get();
     }
 
-    /** 释放线程池（测试/关闭用；生产由容器持有单例）。 */
+    /** 释放线程池（测试/关闭用；生产由容器在关闭时调用）。 */
     public void dispose() {
         scheduler.dispose();
+    }
+
+    /** Spring 容器关闭回调：{@code boundedElastic} 的线程是非守护线程，必须显式释放。 */
+    @Override
+    public void destroy() {
+        dispose();
     }
 
     /** 成功提交则计数；被拒只记 {@link #rejected} 并原样抛出（不能算作"在跑"）。 */
