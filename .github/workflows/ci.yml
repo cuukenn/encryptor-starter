@@ -48,8 +48,10 @@ jobs:
         run: |
           rm -f /tmp/encryptor-runtime-tree.txt
           mvn -B -pl encryptor-core,encryptor-starters/encryptor-starter,encryptor-starters/encryptor-starter-reactive,encryptor-starters/encryptor-web-starter,encryptor-starters/encryptor-gateway-starter \
-            dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
+            dependency:tree -Dscope=runtime \
             -DoutputFile=/tmp/encryptor-runtime-tree.txt -DappendOutput=true
+          # 注：这里输出全量树而非 -Dincludes 过滤树——零命中时过滤树文件为 0 字节，
+          # 会让下方 test -s 在干净树（守卫的绿目标）必红；全量树恒非空，取证更完整。
           # 依赖树守卫的正向证据：outputFile 非空才可信（插件异常但 mvn 退出 0 的边缘
           # 场景会产出空文件，guard 若照常 grep 会平绿）。空/缺失一律 fail 并说明。
           test -s /tmp/encryptor-runtime-tree.txt || { echo "dependency:tree 未产出输出，guard 不可信" >&2; exit 1; }
@@ -115,8 +117,10 @@ jobs:
         run: |
           rm -f /tmp/encryptor-boot3-runtime-tree.txt
           mvn -B -Pboot3 -pl encryptor-starters/encryptor-spring-boot3-starter,encryptor-starters/encryptor-web-boot3-starter,encryptor-starters/encryptor-gateway-boot3-starter \
-            dependency:tree "-Dincludes=org.bouncycastle:*,io.github.cuukenn:encryptor-sm" -Dscope=runtime \
+            dependency:tree -Dscope=runtime \
             -DoutputFile=/tmp/encryptor-boot3-runtime-tree.txt -DappendOutput=true
+          # 注：同 build job JDK 8 档，输出全量树而非 -Dincludes 过滤树（零命中时过滤树
+          # 文件为 0 字节 → test -s 在干净树必红）；全量树恒非空。
           # 同 build job JDK 8 档：outputFile 非空才可信，空/缺失一律 fail 并说明。
           test -s /tmp/encryptor-boot3-runtime-tree.txt || { echo "dependency:tree 未产出输出，guard 不可信" >&2; exit 1; }
           if grep -qE "org\\.bouncycastle|io\\.github\\.cuukenn:encryptor-sm" /tmp/encryptor-boot3-runtime-tree.txt; then
