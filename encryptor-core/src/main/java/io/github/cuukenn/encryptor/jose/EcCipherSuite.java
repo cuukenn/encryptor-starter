@@ -8,6 +8,7 @@ import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import javax.crypto.KeyAgreement;
 import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -107,8 +108,13 @@ public class EcCipherSuite implements CipherSuite {
         agreement.init(keys.privateKey(kid));
         agreement.doPhase((PublicKey)ephemeral, true);
         byte[] shared = agreement.generateSecret();
-        // Concat KDF 的 AlgorithmID 取 enc（RFC 7518 §4.6.2），keydatalen 由 enc 决定
-        return ConcatKdf.derive(shared, enc, keyLength(enc) * 8);
+        try {
+            // Concat KDF 的 AlgorithmID 取 enc（RFC 7518 §4.6.2），keydatalen 由 enc 决定
+            return ConcatKdf.derive(shared, enc, keyLength(enc) * 8);
+        } finally {
+            // 共享秘密 Z 等价于长期密钥材料，派生完立即清零，不等 GC
+            Arrays.fill(shared, (byte) 0);
+        }
     }
 
     /** {@code epk} 是公钥，出现私钥参数 {@code d} 说明客户端实现有问题，直接拒绝。 */

@@ -211,6 +211,9 @@ public class JweCodec {
             throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "CEK 解封失败", e);
         }
         if (cek == null || cek.length != aeadSuite.keyLength(enc)) {
+            if (cek != null) {
+                Arrays.fill(cek, (byte) 0);
+            }
             throw fail(EncryptorFailure.DECRYPT_FAILED, "CEK 长度非法");
         }
 
@@ -218,6 +221,8 @@ public class JweCodec {
         try {
             plaintext = aeadSuite.aeadDecrypt(enc, cek, iv, cipherText, authTag, aad);
         } catch (Exception e) {
+            // 认证/解密失败时 CEK 不再有任何用途，先清零再抛出
+            Arrays.fill(cek, (byte) 0);
             throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "AEAD 校验或解密失败", e);
         }
         return new JweContext(plaintext, cek, kid, alg, enc, ts, nonce);

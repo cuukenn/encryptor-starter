@@ -3,6 +3,7 @@ package io.github.cuukenn.encryptor.jose;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 
 /**
  * Concat KDF（NIST SP 800-56A §5.8.1）+ JOSE 的 OtherInfo 约定（RFC 7518 §4.6.2）——
@@ -63,13 +64,25 @@ final class ConcatKdf {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("JRE 不支持 " + DIGEST, e);
         }
-        byte[] derived = digest.digest(input);
-        if (derived.length * 8 != keyLengthBits) {
-            byte[] trimmed = new byte[keyLengthBits / 8];
-            System.arraycopy(derived, 0, trimmed, 0, trimmed.length);
-            return trimmed;
+        byte[] derived = null;
+        try {
+            derived = digest.digest(input);
+            if (derived.length * 8 != keyLengthBits) {
+                byte[] trimmed = new byte[keyLengthBits / 8];
+                System.arraycopy(derived, 0, trimmed, 0, trimmed.length);
+                return trimmed;
+            }
+            byte[] result = derived;
+            derived = null; // 所有权转交调用方，不能在 finally 里清掉
+            return result;
+        } finally {
+            // input 是 Z 的副本，otherInfo 参与派生：两者都按密钥材料处理
+            Arrays.fill(input, (byte) 0);
+            Arrays.fill(otherInfo, (byte) 0);
+            if (derived != null) {
+                Arrays.fill(derived, (byte) 0);
+            }
         }
-        return derived;
     }
 
     private static int putLengthPrefixed(byte[] target, int offset, byte[] value) {
