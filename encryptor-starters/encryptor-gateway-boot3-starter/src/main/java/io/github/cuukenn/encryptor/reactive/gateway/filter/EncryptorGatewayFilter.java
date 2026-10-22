@@ -199,7 +199,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         return new ServerHttpRequestDecorator(request) {
             @Override
             public Flux<DataBuffer> getBody() {
-                return Flux.just(exchange.getResponse().bufferFactory().wrap(plaintext));
+                // 每次订阅都要新建 DataBuffer：Retry 等过滤器会二次订阅同一 Flux
+                return Flux.defer(() -> Flux.just(exchange.getResponse().bufferFactory().wrap(plaintext)));
             }
 
             @Override

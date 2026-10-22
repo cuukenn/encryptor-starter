@@ -193,6 +193,35 @@ class GatewayJweTest {
     }
 
     @Test
+    void JSON明文body可被二次订阅() {
+        String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<String> first = new AtomicReference<>();
+        AtomicReference<String> second = new AtomicReference<>();
+        gateway().filter(exchange, e -> {
+            Flux<DataBuffer> body = e.getRequest().getBody();
+            return bodyAsString(body).doOnNext(first::set)
+                .then(bodyAsString(body)).doOnNext(second::set)
+                .then();
+        }).block(TIMEOUT);
+        assertThat(first.get()).isEqualTo("{\"name\":\"x\"}");
+        assertThat(second.get()).isEqualTo("{\"name\":\"x\"}");
+    }
+
+    /** 直接消费首个 DataBuffer，模拟 Retry 类过滤器对同一 body Flux 的二次订阅。 */
+    private static Mono<String> bodyAsString(Flux<DataBuffer> body) {
+        return body.next()
+            .map(buffer -> {
+                byte[] bytes = new byte[buffer.readableByteCount()];
+                buffer.read(bytes);
+                DataBufferUtils.release(buffer);
+                return new String(bytes, StandardCharsets.UTF_8);
+            })
+            .defaultIfEmpty("");
+    }
+
+    @Test
     void 缺jwe时400且链不继续() {
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
         AtomicBoolean called = new AtomicBoolean();
