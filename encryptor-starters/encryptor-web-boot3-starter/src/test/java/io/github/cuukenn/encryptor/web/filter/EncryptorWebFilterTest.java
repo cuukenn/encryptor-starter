@@ -230,4 +230,40 @@ class EncryptorWebFilterTest {
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(chainExecuted).isFalse();
     }
+
+    @Test
+    void contextPath部署下uri级白名单按去前缀路径匹配() throws Exception {
+        webConfig.getCryptoConfig().put("/test/hello", Arrays.asList(JweTestSupport.KID));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/app/test/hello");
+        request.setContextPath("/app");
+        request.setParameter("jwe", support.seal("a=1", "/app/test/hello", "GET"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(chainExecuted).isTrue();
+    }
+
+    @Test
+    void contextPath部署下白名单kid不符被拒() throws Exception {
+        webConfig.getCryptoConfig().put("/test/hello", Arrays.asList("other-kid"));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/app/test/hello");
+        request.setContextPath("/app");
+        request.setParameter("jwe", support.seal("a=1", "/app/test/hello", "GET"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(chainExecuted).isFalse();
+    }
+
+    @Test
+    void contextPath部署下skipUris按去前缀路径命中() throws Exception {
+        webConfig.getSkipUris().add("/test/skip.*");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/app/test/skip");
+        request.setContextPath("/app");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(chainExecuted).isTrue();
+        assertThat(WebContext.current().isReqEncryptor()).isFalse();
+    }
 }

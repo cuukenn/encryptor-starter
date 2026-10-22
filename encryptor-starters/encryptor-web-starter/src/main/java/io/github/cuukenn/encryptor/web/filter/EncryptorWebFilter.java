@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
+import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -69,8 +70,11 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         ctx.setBodyPlaintext(null);
         ctx.setParameters(null);
         String uri = request.getRequestURI();
+        // 名单与 uri 级 kid 白名单按"去掉 contextPath 的归一化路径"匹配（配置里写的是应用内路径）；
+        // AAD 仍用原始 requestURI，与客户端 location.pathname 口径一致。
+        String matchUri = ContextAad.canonicalPath(uri, request.getContextPath());
         String method = request.getMethod();
-        if (StrKit.anyMatch(uri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
+        if (StrKit.anyMatch(matchUri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -140,7 +144,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             return;
         }
         // uri 级 kid 白名单（Ruling 8b-R4）：该 uri 只接受配置列出的 kid，空列表 = 不限
-        List<String> accepted = acceptedKid(uri);
+        List<String> accepted = acceptedKid(matchUri);
         if (accepted != null && !accepted.isEmpty() && !accepted.contains(jweCtx.kid())) {
             logger.warn("kid not accepted for uri: {}, kid: {}", uri, jweCtx.kid());
             jweCtx.destroy();
@@ -176,8 +180,12 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
     }
 
     private List<String> acceptedKid(String uri) {
-        String best = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
-        return best == null ? null : config.getCryptoConfig().get(best);
+        Map<String, List<String>> cryptoConfig = config.getCryptoConfig();
+        if (cryptoConfig == null || cryptoConfig.isEmpty()) {
+            return null;
+        }
+        String best = StrKit.getBestMatchStr(uri, cryptoConfig.keySet());
+        return best == null ? null : cryptoConfig.get(best);
     }
 
     /**
