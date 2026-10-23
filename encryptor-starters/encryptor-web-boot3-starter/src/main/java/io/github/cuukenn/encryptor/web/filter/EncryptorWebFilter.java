@@ -1,6 +1,5 @@
 package io.github.cuukenn.encryptor.web.filter;
 
-import cn.hutool.core.io.IoUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
@@ -18,6 +17,7 @@ import io.github.cuukenn.encryptor.web.kit.WebContext.Carrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import jakarta.servlet.FilterChain;
@@ -111,7 +111,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
         } else if (ct.startsWith("application/json")) {
             carrier = Carrier.JSON;
-            byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : IoUtil.readBytes(request.getInputStream());
+            byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : StreamUtils.copyToByteArray(request.getInputStream());
             if (raw == null) {
                 fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
                 return;

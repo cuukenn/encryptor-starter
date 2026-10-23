@@ -118,7 +118,7 @@ encryptor:
         public-key: <Base64 X.509/SPKI>
     active-kid: "2026-10"       # 不填取 keys 第一把
     allowed-algs: []            # 空 = 按密钥类型联动(RSA→RSA-OAEP-256, EC→ECDH-ES, SM2→SM2)
-    allowed-encs: []            # 空 = 默认 [A256GCM]
+    allowed-encs: []            # 空 = 默认 [A256GCM]；存在 SM2 密钥时自动追加 SM4-GCM
     ttl: 5m                     # 防重放时间窗
     failure-status: 400
     max-request-size: 1048576

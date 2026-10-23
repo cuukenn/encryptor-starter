@@ -11,7 +11,6 @@
     <properties>
         <revision>${version}</revision>
         <hutool.version>5.8.25</hutool.version>
-        <spring-cloud-starter-bootstrap.version>3.1.0</spring-cloud-starter-bootstrap.version>
         <!--
             9.x 是 Java 7/8 可用的最后一条线：10.x 起要求 Java 11。
             本计划只做 JWE（RFC 7516）的编码/解码与 key 解析，不使用 Nimbus 的 JWT 部分。
@@ -58,15 +57,9 @@
                 <version>${revision}</version>
             </dependency>
             <!--third dependency-->
-            <!--spring-cloud-starter-bootstrap-->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-starter-bootstrap</artifactId>
-                <version>${spring-cloud-starter-bootstrap.version}</version>
-            </dependency>
             <dependency>
                 <groupId>cn.hutool</groupId>
-                <artifactId>hutool-all</artifactId>
+                <artifactId>hutool-json</artifactId>
                 <version>${hutool.version}</version>
             </dependency>
             <dependency>
@@ -140,16 +133,6 @@
                     </plugin>
                 </plugins>
             </build>
-            <distributionManagement>
-                <snapshotRepository>
-                    <id>sonatype</id>
-                    <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
-                </snapshotRepository>
-                <repository>
-                    <id>sonatype</id>
-                    <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-                </repository>
-            </distributionManagement>
         </profile>
     </profiles>
     <build>

@@ -41,6 +41,16 @@ jobs:
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
           diff -u encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
+      # 守卫脚本自身的自测（37 例）：脚本被改坏时 CI 必须红，否则复制对保护会静默失效
+      - name: Guard script self-test
+        if: matrix.java == '8'
+        run: bash scripts/javax-to-jakarta.test.sh
+      # 前端参考实现只做语法检查（端到端需先起服务，不进 CI 闸门）
+      - name: Front-end JS syntax check
+        if: matrix.java == '8'
+        run: |
+          for f in $(git ls-files '*.js'); do node --check "$f"; done
+
       # 依赖面守卫：core 与四个 starter 的 runtime/compile 依赖树不得出现 BC 或 encryptor-sm。
       # encryptor-sm 只允许被显式引入（示例/SM 用户），starter 不能把它或 BC 传递给消费者。
       - name: Guard BC-free runtime for core and starters

@@ -63,7 +63,7 @@
         <!-- gateway 侧使用 hutool 的 JSONUtil；core 不再传递该依赖 -->
         <dependency>
             <groupId>cn.hutool</groupId>
-            <artifactId>hutool-all</artifactId>
+            <artifactId>hutool-json</artifactId>
         </dependency>
         <!-- 网关转发面（SCG webflux）：正名坐标 spring-cloud-starter-gateway-server-webflux，
              版本由上方 spring-cloud-gateway-dependencies:4.3.5 受管（-Pboot3 reactor 与

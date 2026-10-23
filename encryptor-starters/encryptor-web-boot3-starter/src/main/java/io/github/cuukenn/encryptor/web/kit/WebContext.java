@@ -1,6 +1,5 @@
 package io.github.cuukenn.encryptor.web.kit;
 
-import cn.hutool.core.thread.ThreadUtil;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
@@ -36,7 +35,7 @@ public class WebContext {
         FORM
     }
 
-    private static final ThreadLocal<WebContext> CONTEXT = ThreadUtil.createThreadLocal(WebContext::new);
+    private static final ThreadLocal<WebContext> CONTEXT = ThreadLocal.withInitial(WebContext::new);
     private boolean reqEncryptor;
     private JweContext jweContext;
     private Carrier carrier = Carrier.NONE;

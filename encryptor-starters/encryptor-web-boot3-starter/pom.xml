@@ -45,10 +45,10 @@
             <artifactId>encryptor-spring-boot3-starter</artifactId>
             <version>3.0.0</version>
         </dependency>
-        <!-- web 侧使用 hutool 的 JSONUtil/IoUtil/ThreadUtil；core 不再传递该依赖 -->
+        <!-- web 侧只用 hutool-json（JSONUtil）；IoUtil/ThreadUtil 已换成 JDK/Spring 等价物 -->
         <dependency>
             <groupId>cn.hutool</groupId>
-            <artifactId>hutool-all</artifactId>
+            <artifactId>hutool-json</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

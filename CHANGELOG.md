@@ -14,6 +14,7 @@
 
 ### Added
 
+- 新增 boot3 线（Jakarta / Boot 3.5）复制模块：`encryptor-spring-boot3-starter`、`encryptor-web-boot3-starter`、`encryptor-gateway-boot3-starter`（3.0.0），core/reactive/micrometer 直接复用 javax 线制品；复制对由 `scripts/javax-to-jakarta.sh --diff` 守卫。
 - 新增可选模块 `encryptor-sm`：SM2（C1C3C2）+ SM4-GCM 套件与 SM2 密钥解析器，按需显式引入。
 - 新增 `JwksDocument`，servlet 与 gateway 共用同一份 JWKS JSON/ETag 生成逻辑。
 - 新增 `ProtocolAssembler`，两侧自动装配共用 `DefaultProtocol` 组装规则。
@@ -31,6 +32,10 @@
 - servlet 异步交接时延迟清零请求明文，避免异步处理器读取时已被清零。
 - `SmCipherSuite` / `SmKeyEntryParser` 移到 `io.github.cuukenn.encryptor.sm`，避免与 core 的 `io.github.cuukenn.encryptor.jose` 形成 split package。
 - `MAX_NONCE_LENGTH` 改为按 UTF-8 字节数计算。
+- 响应封装减少整份拷贝：servlet/gateway 分三段写 `{"jwe":...}` 信封、复用 protected header 的 Base64URL、`aeadDecrypt` 改为 `update(cipherText)` + `doFinal(tag)`。
+- 请求体有界读按 `Content-Length` 一次分配（chunked 才走扩容）；`StrKit` 名单匹配改为循环，避免每请求 stream/matcher 分配。
+- `skip-res-content-type` 默认包含 `text/event-stream`，SSE 开箱不再被缓冲到超限。
+- 依赖瘦身：`hutool-all` 改为 `hutool-json`（servlet 侧的 `IoUtil`/`ThreadUtil` 换成 JDK/Spring 等价物）、core 移除未使用的 `mockito-core`、BOM 移除无人使用的 `spring-cloud-starter-bootstrap`。
 
 ### Removed
 
@@ -45,3 +50,6 @@
 - `InMemoryNonceStore` 淘汰改为条件删除，避免并发新插入的 nonce 被误删。
 - `DefaultProtocol.Builder.keys(null)` 现在给出明确的 `EncryptorException`。
 - 文档补充跳过 content-type 的响应仍会先缓冲、需配合 `max-response-size <= 0`；以及 QUERY 载体携带超大 `Content-Length` 仍会 413。
+- `chunked` 表单载体在配置 `max-request-size` 时与 JSON 一样返回 413，不再交给容器无界解析。
+- 网关请求体改写改用 `Flux.defer`，请求被二次订阅（重试过滤器）时 body 不会为空。
+- `CryptoExecutor` 随 Spring 上下文关闭（`@Bean(destroyMethod="dispose")` + `DisposableBean`），不再残留非守护线程。

@@ -19,6 +19,8 @@
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
+        <!-- 可复现构建：同一 commit 两次打包的 jar 字节一致 -->
+        <project.build.outputTimestamp>2026-10-23T00:00:00Z</project.build.outputTimestamp>
         <!-- *************************三方依赖版本号**************************************-->
         <spring-boot.version>2.7.18</spring-boot.version>
         <spring-cloud.version>2021.0.8</spring-cloud.version>
@@ -165,16 +167,6 @@
                     </plugin>
                 </plugins>
             </build>
-            <distributionManagement>
-                <snapshotRepository>
-                    <id>sonatype</id>
-                    <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
-                </snapshotRepository>
-                <repository>
-                    <id>sonatype</id>
-                    <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-                </repository>
-            </distributionManagement>
         </profile>
     </profiles>
     <build>
@@ -199,6 +191,12 @@
         </resources>
         <pluginManagement>
             <plugins>
+                <!-- 显式 pin 编译器：本地 Maven 3.8 / CI 3.9 的 super-POM 默认版本不同 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.11.0</version>
+                </plugin>
                 <!--  单元测试：JUnit5 需要 surefire 2.22+，Maven 默认的 2.12.x 不会执行 JUnit5 测试-->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

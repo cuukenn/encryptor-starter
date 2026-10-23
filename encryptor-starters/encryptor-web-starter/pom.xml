@@ -15,10 +15,10 @@
             <groupId>io.github.cuukenn</groupId>
             <artifactId>encryptor-spring-boot-starter</artifactId>
         </dependency>
-        <!-- web 侧使用 hutool 的 JSONUtil/IoUtil/ThreadUtil；core 不再传递该依赖 -->
+        <!-- web 侧只用 hutool-json（JSONUtil）；IoUtil/ThreadUtil 已换成 JDK/Spring 等价物 -->
         <dependency>
             <groupId>cn.hutool</groupId>
-            <artifactId>hutool-all</artifactId>
+            <artifactId>hutool-json</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
