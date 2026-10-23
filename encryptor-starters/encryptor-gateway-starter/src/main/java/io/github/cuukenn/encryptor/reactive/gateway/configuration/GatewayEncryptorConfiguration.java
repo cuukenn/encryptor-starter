@@ -18,6 +18,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -55,6 +58,7 @@ public class GatewayEncryptorConfiguration {
                     + "该头就是事实上的共享密钥，请确保只有可信来源能设置它（网关前的 TLS/代理必须剥离外部同名头）",
                 GatewayConstant.SKIP_HEADER);
         }
+        validateCryptoKids(config, protocol);
         return new EncryptorGatewayFilter(config, reactiveConfig, protocol, cryptoExecutor);
     }
 
@@ -64,6 +68,26 @@ public class GatewayEncryptorConfiguration {
                                                            DefaultProtocol protocol,
                                                            CryptoExecutor cryptoExecutor) {
         return new EncryptorResponseFilter(config, reactiveConfig, protocol, cryptoExecutor);
+    }
+
+    /**
+     * uri 级 kid 白名单必须在启动期与密钥库交叉校验：kid 拼错时该 uri 会恒定 400，且无任何告警。
+     */
+    static void validateCryptoKids(GatewayEncryptorConfig config, DefaultProtocol protocol) {
+        if (config.getCryptoConfig() == null) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            for (String kid : entry.getValue()) {
+                if (!protocol.keys().contains(kid)) {
+                    throw new EncryptorException("encryptor.config.reactive.gateway.crypto-config["
+                        + entry.getKey() + "] 引用了不存在的 kid: " + kid);
+                }
+            }
+        }
     }
 
     /**

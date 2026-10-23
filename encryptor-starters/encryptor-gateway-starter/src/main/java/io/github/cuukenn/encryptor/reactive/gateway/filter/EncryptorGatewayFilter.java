@@ -307,7 +307,11 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     private Mono<Void> fail(ServerWebExchange exchange, int status) {
         cleanup(exchange);
         ServerHttpResponse response = exchange.getResponse();
-        response.getHeaders().set(EncryptorConstant.TRACE_HEADER, UUID.randomUUID().toString());
+        String trace = UUID.randomUUID().toString();
+        // 响应头与日志必须同值：客户端拿 trace 来排障时能在日志里 grep 到
+        logger.warn("encrypt request failed, trace: {}, status: {}, {} {}", trace, status,
+            exchange.getRequest().getMethod().name(), exchange.getRequest().getURI().getPath());
+        response.getHeaders().set(EncryptorConstant.TRACE_HEADER, trace);
         response.setStatusCode(HttpStatus.valueOf(status));
         return response.setComplete();
     }

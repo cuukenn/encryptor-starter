@@ -26,6 +26,7 @@ import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.NettyWriteResponseFilter;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
@@ -92,6 +93,14 @@ class GatewayJweTest {
             .build();
         gatewayConfig = new GatewayEncryptorConfig();
         reactiveConfig = new EncryptorConfig();
+    }
+
+    @Test
+    void 过滤器顺序门面在外响应在内() {
+        EncryptorResponseFilter responseFilter =
+            new EncryptorResponseFilter(gatewayConfig, reactiveConfig, protocol, CRYPTO);
+        assertThat(gateway().getOrder()).isLessThan(responseFilter.getOrder());
+        assertThat(responseFilter.getOrder()).isEqualTo(NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER - 1);
     }
 
     @Test
@@ -288,6 +297,23 @@ class GatewayJweTest {
         }).block(TIMEOUT);
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(called).isFalse();
+    }
+
+    @Test
+    void 失败日志包含trace与请求路径() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/missing"));
+        Logger logger = (Logger) getLogger(EncryptorGatewayFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            gateway().filter(exchange, e -> Mono.empty()).block(TIMEOUT);
+        } finally {
+            logger.detachAppender(appender);
+        }
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+            && e.getFormattedMessage().contains("/api/missing")
+            && e.getFormattedMessage().contains("trace:"));
     }
 
     @Test

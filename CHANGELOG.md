@@ -9,7 +9,7 @@
 - 空 `200`（以及允许 body 的其他状态）统一返回 `{"jwe":...}` 信封；HEAD/1xx/204/205/304 与空 3xx 例外。
 - 启动期校验收紧：`ttl <= 0`、`allowed-algs` 与已配置密钥无交集、`failure-status` 非法（网关侧还要求是 Spring 已知状态码）直接启动失败。
 - QUERY 载体的明文契约明确为“已百分号编码”（与 servlet `parseQuery`、示例客户端一致），网关不再二次编码。
-- `crypto-config` 引用不存在的 kid、servlet 过滤器 order 不满足 `jwks < facade < params < body < res` 时启动失败。
+- `crypto-config` 引用不存在的 kid（servlet 与网关）、servlet 过滤器 order 不满足 `jwks < facade < params < body < res` 时启动失败。
 - servlet 参数视图的 `getQueryString()` 剔除 `jwe` 段，日志/自链接不再带密文。
 
 ### Added
@@ -54,4 +54,5 @@
 - 文档补充跳过 content-type 的响应仍会先缓冲、需配合 `max-response-size <= 0`；以及 QUERY 载体携带超大 `Content-Length` 仍会 413。
 - `chunked` 表单载体在配置 `max-request-size` 时与 JSON 一样返回 413，不再交给容器无界解析。
 - 网关请求体改写改用 `Flux.defer`，请求被二次订阅（重试过滤器）时 body 不会为空。
+- 失败响应日志同时记录 trace、状态码、方法与路径，与 `X-Encryptor-Trace` 响应头同值。
 - `CryptoExecutor` 随 Spring 上下文关闭（`@Bean(destroyMethod="dispose")` + `DisposableBean`），不再残留非守护线程。

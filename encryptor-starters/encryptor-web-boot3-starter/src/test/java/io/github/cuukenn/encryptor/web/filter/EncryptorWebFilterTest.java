@@ -51,6 +51,25 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void 失败日志包含trace与请求路径() throws Exception {
+        Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/missing");
+            request.setContentType("application/json");
+            request.setContent("{}".getBytes(StandardCharsets.UTF_8));
+            run(request, new MockHttpServletResponse());
+        } finally {
+            logger.detachAppender(appender);
+        }
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+            && e.getFormattedMessage().contains("/api/missing")
+            && e.getFormattedMessage().contains("trace:"));
+    }
+
+    @Test
     void 启动日志打印skip名单与流式风险() {
         Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
