@@ -1,7 +1,6 @@
 package io.github.cuukenn.encryptor.kit;
 
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -75,7 +74,15 @@ public class StrKit {
      * @return 匹配结果
      */
     public static boolean anyMatch(String content, List<String> regexes) {
-        return regexes.stream().anyMatch(x -> matches(x, content));
+        if (content == null || regexes == null) {
+            return false;
+        }
+        for (String regex : regexes) {
+            if (matches(regex, content)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -93,11 +100,15 @@ public class StrKit {
         if (str == null || selectable == null || selectable.isEmpty()) {
             return null;
         }
-        // 用 max 而不是 TreeSet：TreeSet 的比较器对等长 key 返回 0，会把后面的同长候选静默丢掉，
-        // 看起来像"随机丢一个"。max 的表达是显式的：最长优先，等长取先遇到的那个。
-        return selectable.stream()
-                .filter(x -> matches(x, str))
-                .max(Comparator.comparingInt(String::length))
-                .orElse(null);
+        // 最长优先，等长取迭代顺序中的先者（不能换成 TreeSet：比较器对等长 key 返回 0 会静默丢候选）。
+        String best = null;
+        int bestLength = -1;
+        for (String candidate : selectable) {
+            if (candidate.length() > bestLength && matches(candidate, str)) {
+                best = candidate;
+                bestLength = candidate.length();
+            }
+        }
+        return best;
     }
 }

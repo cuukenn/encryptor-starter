@@ -154,12 +154,20 @@ public class InMemoryNonceStore implements NonceChecker {
 
         private boolean consume(String nonce) {
             long now = System.currentTimeMillis();
-            Entry candidate = new Entry(now + retentionMillis, sequence.incrementAndGet());
-            // compute 把"判断 + 写入"合成一次原子操作：并发下同一个 nonce 只有一个线程能拿回自己写入的实例
-            Entry stored = caches.compute(nonce, (key, old) -> old == null || old.isExpired(now) ? candidate : old);
-            boolean first = stored == candidate;
+            boolean first;
+            // 序号分配与入队必须在同一把锁内：否则并发下序号小者可能后入队，
+            // 容量驱逐会先踢掉更新的 nonce，与"插入顺序即最早过期顺序"的承诺不符。
+            synchronized (lock) {
+                Entry candidate = new Entry(now + retentionMillis, sequence.incrementAndGet());
+                // compute 把"判断 + 写入"合成一次原子操作：并发下同一个 nonce 只有一个线程能拿回自己写入的实例
+                Entry stored = caches.compute(nonce, (key, old) -> old == null || old.isExpired(now) ? candidate : old);
+                first = stored == candidate;
+                if (first) {
+                    order.addLast(new OrderRecord(nonce, candidate.sequence));
+                }
+            }
             if (first) {
-                evictIfNeeded(nonce, candidate, now);
+                evictIfNeeded(now);
             }
             return first;
         }
@@ -172,9 +180,8 @@ public class InMemoryNonceStore implements NonceChecker {
             return caches.size();
         }
 
-        private void evictIfNeeded(String nonce, Entry entry, long now) {
+        private void evictIfNeeded(long now) {
             synchronized (lock) {
-                order.addLast(new OrderRecord(nonce, entry.sequence));
                 while (order.size() > capacity) {
                     removeHead();
                 }

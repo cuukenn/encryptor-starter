@@ -31,6 +31,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -102,7 +103,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
         } else if (ct.startsWith("application/json")) {
             carrier = Carrier.JSON;
-            byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize) : IoUtil.readBytes(request.getInputStream());
+            byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : IoUtil.readBytes(request.getInputStream());
             if (raw == null) {
                 fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
                 return;
@@ -219,6 +220,24 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
     /**
      * 有界读取：最多读 {@code limit + 1} 字节；写满即判定超限返回 {@code null}（chunked 无 Content-Length 时防堆打爆）。
      */
+    private static byte[] readBounded(InputStream in, long limit, long contentLength) throws IOException {
+        if (contentLength > 0 && contentLength <= limit) {
+            // 声明长度可信时一次分配到位，省掉 8KB 起步的反复扩容与最终 toByteArray 复制
+            byte[] body = new byte[(int) contentLength];
+            int offset = 0;
+            while (offset < body.length) {
+                int read = in.read(body, offset, body.length - offset);
+                if (read == -1) {
+                    return Arrays.copyOf(body, offset);
+                }
+                offset += read;
+            }
+            // 声明长度小于实际 body：多读一字节判定超限，不能让"少报 Content-Length"绕过上限
+            return in.read() == -1 ? body : null;
+        }
+        return readBounded(in, limit);
+    }
+
     private static byte[] readBounded(InputStream in, long limit) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream((int) Math.min(limit, 8192));
         byte[] buffer = new byte[8192];
