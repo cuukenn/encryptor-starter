@@ -88,10 +88,10 @@ public class JceCipherSuite implements CipherSuite {
         Cipher cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION);
         cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(cek, "AES"), new GCMParameterSpec(GCM_TAG_BITS, iv));
         cipher.updateAAD(aad);
-        byte[] input = new byte[cipherText.length + authTag.length];
-        System.arraycopy(cipherText, 0, input, 0, cipherText.length);
-        System.arraycopy(authTag, 0, input, cipherText.length, authTag.length);
-        return cipher.doFinal(input);
+        // GCM 允许把 tag 作为 doFinal 的输入：update(cipherText) + doFinal(tag)，
+        // 避免为每个请求额外分配/复制一份 cipherText‖tag。
+        cipher.update(cipherText);
+        return cipher.doFinal(authTag);
     }
 
     @Override

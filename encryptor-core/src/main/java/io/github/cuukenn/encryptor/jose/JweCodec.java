@@ -281,7 +281,8 @@ public class JweCodec {
             JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.DIR, encMethod(enc))
                 .customParams(ContextAad.claims(uri, method, Direction.RESPONSE, ts, nonce))
                 .build();
-            byte[] aad = header.toBase64URL().toString().getBytes(StandardCharsets.US_ASCII);
+            String headerB64 = header.toBase64URL().toString();
+            byte[] aad = headerB64.getBytes(StandardCharsets.US_ASCII);
             byte[] iv = new byte[suite.ivLength(enc)];
             random.nextBytes(iv);
             byte[] packed = suite.aeadEncrypt(enc, cek, iv, body == null ? new byte[0] : body, aad);
@@ -289,7 +290,7 @@ public class JweCodec {
                 throw fail(EncryptorFailure.ENCRYPT_FAILED, "AEAD 输出长度非法");
             }
             // 手工拼 compact：protected header . encrypted_key（dir 为空） . iv . cipherText . authTag
-            return new String(aad, StandardCharsets.US_ASCII) + "." + "."
+            return headerB64 + "." + "."
                 + Base64URL.encode(iv) + "."
                 + Base64URL.encode(Arrays.copyOf(packed, packed.length - tagLength)) + "."
                 + Base64URL.encode(Arrays.copyOfRange(packed, packed.length - tagLength, packed.length));
