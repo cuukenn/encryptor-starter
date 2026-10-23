@@ -183,14 +183,13 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             String plaintext = new String(ctx.plaintext(), StandardCharsets.UTF_8);
             MultiValueMap<String, String> queryParams = UriComponentsBuilder.newInstance()
                 .query(plaintext).build().getQueryParams();
-            String encodedQuery;
+            // 契约：QUERY 载体的明文是"已编码"形态（与 servlet parseQuery 的 URLDecoder、示例客户端一致），
+            // 这里只做 URI 组装并提前校验；非法编码转成 failure-status，不能留到下游 getURI() 时炸成 500。
+            URI targetUri;
             try {
-                // 明文 query 已解码（可能含中文/空格），先整体编码再拼回 URI；
-                // build(true) 只接受已编码组件，直接塞明文会在 toUri() 抛 IAE。
-                encodedQuery = UriComponentsBuilder.newInstance().query(plaintext)
-                    .build().encode(StandardCharsets.UTF_8).getQuery();
+                targetUri = UriComponentsBuilder.fromUri(request.getURI()).replaceQuery(plaintext).build(true).toUri();
             } catch (IllegalArgumentException e) {
-                throw new EncryptorException(EncryptorFailure.INTERNAL, "query 明文无法编码", e);
+                throw new EncryptorException(EncryptorFailure.INTERNAL, "query 明文不是合法的已编码 query", e);
             }
             return new ServerHttpRequestDecorator(request) {
                 @Override
@@ -200,7 +199,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
 
                 @Override
                 public URI getURI() {
-                    return UriComponentsBuilder.fromUri(request.getURI()).replaceQuery(encodedQuery).build(true).toUri();
+                    return targetUri;
                 }
             };
         }

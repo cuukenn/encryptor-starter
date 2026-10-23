@@ -121,18 +121,19 @@ public class JweCodec {
     public JweContext decryptRequest(String compact, String uri, String method) {
         try {
             JweContext context = doDecryptRequest(compact, uri, method);
-            if (replayGuard != null) {
-                try {
+            try {
+                if (replayGuard != null) {
                     // 必须放在 AEAD tag 校验之后：未认证输入不得污染 nonce 存储
                     replayGuard.verify(context.ts(), context.nonce());
-                } catch (EncryptorException e) {
-                    // 重放/过期同样是"解密失败"：清掉已解出的明文与 CEK 再按分类抛出
-                    context.destroy();
-                    throw e;
                 }
+                listener.onDecryptSuccess(context);
+                return context;
+            } catch (RuntimeException | Error e) {
+                // 重放/过期、自定义 NonceChecker 抛错、监听器回调抛错：都算请求失败，
+                // 已解出的明文与 CEK 必须先清零，不能等 GC。
+                context.destroy();
+                throw e;
             }
-            listener.onDecryptSuccess(context);
-            return context;
         } catch (EncryptorException e) {
             listener.onDecryptFailure(e.failure(), e);
             throw e;

@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.gateway.configuration;
 
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfig;
@@ -17,6 +18,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 
 /**
  * 网关 v2 自动装配：两个 {@link GlobalFilter}（请求决策+一次解密 / 响应加密回写），
@@ -47,6 +49,7 @@ public class GatewayEncryptorConfiguration {
                                                          EncryptorConfig reactiveConfig,
                                                          DefaultProtocol protocol,
                                                          CryptoExecutor cryptoExecutor) {
+        validateFailureStatus(reactiveConfig.getFailureStatus());
         if (config.isSkipAble()) {
             logger.warn("encryptor.config.reactive.gateway.skip-able=true：带 {} 头的请求会完全绕过解密与加密，"
                     + "该头就是事实上的共享密钥，请确保只有可信来源能设置它（网关前的 TLS/代理必须剥离外部同名头）",
@@ -61,6 +64,17 @@ public class GatewayEncryptorConfiguration {
                                                            DefaultProtocol protocol,
                                                            CryptoExecutor cryptoExecutor) {
         return new EncryptorResponseFilter(config, reactiveConfig, protocol, cryptoExecutor);
+    }
+
+    /**
+     * 失败状态码必须能被 {@link HttpStatus#valueOf(int)} 映射：网关失败面用它设状态，
+     * Spring 枚举里没有的码（如 499）会在每次失败时抛 IAE，把配置错误变成 500。
+     */
+    static void validateFailureStatus(int status) {
+        if (HttpStatus.resolve(status) == null) {
+            throw new EncryptorException("encryptor.config.reactive.failure-status 非法: " + status
+                + "（必须是 Spring 已知的 HTTP 状态码）");
+        }
     }
 
     /**

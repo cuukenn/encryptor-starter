@@ -93,4 +93,5 @@ class EncryptorReactiveAutoConfigurationTest {
                 assertThat(t).hasMessageContaining("failure-status").hasMessageContaining("42");
             });
     }
+
 }

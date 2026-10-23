@@ -193,9 +193,11 @@ class GatewayJweTest {
     }
 
     @Test
-    void query载体明文含中文与空格时可构建URI() {
+    void query载体明文已是编码形态时原样转发() {
+        // 客户端契约：query 明文本身就是百分号编码形态（参见 HttpTest 的 URLEncoder、servlet parseQuery 的 URLDecoder）
+        String encoded = "q=%E5%BC%A0%E4%B8%89&x=a%20b";
         MockServerWebExchange exchange = MockServerWebExchange.from(
-            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("q=张三&x=a b", "/api/a", "GET")));
+            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal(encoded, "/api/a", "GET")));
         AtomicReference<URI> uri = new AtomicReference<>();
         AtomicReference<MultiValueMap<String, String>> params = new AtomicReference<>();
         gateway().filter(exchange, e -> {
@@ -203,9 +205,25 @@ class GatewayJweTest {
             params.set(e.getRequest().getQueryParams());
             return Mono.empty();
         }).block(TIMEOUT);
-        assertThat(params.get().getFirst("q")).isEqualTo("张三");
-        assertThat(params.get().getFirst("x")).isEqualTo("a b");
-        assertThat(uri.get().toString()).isEqualTo("/api/a?q=%E5%BC%A0%E4%B8%89&x=a%20b");
+        assertThat(uri.get().getRawQuery()).isEqualTo(encoded);
+        assertThat(uri.get().toString()).doesNotContain("%25");
+        assertThat(params.get().getFirst("q")).isEqualTo("%E5%BC%A0%E4%B8%89");
+        assertThat(params.get().getFirst("x")).isEqualTo("a%20b");
+    }
+
+    @Test
+    void query载体明文非法编码时回failureStatus而不500() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("q=张三", "/api/a", "GET")));
+        AtomicBoolean called = new AtomicBoolean();
+        gateway().filter(exchange, e -> {
+            // 路由阶段会读取 getURI()：非法编码必须在过滤器内变成 failure-status，而不是在这里炸出 500
+            e.getRequest().getURI();
+            called.set(true);
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(called).isFalse();
     }
 
     @Test
@@ -242,6 +260,8 @@ class GatewayJweTest {
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
         AtomicBoolean called = new AtomicBoolean();
         gateway().filter(exchange, e -> {
+            // 路由阶段会读取 getURI()：非法编码必须在过滤器内变成 failure-status，而不是在这里炸出 500
+            e.getRequest().getURI();
             called.set(true);
             return Mono.empty();
         }).block(TIMEOUT);
@@ -314,6 +334,8 @@ class GatewayJweTest {
             MockServerHttpRequest.get("/api/a").queryParam("jwe", tamper(seal("a=1", "/api/a", "GET"))));
         AtomicBoolean called = new AtomicBoolean();
         gateway().filter(exchange, e -> {
+            // 路由阶段会读取 getURI()：非法编码必须在过滤器内变成 failure-status，而不是在这里炸出 500
+            e.getRequest().getURI();
             called.set(true);
             return Mono.empty();
         }).block(TIMEOUT);
@@ -383,6 +405,8 @@ class GatewayJweTest {
             MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("a=1", "/api/a", "GET")));
         AtomicBoolean called = new AtomicBoolean();
         gateway().filter(exchange, e -> {
+            // 路由阶段会读取 getURI()：非法编码必须在过滤器内变成 failure-status，而不是在这里炸出 500
+            e.getRequest().getURI();
             called.set(true);
             return Mono.empty();
         }).block(TIMEOUT);
