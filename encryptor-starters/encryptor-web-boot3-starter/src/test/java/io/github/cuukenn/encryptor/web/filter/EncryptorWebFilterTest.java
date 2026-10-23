@@ -1,5 +1,9 @@
 package io.github.cuukenn.encryptor.web.filter;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.web.JweTestSupport;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
@@ -86,6 +90,26 @@ class EncryptorWebFilterTest {
         assertThat(ctx.getCarrier()).isEqualTo(WebContext.Carrier.FORM);
         assertThat(ctx.getParameters()).containsKey("x");
         assertThat(ctx.getBodyPlaintext()).isEqualTo("x=1&y=2".getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void 失败时traceId同时出现在响应头与日志() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(EncryptorWebFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            run(request, response);
+
+            String trace = response.getHeader(EncryptorResponseFilter.TRACE_HEADER);
+            assertThat(trace).isNotBlank();
+            assertThat(appender.list).anySatisfy(event ->
+                assertThat(event.getFormattedMessage()).contains(trace));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

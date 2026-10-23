@@ -9,6 +9,8 @@
 - 空 `200`（以及允许 body 的其他状态）统一返回 `{"jwe":...}` 信封；HEAD/1xx/204/205/304 与空 3xx 例外。
 - 启动期校验收紧：`ttl <= 0`、`allowed-algs` 与已配置密钥无交集、`failure-status` 非法（网关侧还要求是 Spring 已知状态码）直接启动失败。
 - QUERY 载体的明文契约明确为“已百分号编码”（与 servlet `parseQuery`、示例客户端一致），网关不再二次编码。
+- `crypto-config` 引用不存在的 kid、servlet 过滤器 order 不满足 `jwks < facade < params < body < res` 时启动失败。
+- servlet 参数视图的 `getQueryString()` 剔除 `jwe` 段，日志/自链接不再带密文。
 
 ### Added
 

@@ -7,6 +7,10 @@ import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
+import java.nio.charset.StandardCharsets;
+import java.net.URLDecoder;
+import java.io.UnsupportedEncodingException;
+import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Collections;
@@ -60,6 +64,43 @@ public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
             public Map<String, String[]> getParameterMap() {
                 return parameters;
             }
+
+            // 参数视图已隐藏 jwe，query string 也必须一致：否则日志/self-link/CDN 缓存键
+            // 仍会带上整段密文（体积是明文的 1.4 倍）。
+            @Override
+            public String getQueryString() {
+                return withoutJwe(super.getQueryString());
+            }
         }, response);
+    }
+
+    private static String withoutJwe(String query) {
+        if (query == null || query.isEmpty()) {
+            return query;
+        }
+        StringBuilder kept = new StringBuilder(query.length());
+        for (String pair : query.split("&")) {
+            if (pair.isEmpty()) {
+                continue;
+            }
+            int eq = pair.indexOf('=');
+            String rawName = eq < 0 ? pair : pair.substring(0, eq);
+            if (EncryptorConstant.JWE_PARAM.equals(rawName) || EncryptorConstant.JWE_PARAM.equals(decode(rawName))) {
+                continue;
+            }
+            if (kept.length() > 0) {
+                kept.append('&');
+            }
+            kept.append(pair);
+        }
+        return kept.length() == 0 ? null : kept.toString();
+    }
+
+    private static String decode(String name) {
+        try {
+            return URLDecoder.decode(name, StandardCharsets.UTF_8.name());
+        } catch (RuntimeException | UnsupportedEncodingException e) {
+            return name;
+        }
     }
 }

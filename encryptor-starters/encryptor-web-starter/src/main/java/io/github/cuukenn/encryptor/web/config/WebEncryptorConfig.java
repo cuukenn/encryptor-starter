@@ -1,5 +1,7 @@
 package io.github.cuukenn.encryptor.web.config;
 
+import io.github.cuukenn.encryptor.exception.EncryptorException;
+
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import org.slf4j.Logger;
@@ -10,7 +12,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,7 +75,7 @@ public class WebEncryptorConfig implements InitializingBean {
      * uri 级 kid 白名单：uri 正则 → 该 uri 只接受的 kid 列表；空列表 = 不限。
      * 含 {@code .} 的正则 key 必须用括号写法：{@code crypto-config["[^/pay/.*]"]: [k1, k2]}。
      */
-    private Map<String, List<String>> cryptoConfig = new HashMap<>();
+    private Map<String, List<String>> cryptoConfig = new LinkedHashMap<>();
 
     public boolean isEnable() {
         return enable;
@@ -175,6 +177,7 @@ public class WebEncryptorConfig implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
+        validateFilterOrder();
         mergeAlias("black-uris", skipUris, blackUris);
         mergeAlias("black-methods", skipMethods, blackMethods);
         mergeAlias("black-req-content-type", skipReqContentType, blackReqContentType);
@@ -218,5 +221,26 @@ public class WebEncryptorConfig implements InitializingBean {
 
     public void setCryptoConfig(Map<String, List<String>> cryptoConfig) {
         this.cryptoConfig = cryptoConfig;
+    }
+
+    /**
+     * 链序是载荷契约：门面必须包住参数/请求体视图，响应过滤器必须在门面内层（否则读不到 CEK，
+     * 响应会静默变明文）。覆盖默认值后必须在这里 fail-fast，不能等线上发现。
+     */
+    private void validateFilterOrder() {
+        WebFilterConfig filter = getFilterConfig();
+        if (filter == null) {
+            throw new EncryptorException("encryptor.config.web.filter-config 不能为空");
+        }
+        int jwks = filter.getJwksFilterOrder();
+        int facade = filter.getEncryptorFilterOrder();
+        int params = filter.getEncryptorReqParamsFilterOrder();
+        int body = filter.getEncryptorReqBodyFilterOrder();
+        int response = filter.getEncryptorResFilterOrder();
+        if (!(jwks < facade && facade < params && params < body && body < response)) {
+            throw new EncryptorException("encryptor.config.web.filter-config 顺序非法: "
+                + "要求 jwks < facade < params < body < res，实际 jwks=" + jwks + ", facade=" + facade
+                + ", params=" + params + ", body=" + body + ", res=" + response);
+        }
     }
 }

@@ -1,6 +1,9 @@
 package io.github.cuukenn.encryptor.web.configuration;
 
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import java.util.Map;
+import java.util.List;
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
@@ -75,6 +78,7 @@ public class WebEncryptorConfiguration {
     @Bean("defaultWebEncryptorFilter")
     public FilterRegistrationBean<? extends Filter> webEncryptorFilter(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack, EncryptorRuntime runtime) {
         logger.info("register web encryptor");
+        validateCryptoKids(config, protocolStack);
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
         binder.filterConfiguration(new EncryptorWebFilter(config, encryptorConfig, protocolStack, runtime),
@@ -113,6 +117,27 @@ public class WebEncryptorConfiguration {
             this.filterRegistrationBean.addUrlPatterns(patterns.length == 0 ? new String[]{"/*"} : patterns);
             this.filterRegistrationBean.setAsyncSupported(async);
             return this;
+        }
+    }
+
+    /**
+     * {@code crypto-config} 的 kid 必须真实存在：拼错时白名单会让该 uri 下所有请求恒定 400，
+     * 启动期就报错比流量上才发现便宜得多。
+     */
+    static void validateCryptoKids(WebEncryptorConfig config, DefaultProtocol protocol) {
+        if (config.getCryptoConfig() == null) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            for (String kid : entry.getValue()) {
+                if (!protocol.keys().contains(kid)) {
+                    throw new EncryptorException("encryptor.config.web.crypto-config[" + entry.getKey()
+                        + "] 引用了不存在的 kid: " + kid);
+                }
+            }
         }
     }
 }

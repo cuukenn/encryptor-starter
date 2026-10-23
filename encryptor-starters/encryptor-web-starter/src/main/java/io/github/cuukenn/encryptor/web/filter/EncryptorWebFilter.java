@@ -183,7 +183,10 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
      * 必须在这里清，否则 ThreadLocal/bodyPlaintext 会滞留到该线程的下一个请求）+ traceId 响应头 + 状态码。
      */
     private static void fail(HttpServletResponse response, int status) {
-        response.setHeader(EncryptorResponseFilter.TRACE_HEADER, UUID.randomUUID().toString());
+        String trace = UUID.randomUUID().toString();
+        // 响应头与日志必须同值：客户端拿 trace 来排障时能在日志里 grep 到
+        logger.warn("encrypt request failed, trace: {}, status: {}", trace, status);
+        response.setHeader(EncryptorResponseFilter.TRACE_HEADER, trace);
         response.setStatus(status);
         WebContext.clear();
     }

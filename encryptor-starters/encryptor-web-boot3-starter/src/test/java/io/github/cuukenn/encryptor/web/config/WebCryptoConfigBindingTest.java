@@ -42,13 +42,45 @@ class WebCryptoConfigBindingTest {
     @Test
     void 括号key绑定含点的正则uri() {
         runner.withPropertyValues(rsaKeyProps("k1"))
-            .withPropertyValues("encryptor.config.web.crypto-config.[^/api/.*]=k1,k2")
+            .withPropertyValues("encryptor.config.web.crypto-config.[^/api/.*]=k1")
             .run(context -> {
                 assertThat(context).hasNotFailed();
                 WebEncryptorConfig web = context.getBean(WebEncryptorConfig.class);
                 // 不用 [key] 写法时 Spring Boot 会把 ^/api/.* 静默改成 api（已知坑 P3-7）；[key] 写法必须原样保住
                 assertThat(web.getCryptoConfig()).containsOnlyKeys("^/api/.*");
-                assertThat(web.getCryptoConfig().get("^/api/.*")).containsExactly("k1", "k2");
+                assertThat(web.getCryptoConfig().get("^/api/.*")).containsExactly("k1");
+            });
+    }
+
+    @Test
+    void cryptoConfig引用未知kid时启动失败() {
+        runner.withPropertyValues(rsaKeyProps("k1"))
+            .withPropertyValues("encryptor.config.web.crypto-config.[/api/.*]=missing-kid")
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).hasStackTraceContaining("missing-kid");
+            });
+    }
+
+    @Test
+    void cryptoConfig保持声明顺序() {
+        runner.withPropertyValues(rsaKeyProps("k1"))
+            .withPropertyValues("encryptor.config.web.crypto-config.[/pay/.*]=k1",
+                "encryptor.config.web.crypto-config.[/pay/.+]=k1")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                WebEncryptorConfig web = context.getBean(WebEncryptorConfig.class);
+                assertThat(web.getCryptoConfig().keySet()).containsExactly("/pay/.*", "/pay/.+");
+            });
+    }
+
+    @Test
+    void 过滤器顺序非法时启动失败() {
+        runner.withPropertyValues(rsaKeyProps("k1"))
+            .withPropertyValues("encryptor.config.web.filter-config.encryptor-res-filter-order=-13")
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).hasStackTraceContaining("filter-config");
             });
     }
 

@@ -131,6 +131,28 @@ class FilterChainOrderTest {
     }
 
     @Test
+    void queryString剔除jwe密文段() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/q");
+        request.setQueryString("jwe=ciphertext&a=1");
+        request.setParameter("jwe", support.seal("a=1", "/api/q", "GET"));
+        AtomicReference<String> seen = new AtomicReference<>();
+        runRealChain(request, new MockHttpServletResponse(), (req, resp) ->
+            seen.set(((HttpServletRequest) req).getQueryString()));
+        assertThat(seen.get()).isEqualTo("a=1");
+    }
+
+    @Test
+    void queryString只有jwe时返回null() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/q");
+        request.setQueryString("jwe=ciphertext");
+        request.setParameter("jwe", support.seal("a=1", "/api/q", "GET"));
+        AtomicReference<String> seen = new AtomicReference<>("unset");
+        runRealChain(request, new MockHttpServletResponse(), (req, resp) ->
+            seen.set(((HttpServletRequest) req).getQueryString()));
+        assertThat(seen.get()).isNull();
+    }
+
+    @Test
     void form载体在真实链序下同时拿到参数与body视图() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/f");
         request.setContentType("application/x-www-form-urlencoded");
