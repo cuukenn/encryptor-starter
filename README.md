@@ -144,6 +144,8 @@ encryptor:
 
 > **含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`**，否则 Spring Boot 会静默把 key 改坏（如 `^/test/secret.*` → `testsecret`）。
 
+> **匹配口径**：`skip-uris` 与 `crypto-config` 匹配的是**去掉 `server.servlet.context-path` 后的应用内路径**（与网关 `getURI().getPath()` 对齐）。部署在 `/app` 下时写 `[/pay/.*]`，不要写 `[/app/pay/.*]`；旧写法升级后会失配（`crypto-config` 会静默关闭该 uri 的 kid 限制），迁移时务必检查。
+
 ## 密钥轮换 SOP
 
 **前提**：密钥库（`ServerKeyStore`）在**启动期**构建、运行期不可变；JWKS 的 ETag 也是启动期算好的。所以**增删 kid 必须重启**（滚动重启即可），不存在"改配置立刻生效"。

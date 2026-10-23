@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed（不兼容）
+
+- servlet 的 `skip-uris` / `crypto-config` 改为按**去 context-path 的应用内路径**匹配；部署在 `/app` 下的旧写法（`[/app/...]`）需去掉前缀，否则 uri 级 kid 白名单会静默失效。
+- 重放/过期纳入 `EncryptorListener` 失败回调与指标（不再计为解密成功）；失败路径在抛出前清零已解出的 CEK/明文。
+- 空 `200`（以及允许 body 的其他状态）统一返回 `{"jwe":...}` 信封；HEAD/1xx/204/205/304 与空 3xx 例外。
+- 启动期校验收紧：`ttl <= 0`、`allowed-algs` 与已配置密钥无交集、`failure-status` 非法（网关侧还要求是 Spring 已知状态码）直接启动失败。
+- QUERY 载体的明文契约明确为“已百分号编码”（与 servlet `parseQuery`、示例客户端一致），网关不再二次编码。
+
 ### Added
 
 - 新增可选模块 `encryptor-sm`：SM2（C1C3C2）+ SM4-GCM 套件与 SM2 密钥解析器，按需显式引入。
