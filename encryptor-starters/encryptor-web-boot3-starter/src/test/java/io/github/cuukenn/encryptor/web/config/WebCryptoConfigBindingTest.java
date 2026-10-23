@@ -59,6 +59,8 @@ class WebCryptoConfigBindingTest {
                 assertThat(context).hasNotFailed();
                 WebEncryptorConfig web = context.getBean(WebEncryptorConfig.class);
                 assertThat(web.isEnable()).isTrue();
+                // SSE 默认跳过：默认全缓冲会让事件在 4MiB 之前一个都发不出去
+                assertThat(web.getSkipResContentType()).contains("text/event-stream");
                 assertThat(web.getFilterConfig()).isNotNull();
                 // 生产链序：web(-12 决策+解密) → params(-11) → body(-10) → response(-3 包住业务)
                 assertThat(web.getFilterConfig().getEncryptorFilterOrder()).isEqualTo(-12);

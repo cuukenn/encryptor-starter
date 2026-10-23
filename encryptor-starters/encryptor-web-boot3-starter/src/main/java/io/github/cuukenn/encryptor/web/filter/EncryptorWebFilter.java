@@ -98,6 +98,14 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
             return;
         }
+        // chunked 表单没有 Content-Length，容器 getParameter 会无界解析整个 body；配置了上限时直接拒绝，
+        // 与网关侧 readBody→413 的语义对齐（客户端应改用带 Content-Length 的请求）。
+        if (maxRequestSize > 0 && ct.startsWith("application/x-www-form-urlencoded")
+            && request.getContentLengthLong() < 0) {
+            logger.warn("chunked 表单请求无法做有界校验，拒绝, uri: {}", uri);
+            fail(response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+            return;
+        }
         compact = request.getParameter(EncryptorConstant.JWE_PARAM);
         if (compact != null && !compact.isEmpty()) {
             carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;

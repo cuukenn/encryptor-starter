@@ -135,7 +135,7 @@ encryptor:
       skip-uris: []             # 跳过名单: 命中即不加密(正则整串匹配)
       skip-methods: []
       skip-req-content-type: []
-      skip-res-content-type: []
+      skip-res-content-type: ["text/event-stream"]  # 默认跳过 SSE；加密流式响应需显式清空
       # 旧名 black-uris / black-methods / black-req|res-content-type 仍可绑定
       # (弃用 alias, 启动会 WARN), 新旧共存时合并去重
       crypto-config:            # uri 正则 → 该路由只接受哪些 kid
@@ -143,6 +143,8 @@ encryptor:
 ```
 
 > **含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`**，否则 Spring Boot 会静默把 key 改坏（如 `^/test/secret.*` → `testsecret`）。
+
+> **表单载体**：`application/x-www-form-urlencoded` 且 `max-request-size > 0` 时，请求必须带 `Content-Length`（chunked 表单直接 413），避免容器无界解析。
 
 > **匹配口径**：`skip-uris` 与 `crypto-config` 匹配的是**去掉 `server.servlet.context-path` 后的应用内路径**（与网关 `getURI().getPath()` 对齐）。部署在 `/app` 下时写 `[/pay/.*]`，不要写 `[/app/pay/.*]`；旧写法升级后会失配（`crypto-config` 会静默关闭该 uri 的 kid 限制），迁移时务必检查。
 

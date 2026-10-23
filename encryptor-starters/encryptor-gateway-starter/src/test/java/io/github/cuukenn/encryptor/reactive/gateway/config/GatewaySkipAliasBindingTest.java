@@ -79,6 +79,7 @@ class GatewaySkipAliasBindingTest {
         assertThat(config.getSkipUris()).isEmpty();
         assertThat(config.getSkipMethods()).isEmpty();
         assertThat(config.getSkipReqContentType()).isEmpty();
-        assertThat(config.getSkipResContentType()).isEmpty();
+        // 流式响应默认透传，避免 SSE 被整段缓冲
+        assertThat(config.getSkipResContentType()).containsExactly("text/event-stream");
     }
 }

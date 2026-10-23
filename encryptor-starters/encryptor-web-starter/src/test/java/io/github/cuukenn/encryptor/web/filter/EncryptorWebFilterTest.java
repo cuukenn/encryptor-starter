@@ -127,6 +127,31 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void chunked表单请求直接413且不调用getParameter() throws Exception {
+        protocolConfig.setMaxRequestSize(1024);
+        AtomicBoolean parameterAccessed = new AtomicBoolean(false);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/f") {
+            @Override
+            public long getContentLengthLong() {
+                return -1L; // chunked：容器无法预判大小
+            }
+
+            @Override
+            public String getParameter(String name) {
+                parameterAccessed.set(true);
+                return super.getParameter(name);
+            }
+        };
+        request.setContentType("application/x-www-form-urlencoded");
+        request.setContent("jwe=x".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(413);
+        assertThat(parameterAccessed).isFalse();
+        assertThat(chainExecuted).isFalse();
+    }
+
+    @Test
     void 表单超maxRequestSize按ContentLength回413且不解析参数() throws Exception {
         protocolConfig.setMaxRequestSize(64);
         AtomicBoolean parameterAccessed = new AtomicBoolean(false);

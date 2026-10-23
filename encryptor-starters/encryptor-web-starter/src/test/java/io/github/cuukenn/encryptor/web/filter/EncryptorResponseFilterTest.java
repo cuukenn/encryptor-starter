@@ -65,6 +65,9 @@ class EncryptorResponseFilterTest {
     private MockHttpServletRequest encryptedFormRequest(String method, String uri) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
         request.setContentType("application/x-www-form-urlencoded");
+        // 真实表单 POST 一定带 body（jwe=...）；不设置 content 的裸参数会让 Content-Length=-1，
+        // 被"chunked 表单"防护拦成 413。
+        request.setContent("jwe=x".getBytes(StandardCharsets.UTF_8));
         request.setParameter("jwe", support.seal("a=1", uri, method));
         return request;
     }

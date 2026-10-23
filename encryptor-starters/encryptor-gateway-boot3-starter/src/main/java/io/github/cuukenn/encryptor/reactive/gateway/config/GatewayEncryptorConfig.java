@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,11 @@ public class GatewayEncryptorConfig implements InitializingBean {
     /**
      * 响应方向：命中该 content-type 名单则响应不包装（组装响应时判断）。旧名 {@code black-res-content-type} 仍可绑定（已弃用）。
      */
-    private final List<String> skipResContentType = new ArrayList<>();
+    /**
+     * 默认跳过 SSE：流式响应一旦被整段缓冲，事件要等请求结束才下发，超过 max-response-size 还会变 500。
+     * 需要加密流式响应时显式清空该名单（代价是客户端要等完整响应）。
+     */
+    private final List<String> skipResContentType = new ArrayList<>(Collections.singletonList("text/event-stream"));
     /**
      * 旧名 {@code black-*} 的绑定目标（已弃用）：绑定完成后由 {@link #afterPropertiesSet()} 并入上面的 skip 名单。
      * 之所以单独留一份，是因为 Spring Boot 对集合属性是「就地绑定（clear + 回填）」，
