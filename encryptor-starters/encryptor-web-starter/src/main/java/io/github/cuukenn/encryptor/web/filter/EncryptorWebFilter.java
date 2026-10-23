@@ -17,6 +17,8 @@ import io.github.cuukenn.encryptor.web.kit.WebContext.Carrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.util.StreamUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -132,7 +134,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         compact = request.getParameter(EncryptorConstant.JWE_PARAM);
         if (compact != null && !compact.isEmpty()) {
             carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
-        } else if (ct.startsWith("application/json")) {
+        } else if (isJson(ct)) {
             carrier = Carrier.JSON;
             byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : StreamUtils.copyToByteArray(request.getInputStream());
             if (raw == null) {
@@ -213,6 +215,19 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         response.setHeader(EncryptorResponseFilter.TRACE_HEADER, trace);
         response.setStatus(status);
         WebContext.clear();
+    }
+
+    /** JSON 载体：application/json 及其结构化后缀（application/vnd.api+json 等），忽略参数。 */
+    private static boolean isJson(String contentType) {
+        if (contentType == null) {
+            return false;
+        }
+        try {
+            MediaType type = MediaType.parseMediaType(contentType);
+            return MediaType.APPLICATION_JSON.isCompatibleWith(type) || type.getSubtype().endsWith("+json");
+        } catch (InvalidMediaTypeException e) {
+            return false;
+        }
     }
 
     private List<String> acceptedKid(String uri) {

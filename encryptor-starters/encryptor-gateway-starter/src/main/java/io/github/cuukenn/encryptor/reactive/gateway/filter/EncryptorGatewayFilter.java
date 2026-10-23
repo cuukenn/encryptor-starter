@@ -115,7 +115,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         if (compact != null) {
             return proceed(exchange, chain, compact, GatewayContext.Carrier.QUERY, uri, method, null);
         }
-        if (contentType != null && MediaType.APPLICATION_JSON.isCompatibleWith(contentType)) {
+        if (isJson(contentType)) {
             return readBody(exchange)
                 .flatMap(bytes -> proceed(exchange, chain, jweFromJson(bytes), GatewayContext.Carrier.JSON, uri, method, bytes))
                 .onErrorResume(EncryptorException.class, e -> fail(exchange, e))
@@ -314,6 +314,12 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         response.getHeaders().set(EncryptorConstant.TRACE_HEADER, trace);
         response.setStatusCode(HttpStatus.valueOf(status));
         return response.setComplete();
+    }
+
+    /** JSON 载体：application/json 及其结构化后缀（application/vnd.api+json 等）。 */
+    private static boolean isJson(MediaType contentType) {
+        return contentType != null
+            && (MediaType.APPLICATION_JSON.isCompatibleWith(contentType) || contentType.getSubtype().endsWith("+json"));
     }
 
     /** 清掉 exchange 上的请求上下文并 best-effort 清零明文/CEK。 */

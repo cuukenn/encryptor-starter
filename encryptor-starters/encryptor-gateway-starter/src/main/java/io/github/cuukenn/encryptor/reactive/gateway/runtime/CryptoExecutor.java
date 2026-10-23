@@ -93,14 +93,21 @@ public class CryptoExecutor implements DisposableBean {
         dispose();
     }
 
-    /** 成功提交则计数；被拒只记 {@link #rejected} 并原样抛出（不能算作"在跑"）。 */
+    /**
+     * 先记账再提交：任务可能在 {@code action.get()} 返回之前就跑完，先递增 {@code submitted}
+     * 才能保证 {@code pending = submitted - completed} 永不出现瞬态负值。
+     * 被拒/异常时回滚，不能算作"在跑"。
+     */
     private Disposable submit(Supplier<Disposable> action) {
+        submitted.incrementAndGet();
         try {
-            Disposable disposable = action.get();
-            submitted.incrementAndGet();
-            return disposable;
+            return action.get();
         } catch (RejectedExecutionException e) {
+            submitted.decrementAndGet();
             rejected.incrementAndGet();
+            throw e;
+        } catch (RuntimeException e) {
+            submitted.decrementAndGet();
             throw e;
         }
     }

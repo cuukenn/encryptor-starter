@@ -28,6 +28,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.UUID;
 
 /**
@@ -68,6 +69,11 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         // 在装饰期捕获：响应写出可能晚于上游清理，避免 writeWith 里再读 GatewayContext 时被清空
         JweContext jweContext = ctx.getJweContext();
+        // 复制 CEK/enc：客户端断连时 doFinally 会在 event-loop 线程清零原数组，
+        // 而加密在 crypto 线程上读它；使用副本避免读到半清零的密钥。
+        // 跳过/透传路径可能没有 JweContext（例如只声明 encrypted 的配置态），保持空值走原链路。
+        byte[] cek = jweContext == null ? null : jweContext.cek().clone();
+        String enc = jweContext == null ? null : jweContext.enc();
         ServerHttpResponseDecorator decorated = new ServerHttpResponseDecorator(response) {
             @Override
             public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
@@ -98,11 +104,14 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 bytes.length, exchange.getRequest().getURI().getPath());
                             return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                         }
+                        if (cek == null) {
+                            return fail(HttpStatus.INTERNAL_SERVER_ERROR);
+                        }
                         String uri = exchange.getRequest().getURI().getPath();
                         String method = exchange.getRequest().getMethod().name();
                         // 显式带上请求协商出的 enc（C2）：SM4-GCM 的 CEK 是 16B，按长度猜会封成 A128GCM
                         return Mono.fromCallable(() -> protocol.codec().encryptResponse(
-                                bytes, jweContext.cek(), jweContext.enc(), uri, method,
+                                bytes, cek, enc, uri, method,
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
                             .subscribeOn(crypto.scheduler())
                             .flatMap(jwe -> {
@@ -118,6 +127,11 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
                                 getHeaders().setContentLength(payload.length);
                                 return super.writeWith(Mono.just(getDelegate().bufferFactory().wrap(payload)));
+                            })
+                            .onErrorResume(RejectedExecutionException.class, e -> {
+                                // 与请求侧一致：队列满 = 503（可重试），不是 500
+                                logger.warn("响应加密被拒绝（队列满）, uri: {}", uri);
+                                return fail(HttpStatus.SERVICE_UNAVAILABLE);
                             })
                             .onErrorResume(Throwable.class, e -> {
                                 logger.error("响应加密失败, uri: {}", uri, e);
@@ -148,8 +162,7 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 return writeWith(flattened);
             }
 
-            /** HEAD、1xx、204/205/304 按 HTTP 语义不产生 body，不能改成 JWE。
-             *  Spring 6 起 {@code getStatusCode()} 返回 {@link HttpStatusCode}（javax 线为 HttpStatus）。 */
+            /** HEAD、1xx、204/205/304 按 HTTP 语义不产生 body，不能改成 JWE。 */
             private boolean isNoBodyResponse() {
                 HttpStatusCode status = getStatusCode();
                 int code = status == null ? HttpStatus.OK.value() : status.value();

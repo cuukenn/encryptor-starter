@@ -51,6 +51,22 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void vndApiJson载体按JSON解析() throws Exception {
+        String plaintext = "{\"name\":\"alice\"}";
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+        request.setContentType("application/vnd.api+json");
+        request.setContent(("{\"jwe\":\"" + support.seal(plaintext, "/api/j", "POST") + "\"}")
+            .getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        run(request, response);
+
+        assertThat(chainExecuted).isTrue();
+        assertThat(WebContext.current().getCarrier()).isEqualTo(WebContext.Carrier.JSON);
+        assertThat(WebContext.current().getBodyPlaintext()).isEqualTo(plaintext.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
     void 失败日志包含trace与请求路径() throws Exception {
         Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

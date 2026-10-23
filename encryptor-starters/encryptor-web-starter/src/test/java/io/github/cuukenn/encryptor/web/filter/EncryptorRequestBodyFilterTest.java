@@ -57,6 +57,22 @@ class EncryptorRequestBodyFilterTest {
     }
 
     @Test
+    void 明文字符集统一为UTF8() throws Exception {
+        String json = "{\"name\":\"小明\"}";
+        WebContext ctx = WebContext.current();
+        ctx.setReqEncryptor(true);
+        ctx.setBodyPlaintext(json.getBytes(StandardCharsets.UTF_8));
+        FilterChain chain = (request, resp) -> {
+            assertThat(request.getCharacterEncoding()).isEqualTo("UTF-8");
+            assertThat(request.getContentType()).doesNotContainIgnoringCase("GBK");
+            assertThat(request.getReader().readLine()).isEqualTo(json);
+        };
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j");
+        request.setContentType("application/json;charset=GBK");
+        filter.doFilter(request, response, chain);
+    }
+
+    @Test
     void 无密文请求原样透传() throws Exception {
         AtomicReference<ServletRequest> seen = new AtomicReference<>();
         FilterChain chain = (request, resp) -> seen.set(request);

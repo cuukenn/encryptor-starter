@@ -74,7 +74,14 @@ public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
 
             @Override
             public String getContentType() {
-                return request.getContentType();
+                String contentType = request.getContentType();
+                // 明文是 UTF-8 解出来的：去掉下游声明的 charset，避免按 GBK 等再次解码
+                return contentType == null ? null : contentType.replaceAll("(?i);\\s*charset=[^;]*", "");
+            }
+
+            @Override
+            public String getCharacterEncoding() {
+                return "UTF-8";
             }
         }, response);
     }

@@ -51,6 +51,18 @@ public class CachedBodyHttpServletRequest extends HttpServletRequestWrapper {
     }
 
     @Override
+    public String getCharacterEncoding() {
+        return "UTF-8";
+    }
+
+    @Override
+    public String getContentType() {
+        String contentType = super.getContentType();
+        // 透传 body 是按 UTF-8 重放字节的：去掉原 charset，避免下游按其它编码解码
+        return contentType == null ? null : contentType.replaceAll("(?i);\\s*charset=[^;]*", "");
+    }
+
+    @Override
     public BufferedReader getReader() {
         return new BufferedReader(new InputStreamReader(getInputStream(), StandardCharsets.UTF_8));
     }

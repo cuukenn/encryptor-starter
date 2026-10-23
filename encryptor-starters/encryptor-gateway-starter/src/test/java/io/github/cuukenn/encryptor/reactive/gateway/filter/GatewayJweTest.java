@@ -8,6 +8,7 @@ import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.RSAEncrypter;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.Direction;
+import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.jose.KeyType;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
@@ -210,6 +211,24 @@ class GatewayJweTest {
         String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
         MockServerWebExchange exchange = MockServerWebExchange.from(
             MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON).body(envelope));
+        AtomicReference<String> body = new AtomicReference<>();
+        gateway().filter(exchange, e -> DataBufferUtils.join(e.getRequest().getBody())
+            .map(buffer -> {
+                byte[] bytes = new byte[buffer.readableByteCount()];
+                buffer.read(bytes);
+                DataBufferUtils.release(buffer);
+                return new String(bytes, StandardCharsets.UTF_8);
+            })
+            .doOnNext(body::set).then()).block(TIMEOUT);
+        assertThat(body.get()).isEqualTo("{\"name\":\"x\"}");
+    }
+
+    @Test
+    void vndApiJson载体按JSON解析() {
+        String envelope = "{\"jwe\":\"" + seal("{\"name\":\"x\"}", "/api/a", "POST") + "\"}";
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a")
+                .contentType(MediaType.parseMediaType("application/vnd.api+json")).body(envelope));
         AtomicReference<String> body = new AtomicReference<>();
         gateway().filter(exchange, e -> DataBufferUtils.join(e.getRequest().getBody())
             .map(buffer -> {
@@ -637,6 +656,27 @@ class GatewayJweTest {
     }
 
     /** 响应方向同理：流式/chunked 响应必须在读取过程中按 max-response-size 截断。 */
+    @Test
+    void 响应加密被拒绝时回503() throws Exception {
+        String compact = seal("a=1", "/api/a", "GET");
+        JweContext jweContext = protocol.openRequest(compact, "/api/a", "GET");
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
+        GatewayContext ctx = new GatewayContext();
+        ctx.setEncrypted(true);
+        ctx.setJweContext(jweContext);
+        exchange.getAttributes().put(GatewayConstant.GATEWAY_CONTEXT_ATTR, ctx);
+
+        CryptoExecutor disposed = CryptoExecutor.create();
+        disposed.dispose();
+        EncryptorResponseFilter filter = new EncryptorResponseFilter(gatewayConfig, reactiveConfig, protocol, disposed);
+        GatewayFilterChain inner = e -> e.getResponse().writeWith(
+            Mono.just(e.getResponse().bufferFactory().wrap("hello".getBytes(StandardCharsets.UTF_8))));
+
+        filter.filter(exchange, inner).block(TIMEOUT);
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
     @Test
     void chunkedResponse超限时不得读完整个流() {
         reactiveConfig.setMaxResponseSize(64);
