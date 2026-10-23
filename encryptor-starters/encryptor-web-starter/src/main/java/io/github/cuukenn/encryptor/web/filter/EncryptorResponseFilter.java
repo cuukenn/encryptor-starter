@@ -139,7 +139,7 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
             wrapper.resetBuffer();
             wrapper.setContentType("application/json");
             clearContentEncoding(wrapper);
-            wrapper.writeEncryptedBody(("{\"jwe\":\"" + compact + "\"}").getBytes(StandardCharsets.UTF_8));
+            wrapper.writeEncryptedEnvelope(compact);
             wrapper.copyBodyToResponse();
         } catch (RuntimeException e) {
             fail(wrapper, uri, "response encrypt failed: " + e);

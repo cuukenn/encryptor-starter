@@ -21,6 +21,9 @@ import java.nio.charset.StandardCharsets;
  * @author changgg
  */
 class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper {
+    private static final byte[] ENVELOPE_PREFIX = "{\"jwe\":\"".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] ENVELOPE_SUFFIX = "\"}".getBytes(StandardCharsets.US_ASCII);
+
     private final long limit;
     private boolean overflow;
     private BoundedServletOutputStream stream;
@@ -145,8 +148,15 @@ class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper
      * 写入加密后的响应体：上限约束的是业务明文，JWE 的 Base64 膨胀不应再被同一個上限截断。
      * 直接走父类的缓存流，绕过 {@link BoundedServletOutputStream} 的计数。
      */
-    void writeEncryptedBody(byte[] body) throws IOException {
-        super.getOutputStream().write(body);
+    /**
+     * 分三段写响应信封，避免把 base64 密文先拼成一份 UTF-16 {@code String} 再转字节：
+     * 大响应下这一步会额外产生约 2× 密文大小的字符数组。
+     */
+    void writeEncryptedEnvelope(String compact) throws IOException {
+        ServletOutputStream out = super.getOutputStream();
+        out.write(ENVELOPE_PREFIX);
+        out.write(compact.getBytes(StandardCharsets.US_ASCII));
+        out.write(ENVELOPE_SUFFIX);
     }
 
     /**

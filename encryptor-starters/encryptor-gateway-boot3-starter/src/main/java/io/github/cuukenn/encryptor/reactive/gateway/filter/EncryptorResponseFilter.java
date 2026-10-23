@@ -38,6 +38,8 @@ import java.util.UUID;
  */
 public class EncryptorResponseFilter implements GlobalFilter, Ordered {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorResponseFilter.class);
+    private static final byte[] JWE_PREFIX = "{\"jwe\":\"".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] JWE_SUFFIX = "\"}".getBytes(StandardCharsets.US_ASCII);
 
     private final GatewayEncryptorConfig config;
     private final EncryptorConfig reactiveConfig;
@@ -104,8 +106,12 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
                             .subscribeOn(crypto.scheduler())
                             .flatMap(jwe -> {
-                                byte[] payload = ("{\"jwe\":\"" + jwe + "\"}")
-                                    .getBytes(StandardCharsets.UTF_8);
+                                byte[] jweBytes = jwe.getBytes(StandardCharsets.US_ASCII);
+                                byte[] payload = new byte[JWE_PREFIX.length + jweBytes.length + JWE_SUFFIX.length];
+                                System.arraycopy(JWE_PREFIX, 0, payload, 0, JWE_PREFIX.length);
+                                System.arraycopy(jweBytes, 0, payload, JWE_PREFIX.length, jweBytes.length);
+                                System.arraycopy(JWE_SUFFIX, 0, payload, JWE_PREFIX.length + jweBytes.length,
+                                    JWE_SUFFIX.length);
                                 getHeaders().setContentType(MediaType.APPLICATION_JSON);
                                 // body 已被换成 JWE JSON：下游若声明 Content-Encoding（如 gzip）必须去掉，
                                 // 否则客户端按 gzip 解压 JWE JSON 得到乱码
