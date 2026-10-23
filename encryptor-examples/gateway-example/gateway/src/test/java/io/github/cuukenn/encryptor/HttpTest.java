@@ -1,7 +1,5 @@
 package io.github.cuukenn.encryptor;
 
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
 import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
@@ -10,6 +8,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.DefaultResponseErrorHandler;
+import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -48,9 +52,9 @@ public class HttpTest {
     public void test_get() {
         String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/hello", "GET");
-        HttpResponse response = HttpRequest.get(BASE + "/test/hello?jwe=" + url(sealed.compact)).execute();
-        Assertions.assertEquals(200, response.getStatus(), "GET /test/hello 应返回 200");
-        String body = decryptResponse(response.body(), sealed.cek);
+        ResponseEntity<String> response = REST.getForEntity(BASE + "/test/hello?jwe=" + url(sealed.compact), String.class);
+        Assertions.assertEquals(200, response.getStatusCodeValue(), "GET /test/hello 应返回 200");
+        String body = decryptResponse(response.getBody(), sealed.cek);
         logger.info("decrypted: {}", body);
         Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
         Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
@@ -59,11 +63,12 @@ public class HttpTest {
     @Test
     public void test_post() {
         Sealed sealed = seal("{\"name\":\"小明\"}", "/test/hello", "POST");
-        HttpResponse response = HttpRequest.post(BASE + "/test/hello")
-                .header("Content-Type", "application/json")
-                .body("{\"jwe\":\"" + sealed.compact + "\"}").execute();
-        Assertions.assertEquals(200, response.getStatus(), "POST /test/hello 应返回 200");
-        String body = decryptResponse(response.body(), sealed.cek);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> response = REST.postForEntity(BASE + "/test/hello",
+            new HttpEntity<>("{\"jwe\":\"" + sealed.compact + "\"}", headers), String.class);
+        Assertions.assertEquals(200, response.getStatusCodeValue(), "POST /test/hello 应返回 200");
+        String body = decryptResponse(response.getBody(), sealed.cek);
         logger.info("decrypted: {}", body);
         Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
         Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
@@ -77,9 +82,23 @@ public class HttpTest {
         String[] parts = sealed.compact.split("\\.");
         char first = parts[3].charAt(0);
         parts[3] = (first == 'A' ? 'B' : 'A') + parts[3].substring(1);
-        HttpResponse response = HttpRequest.get(BASE + "/test/hello?jwe=" + url(String.join(".", parts))).execute();
-        logger.info("tampered status: {}, body: {}", response.getStatus(), response.body());
-        Assertions.assertEquals(400, response.getStatus(), "篡改报文应被拒（400）");
+        ResponseEntity<String> response = REST.getForEntity(BASE + "/test/hello?jwe=" + url(String.join(".", parts)), String.class);
+        logger.info("tampered status: {}, body: {}", response.getStatusCodeValue(), response.getBody());
+        Assertions.assertEquals(400, response.getStatusCodeValue(), "篡改报文应被拒（400）");
+    }
+
+    /** 4xx/5xx 也要拿到状态与 body（默认 RestTemplate 会抛异常）。 */
+    private static final RestTemplate REST = restTemplate();
+
+    private static RestTemplate restTemplate() {
+        RestTemplate template = new RestTemplate();
+        template.setErrorHandler(new DefaultResponseErrorHandler() {
+            @Override
+            public boolean hasError(org.springframework.http.client.ClientHttpResponse response) {
+                return false;
+            }
+        });
+        return template;
     }
 
     // ==================== 构造/解密工具（与 web-example/HttpTest 同构） ====================

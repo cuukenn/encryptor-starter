@@ -17,6 +17,10 @@ import io.github.cuukenn.encryptor.reactive.gateway.config.GatewayEncryptorConfi
 import io.github.cuukenn.encryptor.reactive.gateway.constant.GatewayConstant;
 import io.github.cuukenn.encryptor.reactive.gateway.kit.GatewayContext;
 import io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +60,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * 网关 v2 链路行为测试（gateway.filter 顺序手工串链：gateway(外) → response(内) → 业务）。
@@ -87,6 +92,22 @@ class GatewayJweTest {
             .build();
         gatewayConfig = new GatewayEncryptorConfig();
         reactiveConfig = new EncryptorConfig();
+    }
+
+    @Test
+    void skip名单含eventStream时启动告警() {
+        gatewayConfig.getSkipResContentType().add("text/event-stream");
+        Logger logger = (Logger) getLogger(EncryptorGatewayFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, protocol, CRYPTO);
+        } finally {
+            logger.detachAppender(appender);
+        }
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+            && e.getFormattedMessage().contains("不加密"));
     }
 
     private String seal(String plaintext, String uri, String method) {

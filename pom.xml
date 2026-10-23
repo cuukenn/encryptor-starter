@@ -197,6 +197,18 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.11.0</version>
                 </plugin>
+                <!-- jar 插件必须 >= 3.2 才识别 project.build.outputTimestamp（可复现构建）；
+                     2.4 还会把构建时刻写进 pom.properties/entry 时间 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.4.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.1</version>
+                </plugin>
                 <!--  单元测试：JUnit5 需要 surefire 2.22+，Maven 默认的 2.12.x 不会执行 JUnit5 测试-->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

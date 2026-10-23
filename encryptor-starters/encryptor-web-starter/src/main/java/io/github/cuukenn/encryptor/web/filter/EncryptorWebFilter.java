@@ -46,6 +46,8 @@ import java.util.UUID;
  */
 public class EncryptorWebFilter extends OncePerRequestFilter {
     private static final Logger logger = LoggerFactory.getLogger(EncryptorWebFilter.class);
+    /** 声明长度预分配上限：超过它就走扩容路径，避免"大 Content-Length + 小 body"放大内存。 */
+    private static final long READ_PREALLOC_LIMIT = 64 * 1024L;
     private final WebEncryptorConfig config;
     private final EncryptorConfig protocol;
     private final DefaultProtocol protocolStack;
@@ -56,6 +58,27 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         this.protocol = protocol;
         this.protocolStack = protocolStack;
         this.runtime = runtime;
+        logSkipSummary();
+    }
+
+
+    /** 启动期把四条名单与流式风险打到日志：默认名单/覆盖名单都能一眼看到。 */
+    private void logSkipSummary() {
+        logger.info("加密过滤名单: skip-uris={}, skip-methods={}, skip-req-content-type={}, skip-res-content-type={}",
+            config.getSkipUris(), config.getSkipMethods(), config.getSkipReqContentType(), config.getSkipResContentType());
+        boolean eventStream = false;
+        for (String type : config.getSkipResContentType()) {
+            if (type != null && type.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
+                eventStream = true;
+                break;
+            }
+        }
+        if (eventStream) {
+            logger.warn("skip-res-content-type 含 text/event-stream：SSE 响应将不加密，直接明文输出");
+        } else if (config.getSkipResContentType().isEmpty() && protocol.getMaxResponseSize() > 0) {
+            logger.warn("skip-res-content-type 为空且 max-response-size={}：流式/大响应会被整体缓冲，超限返回失败",
+                protocol.getMaxResponseSize());
+        }
     }
 
     @Override
@@ -230,9 +253,12 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
 
     /**
      * 有界读取：最多读 {@code limit + 1} 字节；写满即判定超限返回 {@code null}（chunked 无 Content-Length 时防堆打爆）。
+     *
+     * <p>声明长度只用于"小包快路径"预分配：客户端可在只发几个字节的情况下声明任意 Content-Length，
+     * 按声明值全额分配会变成内存放大 DoS；超过 {@link #READ_PREALLOC_LIMIT} 一律走扩容路径。</p>
      */
     private static byte[] readBounded(InputStream in, long limit, long contentLength) throws IOException {
-        if (contentLength > 0 && contentLength <= limit) {
+        if (contentLength > 0 && contentLength <= limit && contentLength <= READ_PREALLOC_LIMIT) {
             // 声明长度可信时一次分配到位，省掉 8KB 起步的反复扩容与最终 toByteArray 复制
             byte[] body = new byte[(int) contentLength];
             int offset = 0;
@@ -246,11 +272,16 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             // 声明长度小于实际 body：多读一字节判定超限，不能让"少报 Content-Length"绕过上限
             return in.read() == -1 ? body : null;
         }
-        return readBounded(in, limit);
+        long initial = contentLength > 0 ? Math.min(contentLength, READ_PREALLOC_LIMIT) : 8192;
+        return readBounded(in, limit, (int) Math.min(initial, Math.min(limit, Integer.MAX_VALUE)));
     }
 
     private static byte[] readBounded(InputStream in, long limit) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream((int) Math.min(limit, 8192));
+        return readBounded(in, limit, (int) Math.min(limit, 8192));
+    }
+
+    private static byte[] readBounded(InputStream in, long limit, int initialCapacity) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(initialCapacity);
         byte[] buffer = new byte[8192];
         long total = 0;
         while (total <= limit) {

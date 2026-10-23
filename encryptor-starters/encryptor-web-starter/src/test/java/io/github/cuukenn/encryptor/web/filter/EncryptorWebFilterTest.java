@@ -8,6 +8,10 @@ import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.web.JweTestSupport;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
 import io.github.cuukenn.encryptor.web.kit.WebContext;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -21,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * v2 门面过滤器：三载体解密 / 决策（黑名单、bypass、require-encrypted、kid 白名单）。
@@ -46,6 +51,42 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void 启动日志打印skip名单与流式风险() {
+        Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        WebEncryptorConfig config = new WebEncryptorConfig();
+        config.getSkipResContentType().clear();
+        try {
+            new EncryptorWebFilter(config, protocolConfig, support.protocol, support.protocol.runtime());
+        } finally {
+            logger.detachAppender(appender);
+        }
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.INFO
+            && e.getFormattedMessage().contains("skip-res-content-type"));
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+            && e.getFormattedMessage().contains("整体缓冲"));
+    }
+
+    @Test
+    void skip名单含eventStream时告警明示不加密() {
+        WebEncryptorConfig config = new WebEncryptorConfig();
+        config.getSkipResContentType().add("text/event-stream");
+        Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new EncryptorWebFilter(config, protocolConfig, support.protocol, support.protocol.runtime());
+        } finally {
+            logger.detachAppender(appender);
+        }
+        assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+            && e.getFormattedMessage().contains("不加密"));
+    }
+
+    @Test
     void query载体解密成功() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/a");
         request.setParameter("jwe", support.seal("a=1&b=2", "/api/a", "GET"));
@@ -60,6 +101,25 @@ class EncryptorWebFilterTest {
         assertThat(ctx.getParameters().get("a")).containsExactly("1");
         assertThat(ctx.getParameters().get("b")).containsExactly("2");
         assertThat(ctx.getParameters()).doesNotContainKey("jwe");
+    }
+
+    @Test
+    void 超大ContentLength不会按声明值预分配() throws Exception {
+        protocolConfig.setMaxRequestSize(4L * 1024 * 1024 * 1024);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/j") {
+            @Override
+            public long getContentLengthLong() {
+                return 3L * 1024 * 1024 * 1024;
+            }
+        };
+        request.setContentType("application/json");
+        request.setContent("{}".getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        run(request, response);
+
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(chainExecuted).isFalse();
     }
 
     @Test

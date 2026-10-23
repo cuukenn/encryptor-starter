@@ -32,8 +32,10 @@
 - servlet 异步交接时延迟清零请求明文，避免异步处理器读取时已被清零。
 - `SmCipherSuite` / `SmKeyEntryParser` 移到 `io.github.cuukenn.encryptor.sm`，避免与 core 的 `io.github.cuukenn.encryptor.jose` 形成 split package。
 - `MAX_NONCE_LENGTH` 改为按 UTF-8 字节数计算。
-- 响应封装减少整份拷贝：servlet/gateway 分三段写 `{"jwe":...}` 信封、复用 protected header 的 Base64URL、`aeadDecrypt` 改为 `update(cipherText)` + `doFinal(tag)`。
-- 请求体有界读按 `Content-Length` 一次分配（chunked 才走扩容）；`StrKit` 名单匹配改为循环，避免每请求 stream/matcher 分配。
+- 响应封装减少整份拷贝：servlet/gateway 分三段写 `{"jwe":...}` 信封、复用 protected header 的 Base64URL。
+- 请求体有界读在小包场景按 `Content-Length` 预分配（上限 64KB，避免大声明值放大内存）；`StrKit` 名单匹配改为循环，避免每请求 stream/matcher 分配。
+- 启动日志打印四条 `skip-*` 名单；`text/event-stream` 命中 skip 或名单为空且响应上限开启时给出 WARN。
+- 固定 `maven-jar-plugin`/`maven-source-plugin` 版本，`project.build.outputTimestamp` 生效（同一 commit 两次打包字节一致）。
 - `skip-res-content-type` 默认包含 `text/event-stream`，SSE 开箱不再被缓冲到超限。
 - 依赖瘦身：`hutool-all` 改为 `hutool-json`（servlet 侧的 `IoUtil`/`ThreadUtil` 换成 JDK/Spring 等价物）、core 移除未使用的 `mockito-core`、BOM 移除无人使用的 `spring-cloud-starter-bootstrap`。
 

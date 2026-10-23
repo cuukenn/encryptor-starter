@@ -1,7 +1,5 @@
 package io.github.cuukenn.encryptor;
 
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
 import com.nimbusds.jose.JWEAlgorithm;
 import com.nimbusds.jose.JWEHeader;
 import com.nimbusds.jose.EncryptionMethod;
@@ -10,6 +8,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.DefaultResponseErrorHandler;
+import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -51,9 +55,9 @@ public class HttpTest {
     public void test_get() {
         String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/hello", "GET", KID_GLOBAL, PUBLIC_KEY_GLOBAL);
-        HttpResponse response = sendGet("/test/hello?jwe=" + url(sealed.compact));
-        Assertions.assertEquals(200, response.getStatus(), "GET /test/hello 应返回 200");
-        String body = decryptResponse(response.body(), sealed.cek);
+        ResponseEntity<String> response = sendGet("/test/hello?jwe=" + url(sealed.compact));
+        Assertions.assertEquals(200, response.getStatusCodeValue(), "GET /test/hello 应返回 200");
+        String body = decryptResponse(response.getBody(), sealed.cek);
         logger.info("decrypted: {}", body);
         Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
         Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
@@ -66,9 +70,9 @@ public class HttpTest {
     public void test_get_uri_level_kid() {
         String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/secret", "GET", KID_SECRET, PUBLIC_KEY_SECRET);
-        HttpResponse response = sendGet("/test/secret?jwe=" + url(sealed.compact));
-        Assertions.assertEquals(200, response.getStatus(), "GET /test/secret 应返回 200");
-        String body = decryptResponse(response.body(), sealed.cek);
+        ResponseEntity<String> response = sendGet("/test/secret?jwe=" + url(sealed.compact));
+        Assertions.assertEquals(200, response.getStatusCodeValue(), "GET /test/secret 应返回 200");
+        String body = decryptResponse(response.getBody(), sealed.cek);
         Assertions.assertTrue(body.contains("Secret"), "响应应包含 Secret，实际为: " + body);
     }
 
@@ -79,20 +83,18 @@ public class HttpTest {
     public void test_get_uri_level_kid_rejected() {
         String plaintext = "name=" + enc("小明");
         Sealed sealed = seal(plaintext, "/test/secret", "GET", KID_GLOBAL, PUBLIC_KEY_GLOBAL);
-        HttpResponse response = sendGet("/test/secret?jwe=" + url(sealed.compact));
-        logger.info("wrong-kid status: {}, body: {}", response.getStatus(), response.body());
-        Assertions.assertEquals(400, response.getStatus(),
-                "用 uri 级白名单外的 kid 请求应被拒（400），实际: " + response.getStatus());
+        ResponseEntity<String> response = sendGet("/test/secret?jwe=" + url(sealed.compact));
+        logger.info("wrong-kid status: {}, body: {}", response.getStatusCodeValue(), response.getBody());
+        Assertions.assertEquals(400, response.getStatusCodeValue(),
+                "用 uri 级白名单外的 kid 请求应被拒（400），实际: " + response.getStatusCodeValue());
     }
 
     @Test
     public void test_post() {
         Sealed sealed = seal("{\"name\":\"小明\"}", "/test/hello", "POST", KID_GLOBAL, PUBLIC_KEY_GLOBAL);
-        HttpResponse response = HttpRequest.post(BASE + "/test/hello")
-                .header("Content-Type", "application/json")
-                .body("{\"jwe\":\"" + sealed.compact + "\"}").execute();
-        Assertions.assertEquals(200, response.getStatus(), "POST /test/hello 应返回 200");
-        String body = decryptResponse(response.body(), sealed.cek);
+        ResponseEntity<String> response = postJson("/test/hello", "{\"jwe\":\"" + sealed.compact + "\"}");
+        Assertions.assertEquals(200, response.getStatusCodeValue(), "POST /test/hello 应返回 200");
+        String body = decryptResponse(response.getBody(), sealed.cek);
         logger.info("decrypted: {}", body);
         Assertions.assertTrue(body.contains("Hello"), "响应应包含 Hello，实际为: " + body);
         Assertions.assertTrue(body.contains("小明"), "响应回显 name=小明，实际为: " + body);
@@ -158,8 +160,28 @@ public class HttpTest {
         return bytes;
     }
 
-    private static HttpResponse sendGet(String url) {
-        return HttpRequest.get(BASE + url).execute();
+    private static ResponseEntity<String> sendGet(String url) {
+        return REST.getForEntity(BASE + url, String.class);
+    }
+
+    private static ResponseEntity<String> postJson(String path, String body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return REST.postForEntity(BASE + path, new HttpEntity<>(body, headers), String.class);
+    }
+
+    /** 4xx/5xx 也要拿到状态与 body（默认 RestTemplate 会抛异常）。 */
+    private static final RestTemplate REST = restTemplate();
+
+    private static RestTemplate restTemplate() {
+        RestTemplate template = new RestTemplate();
+        template.setErrorHandler(new DefaultResponseErrorHandler() {
+            @Override
+            public boolean hasError(org.springframework.http.client.ClientHttpResponse response) {
+                return false;
+            }
+        });
+        return template;
     }
 
     /** URL 编码（UTF-8）。JDK 8 没有 URLEncoder.encode(String, Charset)（那是 Java 10+）。 */

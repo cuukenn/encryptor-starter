@@ -59,6 +59,27 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         this.reactiveConfig = reactiveConfig;
         this.protocol = protocol;
         this.crypto = crypto;
+        logSkipSummary();
+    }
+
+
+    /** 启动期把四条名单与流式风险打到日志：默认名单/覆盖名单都能一眼看到。 */
+    private void logSkipSummary() {
+        logger.info("加密过滤名单: skip-uris={}, skip-methods={}, skip-req-content-type={}, skip-res-content-type={}",
+            config.getSkipUris(), config.getSkipMethods(), config.getSkipReqContentType(), config.getSkipResContentType());
+        boolean eventStream = false;
+        for (String type : config.getSkipResContentType()) {
+            if (type != null && type.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
+                eventStream = true;
+                break;
+            }
+        }
+        if (eventStream) {
+            logger.warn("skip-res-content-type 含 text/event-stream：SSE 响应将不加密，直接明文输出");
+        } else if (config.getSkipResContentType().isEmpty() && reactiveConfig.getMaxResponseSize() > 0) {
+            logger.warn("skip-res-content-type 为空且 max-response-size={}：流式/大响应会被整体缓冲，超限返回失败",
+                reactiveConfig.getMaxResponseSize());
+        }
     }
 
     @Override
