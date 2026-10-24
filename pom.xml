@@ -204,11 +204,6 @@
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>3.4.1</version>
                 </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-source-plugin</artifactId>
-                    <version>3.3.1</version>
-                </plugin>
                 <!--  单元测试：JUnit5 需要 surefire 2.22+，Maven 默认的 2.12.x 不会执行 JUnit5 测试-->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -247,11 +242,12 @@
                         </execution>
                     </executions>
                 </plugin>
-                <!-- Source -->
+                <!-- Source：pluginManagement 只允许出现一次（Maven 3.9+ 对重复声明直接报错，
+                     3.8 只是后者覆盖前者——此前这里有两份，合并保留执行绑定与较新版本） -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-source-plugin</artifactId>
-                    <version>3.2.1</version>
+                    <version>3.3.1</version>
                     <executions>
                         <execution>
                             <phase>package</phase>

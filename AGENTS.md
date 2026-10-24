@@ -27,7 +27,7 @@ mvn -pl encryptor-core test            # 单模块 + 它的依赖（先 install 
 java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rff encryptor-bench/target/bench.json && encryptor-bench/check-thresholds.sh   # JMH（RSA 并行度≥2.5x、bytes/op 基线±10%）
 ```
 
-- Maven 在 **`/usr/local/maven/3.8.9/bin/mvn`**（不在 PATH）；`java` 11。
+- Maven 在 **`/usr/local/maven/3.8.9/bin/mvn`**（不在 PATH）；`java` 11。⚠️ **GitHub runner 的 Maven 已升到 3.9+（2026-10-24 CI 全红根因）**：3.9 对 `pluginManagement` 里同一插件重复声明从"后者覆盖"变成硬错误——根 POM 曾有两份 `maven-source-plugin`，已合并；本地 3.8.9 与 brew 的 3.10（`/opt/homebrew/bin/mvn`）现在都能过，改 POM 后建议双版本各跑一次。
 - 根 `pom.xml` **没有** checkstyle/spotless；surefire 固定 `2.22.2`（boot3 复制对 pom 各自 pin `3.5.4`，root 2.22.2 × JU Platform 1.12 会 Tests run: 0 假绿，见 pom 注释）。
 - `**/HttpTest.java` 被 surefire 排除（需先起服务）；`encryptor-examples/*/front/test.js` 也需先起服务。
 - surefire 默认 `trimStackTrace=true`，定位失败加 `-DtrimStackTrace=false`。
