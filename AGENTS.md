@@ -26,7 +26,7 @@
 12. **审计不双计**：codec 内失败由 `JweCodec` 回调、codec 外失败由过滤器补发；`EncryptorListener` 保持全 default 方法（API 演进范本）。
 13. **双线成对发布**：只 bump root 的 `project.version` + `encryptor.javax.line.version`（boot3 pom 禁止字面量版本）；`scripts/check-dual-line-versions.sh` 守卫。**改 POM 必须兼容 Maven 3.9+**（pluginManagement 重复声明 = 硬错误）；`-Pmain-module,boot3` 不可组合。
 14. **改 core 后先 `mvn -pl encryptor-core install -DskipTests`**；改完至少跑 `mvn -B -Pmain-module clean install`；改 examples/前端后 `-Pall-modules`。
-15. **协议/双写面变更的成对同步清单、boot3 复制对守卫口径、构建环境细节、其余实现级坑**——见 skill 的「成对文件对照表」「硬性限定目录」，改动前必读。
+15. **架构导航按模块拆在 skill 内**（`modules/core|web|gateway|sm.md` + `topics/sync-map|build-and-release.md`，入口为该 skill 的 `SKILL.md` 路由表）：协议/双写面变更必读 `topics/sync-map.md`；改 POM/发版必读 `topics/build-and-release.md`；其余按模块加载对应文件。
 16. **不写会变化的数字**（测试计数/基准数字/版本清单）进 AGENTS.md 与 skill——事实以 pom / 脚本 / CI 为准；历史明细只在 git log 与 CHANGELOG。
 
 ## 约定
