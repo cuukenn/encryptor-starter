@@ -74,11 +74,17 @@ jobs:
           gw_cfg   = inventory('encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/config/GatewayEncryptorConfig.java', cfg_patterns)
           if web_cfg != gw_cfg:
               sys.exit(f'FAIL: skip 字段清单分叉 web={sorted(web_cfg)} gateway={sorted(gw_cfg)}')
-          for helper in ('mergeAlias', 'warnUnmatchableCasing', 'warnParameterSuffix'):
-              for path in ('encryptor-starters/encryptor-web-starter/src/main/java/io/github/cuukenn/encryptor/web/config/WebEncryptorConfig.java',
-                           'encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/config/GatewayEncryptorConfig.java'):
-                  if helper not in open(path).read():
-                      sys.exit(f'FAIL: {path} 缺 {helper}（另一侧有——skip 口径助手单侧删除会静默漂移）')
+          # skip 机制已下沉 core SkipListsConfigBase（2026-10-24 收敛 TOP1）：
+          # 守卫改为断言两侧配置类都继承 base，且 base 内四个口径助手齐全
+          base_path = 'encryptor-core/src/main/java/io/github/cuukenn/encryptor/config/base/SkipListsConfigBase.java'
+          base_src = open(base_path).read()
+          for helper in ('mergeAlias', 'warnUnmatchableCasing', 'warnParameterSuffix', 'initSkipLists'):
+              if helper not in base_src:
+                  sys.exit(f'FAIL: {base_path} 缺 {helper}（skip 口径机制被单侧拆走会静默漂移）')
+          for path in ('encryptor-starters/encryptor-web-starter/src/main/java/io/github/cuukenn/encryptor/web/config/WebEncryptorConfig.java',
+                       'encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/config/GatewayEncryptorConfig.java'):
+              if 'extends SkipListsConfigBase' not in open(path).read():
+                  sys.exit(f'FAIL: {path} 未继承 SkipListsConfigBase（skip 口径必须单点维护在 core）')
           def beans(path):
               s = open(path).read()
               return set(re.findall(r'public\s+\w[\w<>,\s]*?\s(\w+)\([^)]*\)\s*\{', s))

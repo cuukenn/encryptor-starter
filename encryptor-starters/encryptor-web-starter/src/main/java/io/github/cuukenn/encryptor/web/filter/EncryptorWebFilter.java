@@ -9,6 +9,7 @@ import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
+import io.github.cuukenn.encryptor.kit.CarrierKit;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
@@ -147,7 +148,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             // getParameter 合并了 query 与 form body 两个来源：只有 jwe 确实来自 form body 时
             // 才按 FORM 处理（明文会同时替换参数与 body 视图）；jwe 在 query 上时必须按 QUERY
             // 处理（与网关侧同口径），否则明文会顶掉真实的 form body。
-            carrier = !hasQueryJwe(request.getQueryString())
+            carrier = !CarrierKit.hasQueryJwe(request.getQueryString(), EncryptorConstant.JWE_PARAM)
                 && ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
         } else if (isJson(ct)) {
             carrier = Carrier.JSON;
@@ -239,28 +240,6 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         WebContext.clear(request);
     }
 
-    /** jwe 参数是否出现在 query string 上（name 支持百分号编码形态）。 */
-    private static boolean hasQueryJwe(String queryString) {
-        if (queryString == null || queryString.isEmpty()) {
-            return false;
-        }
-        for (String pair : queryString.split("&")) {
-            int index = pair.indexOf('=');
-            String name = index < 0 ? pair : pair.substring(0, index);
-            if (EncryptorConstant.JWE_PARAM.equals(name)) {
-                return true;
-            }
-            try {
-                if (EncryptorConstant.JWE_PARAM.equals(URLDecoder.decode(name, "UTF-8"))) {
-                    return true;
-                }
-            } catch (IllegalArgumentException | UnsupportedEncodingException ignored) {
-                // 非法编码交给后续解析路径处理
-            }
-        }
-        return false;
-    }
-
     /** JSON 载体：application/json 及其结构化后缀（application/vnd.api+json 等），忽略参数。 */
     private static boolean isJson(String contentType) {
         if (contentType == null) {
@@ -284,32 +263,15 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 解析 urlencoded 明文为参数视图（保留多值；对 name/value 各做 UTF-8 URL 解码）。
+     * 解析 urlencoded 明文为参数视图（form 语义解码与多值保留在 core {@link CarrierKit}
+     * 单点维护；此处只转 Servlet 的 {@code String[]} 形态并保证不可修改）。
      */
     private static Map<String, String[]> parseQuery(String text) {
-        Map<String, List<String>> collected = new HashMap<>();
-        for (String pair : text.split("&")) {
-            if (pair.isEmpty()) {
-                continue;
-            }
-            int index = pair.indexOf('=');
-            String name = index < 0 ? pair : pair.substring(0, index);
-            String value = index < 0 ? "" : pair.substring(index + 1);
-            collected.computeIfAbsent(urlDecode(name), k -> new ArrayList<>())
-                .add(urlDecode(value));
-        }
+        Map<String, List<String>> collected = CarrierKit.parseUrlencoded(text);
         Map<String, String[]> parameters = new HashMap<>();
         collected.forEach((name, values) -> parameters.put(name, values.toArray(new String[0])));
         // Servlet 规范：getParameterMap 不得被应用修改——下游 put 会污染本请求共享视图
         return java.util.Collections.unmodifiableMap(parameters);
-    }
-
-    private static String urlDecode(String text) {
-        try {
-            return URLDecoder.decode(text, StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
-            throw new IllegalStateException("UTF-8 必然存在", e);
-        }
     }
 
     /**

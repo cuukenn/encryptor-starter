@@ -6,6 +6,7 @@ import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
+import io.github.cuukenn.encryptor.kit.CarrierKit;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.reactive.config.EncryptorConfig;
@@ -232,8 +233,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 String name;
                 String value;
                 try {
-                    name = java.net.URLDecoder.decode(eq < 0 ? pair : pair.substring(0, eq), "UTF-8");
-                    value = java.net.URLDecoder.decode(eq < 0 ? "" : pair.substring(eq + 1), "UTF-8");
+                    name = CarrierKit.decodeFormComponent(eq < 0 ? pair : pair.substring(0, eq));
+                    value = CarrierKit.decodeFormComponent(eq < 0 ? "" : pair.substring(eq + 1));
                 } catch (Exception e) {
                     // 与 servlet parseQuery 同口径：非法 urlencoded 文本按失败面拒绝
                     throw audit(EncryptorFailure.INTERNAL,
@@ -243,7 +244,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 if (encoded.length() > 0) {
                     encoded.append('&');
                 }
-                encoded.append(uriEncode(name)).append('=').append(uriEncode(value));
+                encoded.append(CarrierKit.encodeQueryComponent(name))
+                    .append('=').append(CarrierKit.encodeQueryComponent(value));
             }
             // 提前校验重建结果：非法编码转成 failure-status，不能留到下游 getURI() 时炸成 500
             URI targetUri;
@@ -314,15 +316,6 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             });
     }
 
-    /** URL 编码为 URI query 形态：URLEncoder 的 '+'（空格）改写为 %20，与 build(true) 的已编码口径一致。 */
-    private static String uriEncode(String value) {
-        try {
-            return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
-        } catch (java.io.UnsupportedEncodingException e) {
-            throw new IllegalStateException("UTF-8 必然存在", e);
-        }
-    }
-
     private String jweFromJson(byte[] bytes) {
         if (bytes.length == 0) {
             return null;
@@ -336,21 +329,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     }
 
     private String jweFromForm(byte[] bytes) {
-        if (bytes.length == 0) {
-            return null;
-        }
-        String body = new String(bytes, StandardCharsets.UTF_8);
-        String prefix = GatewayConstant.JWE_PARAM + "=";
-        for (String field : body.split("&")) {
-            if (field.startsWith(prefix)) {
-                try {
-                    return java.net.URLDecoder.decode(field.substring(prefix.length()), "UTF-8");
-                } catch (Exception e) {
-                    return null;
-                }
-            }
-        }
-        return null;
+        return CarrierKit.jweFromFormBody(bytes, GatewayConstant.JWE_PARAM);
     }
 
     /** codec 抛出的异常已经审计过；构造期经 {@link #audit} 的异常也已审计——这里只负责响应面。 */
