@@ -113,17 +113,31 @@ public class GatewayEncryptorConfiguration {
      * uri 级 kid 白名单必须在启动期与密钥库交叉校验：kid 拼错时该 uri 会恒定 400，且无任何告警。
      */
     static void validateCryptoKids(GatewayEncryptorConfig config, DefaultProtocol protocol) {
-        if (config.getCryptoConfig() == null) {
-            return;
-        }
-        for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
-            if (entry.getValue() == null) {
-                continue;
+        if (config.getCryptoConfig() != null) {
+            for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                for (String kid : entry.getValue()) {
+                    if (!protocol.keys().contains(kid)) {
+                        throw new EncryptorException("encryptor.config.reactive.gateway.crypto-config["
+                            + entry.getKey() + "] 引用了不存在的 kid: " + kid);
+                    }
+                }
             }
-            for (String kid : entry.getValue()) {
-                if (!protocol.keys().contains(kid)) {
-                    throw new EncryptorException("encryptor.config.reactive.gateway.crypto-config["
-                        + entry.getKey() + "] 引用了不存在的 kid: " + kid);
+        }
+        if (config.getRoutes() != null) {
+            for (Map.Entry<String, io.github.cuukenn.encryptor.config.base.RouteRule> entry
+                : config.getRoutes().entrySet()) {
+                List<String> kids = entry.getValue() == null ? null : entry.getValue().getKids();
+                if (kids == null) {
+                    continue;
+                }
+                for (String kid : kids) {
+                    if (!protocol.keys().contains(kid)) {
+                        throw new EncryptorException("encryptor.config.reactive.gateway.routes["
+                            + entry.getKey() + "].kids 引用了不存在的 kid: " + kid);
+                    }
                 }
             }
         }

@@ -142,8 +142,13 @@ encryptor:
       skip-res-content-type: ["text/event-stream"]  # 默认跳过 SSE；加密流式响应需显式清空
       # 旧名 black-uris / black-methods / black-req|res-content-type 仍可绑定
       # (弃用 alias, 启动会 WARN), 新旧共存时合并去重
-      crypto-config:            # uri 正则 → 该路由只接受哪些 kid
+      crypto-config:            # uri 正则 → 该路由只接受哪些 kid（旧键）
         "[^/pay/.*]": ["2026-10"]
+      # routes: per-route 策略新键（与 crypto-config 并存、同正则命中取并集）；
+      # 键结构 Map<正则, RouteRule> 已固定，后续 enc/ttl 等字段增量加入 RouteRule
+      # routes:
+      #   "[/pay/vip/.*]":
+      #     kids: ["vip-key"]     # 当前实现的字段（空 = 不限）
 ```
 
 > **含 `.` 的 uri 正则 key 必须用括号写法 `"[...]"`**，否则 Spring Boot 会静默把 key 改坏（如 `^/test/secret.*` → `testsecret`）。

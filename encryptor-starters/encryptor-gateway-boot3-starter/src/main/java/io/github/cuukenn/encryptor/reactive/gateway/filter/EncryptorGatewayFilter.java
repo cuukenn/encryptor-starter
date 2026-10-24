@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.reactive.gateway.filter;
 
 import cn.hutool.json.JSONUtil;
+import io.github.cuukenn.encryptor.config.base.RouteRule;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
@@ -162,10 +163,9 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             .subscribeOn(crypto.scheduler())
             .flatMap(ctx -> {
                 // 6. uri 级 kid 白名单（正则→允许 kid 集；空=全允许）
-                String matched = StrKit.getBestMatchStr(uri, config.getCryptoConfig().keySet());
-                if (matched != null) {
-                    List<String> allowedKids = config.getCryptoConfig().get(matched);
-                    if (allowedKids != null && !allowedKids.isEmpty() && !allowedKids.contains(ctx.kid())) {
+                List<String> allowedKids = RouteRule.effectiveKids(config.getCryptoConfig(), config.getRoutes(), uri);
+                if (allowedKids != null) {
+                    if (!allowedKids.isEmpty() && !allowedKids.contains(ctx.kid())) {
                         logger.warn("kid not allowed for uri: {}, kid: {}", uri, JweCodec.sanitize(ctx.kid()));
                         ctx.destroy();
                         return fail(exchange, reactiveConfig.getFailureStatus(), EncryptorFailure.ALG_NOT_ALLOWED,

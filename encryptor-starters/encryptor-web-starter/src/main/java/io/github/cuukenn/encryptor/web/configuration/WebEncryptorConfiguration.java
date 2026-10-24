@@ -140,17 +140,31 @@ public class WebEncryptorConfiguration {
      * 启动期就报错比流量上才发现便宜得多。
      */
     static void validateCryptoKids(WebEncryptorConfig config, DefaultProtocol protocol) {
-        if (config.getCryptoConfig() == null) {
-            return;
-        }
-        for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
-            if (entry.getValue() == null) {
-                continue;
+        if (config.getCryptoConfig() != null) {
+            for (Map.Entry<String, List<String>> entry : config.getCryptoConfig().entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                for (String kid : entry.getValue()) {
+                    if (!protocol.keys().contains(kid)) {
+                        throw new EncryptorException("encryptor.config.web.crypto-config[" + entry.getKey()
+                            + "] 引用了不存在的 kid: " + kid);
+                    }
+                }
             }
-            for (String kid : entry.getValue()) {
-                if (!protocol.keys().contains(kid)) {
-                    throw new EncryptorException("encryptor.config.web.crypto-config[" + entry.getKey()
-                        + "] 引用了不存在的 kid: " + kid);
+        }
+        if (config.getRoutes() != null) {
+            for (Map.Entry<String, io.github.cuukenn.encryptor.config.base.RouteRule> entry
+                : config.getRoutes().entrySet()) {
+                List<String> kids = entry.getValue() == null ? null : entry.getValue().getKids();
+                if (kids == null) {
+                    continue;
+                }
+                for (String kid : kids) {
+                    if (!protocol.keys().contains(kid)) {
+                        throw new EncryptorException("encryptor.config.web.routes[" + entry.getKey()
+                            + "].kids 引用了不存在的 kid: " + kid);
+                    }
                 }
             }
         }

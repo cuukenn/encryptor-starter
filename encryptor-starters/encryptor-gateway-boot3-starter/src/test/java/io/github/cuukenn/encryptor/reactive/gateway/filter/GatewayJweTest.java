@@ -7,6 +7,7 @@ import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.RSAEncrypter;
 import io.github.cuukenn.encryptor.audit.EncryptorListener;
+import io.github.cuukenn.encryptor.config.base.RouteRule;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.Direction;
@@ -707,6 +708,27 @@ class GatewayJweTest {
     }
 
     /** 响应方向同理：流式/chunked 响应必须在读取过程中按 max-response-size 截断。 */
+    @Test
+    void routes新键的kid白名单在网关同样生效() throws Exception {
+        // 直接 put 不需要 yml 括号写法（括号会被当正则字符类）
+        RouteRule rule = new RouteRule();
+        rule.setKids(java.util.Collections.singletonList("other-kid"));
+        gatewayConfig.getRoutes().put("/api/.*", rule);
+        try {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("x=1", "/api/a", "GET")));
+            AtomicBoolean called = new AtomicBoolean();
+            gateway().filter(exchange, e -> {
+                called.set(true);
+                return Mono.empty();
+            }).block(TIMEOUT);
+            assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(called).isFalse();
+        } finally {
+            gatewayConfig.getRoutes().clear();
+        }
+    }
+
     @Test
     void 请求侧执行器拒绝时回503且补审计回调() throws Exception {
         // 请求解密走 crypto scheduler：队列满/disposed 时必须 503（不能伪装成客户端 4xx）；

@@ -424,6 +424,32 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void routes新键的kid白名单同样生效且与cryptoConfig并集() throws Exception {
+        // routes 是 per-route 策略的新键（键结构已固定，后续加字段都是增量）：
+        // 当前语义 = kids 白名单，与 crypto-config 同正则命中取并集
+        io.github.cuukenn.encryptor.config.base.RouteRule rule =
+            new io.github.cuukenn.encryptor.config.base.RouteRule();
+        rule.setKids(java.util.Collections.singletonList("other-kid"));
+        webConfig.getRoutes().put("/api/.*", rule);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/a");
+        request.setParameter("jwe", support.seal("a=1", "/api/a", "GET"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(chainExecuted).isFalse();
+        // 同长命中并集：crypto-config 放行本 kid 后，routes 的 other-kid 并入 → 仍拒绝之外的 kid，
+        // 但 seal 用的默认 kid 在并集里时应放行
+        webConfig.getCryptoConfig().put("/api/.*", Arrays.asList(JweTestSupport.KID));
+        MockHttpServletRequest allowed = new MockHttpServletRequest("GET", "/api/a");
+        allowed.setParameter("jwe", support.seal("a=1", "/api/a", "GET"));
+        MockHttpServletResponse allowedResponse = new MockHttpServletResponse();
+        chainExecuted.set(false);
+        run(allowed, allowedResponse);
+        assertThat(allowedResponse.getStatus()).isEqualTo(200);
+        assertThat(chainExecuted).isTrue();
+    }
+
+    @Test
     void dot段路径不能绕过uri级kid白名单() throws Exception {
         // 下游容器会把 /x/../api/a 归一化到 /api/a：白名单必须按折叠后的路径匹配，
         // 否则穿越形态不命中白名单 = 任意 kid 放行，请求却落到受保护资源

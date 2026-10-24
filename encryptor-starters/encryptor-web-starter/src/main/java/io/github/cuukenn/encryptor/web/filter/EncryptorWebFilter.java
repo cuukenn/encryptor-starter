@@ -3,6 +3,7 @@ package io.github.cuukenn.encryptor.web.filter;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.config.base.RouteRule;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
@@ -254,12 +255,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
     }
 
     private List<String> acceptedKid(String uri) {
-        Map<String, List<String>> cryptoConfig = config.getCryptoConfig();
-        if (cryptoConfig == null || cryptoConfig.isEmpty()) {
-            return null;
-        }
-        String best = StrKit.getBestMatchStr(uri, cryptoConfig.keySet());
-        return best == null ? null : cryptoConfig.get(best);
+        return RouteRule.effectiveKids(config.getCryptoConfig(), config.getRoutes(), uri);
     }
 
     /**

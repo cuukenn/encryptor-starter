@@ -1,6 +1,7 @@
 package io.github.cuukenn.encryptor.web.config;
 
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
+import io.github.cuukenn.encryptor.config.base.RouteRule;
 import io.github.cuukenn.encryptor.config.base.SkipListsConfigBase;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.kit.StrKit;
@@ -36,6 +37,12 @@ public class WebEncryptorConfig extends SkipListsConfigBase implements Initializ
      * 含 {@code .} 的正则 key 必须用括号写法：{@code crypto-config["[^/pay/.*]"]: [k1, k2]}。
      */
     private Map<String, List<String>> cryptoConfig = new LinkedHashMap<>();
+    /**
+     * per-route 策略（新键，与 crypto-config 并存）：uri 正则 → {@link RouteRule}。
+     * 当前实现 kids（与 crypto-config 同正则命中取并集）；键结构已固定，后续 enc/ttl 等
+     * 字段往 RouteRule 里加都是增量绑定。正则 key 含 {@code .} 时同样必须用 {@code [key]} 括号写法。
+     */
+    private Map<String, RouteRule> routes = new LinkedHashMap<>();
 
     public boolean isEnable() {
         return enable;
@@ -61,6 +68,14 @@ public class WebEncryptorConfig extends SkipListsConfigBase implements Initializ
         this.cryptoConfig = cryptoConfig;
     }
 
+    public Map<String, RouteRule> getRoutes() {
+        return routes;
+    }
+
+    public void setRoutes(Map<String, RouteRule> routes) {
+        this.routes = routes;
+    }
+
     @Override
     public void afterPropertiesSet() {
         initSkipLists(PREFIX);
@@ -68,6 +83,9 @@ public class WebEncryptorConfig extends SkipListsConfigBase implements Initializ
         Map<String, List<String>> crypto = getCryptoConfig();
         if (crypto != null) {
             StrKit.precompile(PREFIX + ".crypto-config", crypto.keySet());
+        }
+        if (routes != null) {
+            StrKit.precompile(PREFIX + ".routes", routes.keySet());
         }
     }
 
