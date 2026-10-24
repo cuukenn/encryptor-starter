@@ -5,7 +5,12 @@ description: Use when touching ANY code, config, pom, docs, or tests in this rep
 
 # encryptor-starter 开发导航（路由层）
 
-报文层安全（机密性 + 防篡改）的 Spring Boot Starter 家族，协议对齐 JOSE/JWE（RFC 7516）。红线速查在仓库根 `AGENTS.md`（每会话已加载）；本 skill 只做**按模块路由**——按任务读下表对应的文件，不要全读。
+报文层安全（机密性 + 防篡改）的 Spring Boot Starter 家族，协议对齐 JOSE/JWE（RFC 7516）。本 skill 只做**按模块路由**——按任务读下表对应的文件，不要全读。
+
+## 安全边界（仓库级，先于一切模块）
+
+- **承诺**：机密性 + 完整性（AEAD）+ 现代算法 + 密钥轮换。**不承诺**客户端身份认证（TLS + Spring Security 承担；公钥公开、任何人可构造合法报文是设计内 non-goal）。不是 TLS 的替代。
+- **v1 协议残留必须 0 命中**：`EncryptorDataWrapper|AES_K|md5withaes|DigestWithEncryptSigner|GroupEncryptor|HexEncoder`。
 
 > `docs/architecture/*.md` 是 v1 时代记录（失效横幅，仅追溯）；协议定义见 `docs/superpowers/specs/2026-10-16-payload-security-protocol-design.md`（§3.11 演进通道契约）。任何文件都不写会变化的数字（测试计数/基准/版本清单）——以 pom / 脚本 / CI 为准。
 
