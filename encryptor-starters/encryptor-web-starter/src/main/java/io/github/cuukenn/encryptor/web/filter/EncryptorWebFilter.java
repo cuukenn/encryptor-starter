@@ -81,6 +81,10 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             logger.warn("skip-res-content-type 为空且 max-response-size={}：流式/大响应会被整体缓冲，超限返回失败",
                 protocol.getMaxResponseSize());
         }
+        if (protocol.getMaxRequestSize() <= 0) {
+            logger.warn("encryptor.config.max-request-size<=0：请求体缓冲不设上限，JSON 载体会全量读入内存"
+                + "（请配置 max-request-size 或 skip-req-content-type）");
+        }
     }
 
     @Override
@@ -100,7 +104,8 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         // AAD 仍用原始 requestURI，与客户端 location.pathname 口径一致。
         String matchUri = ContextAad.canonicalPath(uri, request.getContextPath());
         String method = request.getMethod();
-        if (StrKit.anyMatch(matchUri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
+        // method 按规范大写归一后再匹配：配置写 get/Get/GET 都能命中
+        if (StrKit.anyMatch(matchUri, config.getSkipUris()) || StrKit.anyMatch(method.toUpperCase(Locale.ROOT), config.getSkipMethods())) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -133,7 +138,11 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         compact = request.getParameter(EncryptorConstant.JWE_PARAM);
         if (compact != null && !compact.isEmpty()) {
-            carrier = ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
+            // getParameter 合并了 query 与 form body 两个来源：只有 jwe 确实来自 form body 时
+            // 才按 FORM 处理（明文会同时替换参数与 body 视图）；jwe 在 query 上时必须按 QUERY
+            // 处理（与网关侧同口径），否则明文会顶掉真实的 form body。
+            carrier = !hasQueryJwe(request.getQueryString())
+                && ct.startsWith("application/x-www-form-urlencoded") ? Carrier.FORM : Carrier.QUERY;
         } else if (isJson(ct)) {
             carrier = Carrier.JSON;
             byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : StreamUtils.copyToByteArray(request.getInputStream());
@@ -214,7 +223,29 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             request.getMethod(), request.getRequestURI());
         response.setHeader(EncryptorResponseFilter.TRACE_HEADER, trace);
         response.setStatus(status);
-        WebContext.clear();
+        WebContext.clear(request);
+    }
+
+    /** jwe 参数是否出现在 query string 上（name 支持百分号编码形态）。 */
+    private static boolean hasQueryJwe(String queryString) {
+        if (queryString == null || queryString.isEmpty()) {
+            return false;
+        }
+        for (String pair : queryString.split("&")) {
+            int index = pair.indexOf('=');
+            String name = index < 0 ? pair : pair.substring(0, index);
+            if (EncryptorConstant.JWE_PARAM.equals(name)) {
+                return true;
+            }
+            try {
+                if (EncryptorConstant.JWE_PARAM.equals(URLDecoder.decode(name, "UTF-8"))) {
+                    return true;
+                }
+            } catch (IllegalArgumentException | UnsupportedEncodingException ignored) {
+                // 非法编码交给后续解析路径处理
+            }
+        }
+        return false;
     }
 
     /** JSON 载体：application/json 及其结构化后缀（application/vnd.api+json 等），忽略参数。 */
@@ -256,7 +287,8 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         Map<String, String[]> parameters = new HashMap<>();
         collected.forEach((name, values) -> parameters.put(name, values.toArray(new String[0])));
-        return parameters;
+        // Servlet 规范：getParameterMap 不得被应用修改——下游 put 会污染本请求共享视图
+        return java.util.Collections.unmodifiableMap(parameters);
     }
 
     private static String urlDecode(String text) {

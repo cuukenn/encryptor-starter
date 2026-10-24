@@ -65,9 +65,20 @@ public class EcCipherSuite implements CipherSuite {
             "ECDH-ES 需要 protected header 里的 epk，不能走不带 header 的解封入口");
     }
 
+    /** P-256 公钥 x 坐标定长 32 字节（RFC 7518 §4.6.1 的固定宽度约定）。 */
+    private static final int P256_COORDINATE_BYTES = 32;
+    private static final byte[] EMPTY_BYTES = new byte[0];
+
     @Override
     public byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey, JWEHeader header)
         throws Exception {
+        // 无 headerJson 的旧入口：现场序列化一次，委托给复用入口
+        return unwrapCek(keys, kid, alg, encryptedKey, header, header.toJSONObject());
+    }
+
+    @Override
+    public byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey, JWEHeader header,
+                            Map<String, Object> headerJson) throws Exception {
         if (!ALG.equals(alg)) {
             throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED, "套件不支持的解封算法: " + alg);
         }
@@ -83,7 +94,7 @@ public class EcCipherSuite implements CipherSuite {
         if (header == null) {
             throw JweCodec.fail(EncryptorFailure.BAD_HEADER, "ECDH-ES 缺少 protected header");
         }
-        rejectPrivateEpk(header);
+        rejectPrivateEpk(headerJson);
         com.nimbusds.jose.jwk.JWK epkJwk = header.getEphemeralPublicKey();
         if (!(epkJwk instanceof ECKey)) {
             throw JweCodec.fail(EncryptorFailure.BAD_HEADER, "ECDH-ES 缺少 epk（临时公钥）或它不是 EC 密钥");
@@ -98,6 +109,12 @@ public class EcCipherSuite implements CipherSuite {
         if (enc == null) {
             throw JweCodec.fail(EncryptorFailure.BAD_HEADER, "ECDH-ES 缺少 enc");
         }
+        // RFC 7518 §4.6.1：apu/apv 存在时必须进 OtherInfo（PartyUInfo/PartyVInfo）。
+        // 此前恒空，与发送 apu/apv 的合规客户端（如 WebCrypto 侧）派生出不同 CEK 而静默失败。
+        byte[] partyU = header.getAgreementPartyUInfo() == null
+            ? EMPTY_BYTES : header.getAgreementPartyUInfo().decode();
+        byte[] partyV = header.getAgreementPartyVInfo() == null
+            ? EMPTY_BYTES : header.getAgreementPartyVInfo().decode();
         ECPublicKey ephemeral;
         try {
             ephemeral = epk.toECPublicKey();
@@ -109,8 +126,15 @@ public class EcCipherSuite implements CipherSuite {
         agreement.doPhase((PublicKey)ephemeral, true);
         byte[] shared = agreement.generateSecret();
         try {
-            // Concat KDF 的 AlgorithmID 取 enc（RFC 7518 §4.6.2），keydatalen 由 enc 决定
-            return ConcatKdf.derive(shared, enc, keyLength(enc) * 8);
+            // 共享秘密 Z 必须是 P-256 的定长 32 字节 x 坐标：个别 JCE Provider（老版 BC JCA）
+            // 会剥掉前导零，导致与服务端/客户端的另一侧派生出不同 CEK——这里统一左补零。
+            byte[] z = leftPadTo32(shared);
+            try {
+                // Concat KDF 的 AlgorithmID 取 enc（RFC 7518 §4.6.2），keydatalen 由 enc 决定
+                return ConcatKdf.derive(z, enc, partyU, partyV, keyLength(enc) * 8);
+            } finally {
+                Arrays.fill(z, (byte) 0);
+            }
         } finally {
             // 共享秘密 Z 等价于长期密钥材料，派生完立即清零，不等 GC
             Arrays.fill(shared, (byte) 0);
@@ -118,11 +142,31 @@ public class EcCipherSuite implements CipherSuite {
     }
 
     /** {@code epk} 是公钥，出现私钥参数 {@code d} 说明客户端实现有问题，直接拒绝。 */
-    private static void rejectPrivateEpk(JWEHeader header) {
-        Object raw = header.toJSONObject().get(EPK);
+    private static void rejectPrivateEpk(Map<String, Object> headerJson) {
+        Object raw = headerJson.get(EPK);
         if (raw instanceof Map && ((Map<?, ?>)raw).containsKey(EPK_PRIVATE_PARAM)) {
             throw JweCodec.fail(EncryptorFailure.BAD_HEADER, "epk 不得携带私钥参数 d");
         }
+    }
+
+    /** 共享秘密左补零到 32 字节；超长视为非法（P-256 上不可能）。 */
+    private static byte[] leftPadTo32(byte[] shared) {
+        if (shared.length == P256_COORDINATE_BYTES) {
+            return Arrays.copyOf(shared, shared.length);
+        }
+        if (shared.length > P256_COORDINATE_BYTES) {
+            throw JweCodec.fail(EncryptorFailure.DECRYPT_FAILED,
+                "ECDH 共享秘密长度非法: " + shared.length + "（P-256 应为 32 字节）");
+        }
+        byte[] padded = new byte[P256_COORDINATE_BYTES];
+        System.arraycopy(shared, 0, padded, P256_COORDINATE_BYTES - shared.length, shared.length);
+        return padded;
+    }
+
+    /** CEK 由 ConcatKDF 按 enc 派生，只能配本套件声明的 AES-GCM 家族（拒绝 ECDH-ES + SM4-GCM 等交叉组合）。 */
+    @Override
+    public boolean pairsWith(String alg, String enc) {
+        return ALG.equals(alg) && aead.encryptionMethods().contains(enc);
     }
 
     @Override

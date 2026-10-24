@@ -18,8 +18,8 @@
 > | P3-1、P3-2、P3-3 | 🟩 消除 | AGENTS.md/README 已按 v2 重写 |
 > | P3-6、P3-7 | 🟩 消除 | StrKit 正则缓存 + 确定性保留；`[key]` 括号写法有绑定回归测试 |
 > | P3-8 | 🟩 保持 | enforcer/工程卫生仍在 |
-> | P2-2 | 🟩 已修（2026-10-18，2026-10-21 复核翻绿） | CI 新增 `mvn -B -Pall-modules -DskipTests package`（示例 + bench 编译）与两份 `jwe.js` 的 `diff` 守卫，见 `.github/workflows/ci.yml` |
-> | P2-3 | ⚠️ 仍开放 | 两份 `jwe.js`（web/gateway 示例）仍对称复制，接受（无共享发布物） |
+> | P2-2 | 🟩 已修（2026-10-18，2026-10-21 复核翻绿） | CI 新增 `mvn -B -Pall-modules -DskipTests package`（示例 + bench 编译）与三份 `jwe.js` 的 `diff` 守卫，见 `.github/workflows/ci.yml` |
+> | P2-3 | ⚠️ 仍开放 | 三份 `jwe.js`（web/gateway/boot3 示例）仍对称复制，接受（无共享发布物） |
 > | P3-4 | 🟩 已修（2026-10-18） | 名单正名 `skip-*`（命中即跳过），旧名 `black-*` 保留为**弃用 alias**（启动 WARN、新旧合并去重、绑定测试钉死） |
 > | P3-5 | 🟩 已修（2026-10-18） | 改为 `.github/ISSUE_TEMPLATE/bug_report.md`（front-matter 形式）；`pull_request_template.md` 本就在规范路径 |
 >

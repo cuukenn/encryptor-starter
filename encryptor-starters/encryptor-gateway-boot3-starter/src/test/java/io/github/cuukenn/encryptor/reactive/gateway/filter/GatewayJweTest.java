@@ -6,6 +6,8 @@ import com.nimbusds.jose.JWEObject;
 import com.nimbusds.jose.EncryptionMethod;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.RSAEncrypter;
+import io.github.cuukenn.encryptor.audit.EncryptorListener;
+import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.Direction;
 import io.github.cuukenn.encryptor.jose.JweContext;
@@ -97,6 +99,46 @@ class GatewayJweTest {
     }
 
     @Test
+    void codec之外的失败分支也触发审计回调() throws Exception {
+        // 缺载体 / kid 白名单 / 执行器拒绝等失败不经过 codec，此前审计对它们全盲；
+        // codec 路径的失败由 JweCodec 审计，这里不会重复出现
+        java.util.List<EncryptorFailure> failures = new java.util.ArrayList<>();
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        DefaultProtocol audited = DefaultProtocol.builder()
+            .key(new DefaultProtocol.KeyMaterial(KID, KeyType.RSA,
+                Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()),
+                Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())))
+            .listener(new EncryptorListener() {
+                @Override
+                public void onDecryptFailure(EncryptorFailure failure, Throwable cause) {
+                    failures.add(failure);
+                }
+            }).build();
+        EncryptorGatewayFilter filter = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, audited, CRYPTO);
+        try {
+            // 1) 缺载体 + require-encrypted
+            reactiveConfig.setRequireEncrypted(true);
+            MockServerWebExchange missing = MockServerWebExchange.from(MockServerHttpRequest.get("/api/a"));
+            filter.filter(missing, e -> Mono.empty()).block(TIMEOUT);
+
+            // 2) kid 白名单拒绝（seal 用同一密钥对，保证解密先成功、失败只来自白名单）
+            // 直接 put 时不需要 yml 的括号写法：括号会被当正则字符类
+            gatewayConfig.getCryptoConfig().put("/api/.*", java.util.Collections.singletonList("other-kid"));
+            MockServerWebExchange kidDenied = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/a").queryParam("jwe",
+                    sealWith("x", "/api/a", "GET", pair.getPublic())));
+            filter.filter(kidDenied, e -> Mono.empty()).block(TIMEOUT);
+
+            assertThat(failures).containsExactly(EncryptorFailure.MISSING, EncryptorFailure.ALG_NOT_ALLOWED);
+        } finally {
+            reactiveConfig.setRequireEncrypted(false);
+            gatewayConfig.getCryptoConfig().clear();
+        }
+    }
+
+    @Test
     void 过滤器顺序门面在外响应在内() {
         EncryptorResponseFilter responseFilter =
             new EncryptorResponseFilter(gatewayConfig, reactiveConfig, protocol, CRYPTO);
@@ -121,6 +163,10 @@ class GatewayJweTest {
     }
 
     private String seal(String plaintext, String uri, String method) {
+        return sealWith(plaintext, uri, method, publicKey);
+    }
+
+    private String sealWith(String plaintext, String uri, String method, java.security.PublicKey key) {
         long ts = System.currentTimeMillis();
         String nonce = UUID.randomUUID().toString();
         Map<String, Object> claims = ContextAad.claims(uri, method, Direction.REQUEST, ts, nonce);
@@ -128,7 +174,7 @@ class GatewayJweTest {
             .keyID(KID).customParams(claims).build();
         JWEObject jwe = new JWEObject(header, new Payload(plaintext));
         try {
-            jwe.encrypt(new RSAEncrypter((RSAPublicKey) publicKey));
+            jwe.encrypt(new RSAEncrypter((RSAPublicKey) key));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -242,9 +288,10 @@ class GatewayJweTest {
     }
 
     @Test
-    void query载体明文已是编码形态时原样转发() {
-        // 客户端契约：query 明文本身就是百分号编码形态（参见 HttpTest 的 URLEncoder、servlet parseQuery 的 URLDecoder）
-        String encoded = "q=%E5%BC%A0%E4%B8%89&x=a%20b";
+    void query载体明文按form语义解码且uri保持已编码形态() {
+        // 客户端契约：query 明文是 form 语义的 urlencoded（与 servlet parseQuery 的 URLDecoder 同口径，
+        // 空格编码为 +）；下游参数视图拿到的是【解码值】（与 servlet 侧一致），URI 重建保持已编码形态
+        String encoded = "q=%E5%BC%A0%E4%B8%89&x=a%20b&plus=a+b";
         MockServerWebExchange exchange = MockServerWebExchange.from(
             MockServerHttpRequest.get("/api/a").queryParam("jwe", seal(encoded, "/api/a", "GET")));
         AtomicReference<URI> uri = new AtomicReference<>();
@@ -254,16 +301,20 @@ class GatewayJweTest {
             params.set(e.getRequest().getQueryParams());
             return Mono.empty();
         }).block(TIMEOUT);
-        assertThat(uri.get().getRawQuery()).isEqualTo(encoded);
+        // '+' 按语义解码后重建为等价的 %20（form 语义下两者都解码为空格）
+        assertThat(uri.get().getRawQuery()).isEqualTo("q=%E5%BC%A0%E4%B8%89&x=a%20b&plus=a%20b");
         assertThat(uri.get().toString()).doesNotContain("%25");
-        assertThat(params.get().getFirst("q")).isEqualTo("%E5%BC%A0%E4%B8%89");
-        assertThat(params.get().getFirst("x")).isEqualTo("a%20b");
+        assertThat(params.get().getFirst("q")).isEqualTo("张三");
+        assertThat(params.get().getFirst("x")).isEqualTo("a b");
+        // form 语义：+ 解码为空格（此前网关侧按 URI 语义保留 +，与 servlet 分叉）
+        assertThat(params.get().getFirst("plus")).isEqualTo("a b");
     }
 
     @Test
     void query载体明文非法编码时回failureStatus而不500() {
+        // 尾部残缺的 % 转义（"100%"）在 form 语义解码时就非法：必须在过滤器内变成 failure-status，而不是 500
         MockServerWebExchange exchange = MockServerWebExchange.from(
-            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("q=张三", "/api/a", "GET")));
+            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("q=100%", "/api/a", "GET")));
         AtomicBoolean called = new AtomicBoolean();
         gateway().filter(exchange, e -> {
             // 路由阶段会读取 getURI()：非法编码必须在过滤器内变成 failure-status，而不是在这里炸出 500

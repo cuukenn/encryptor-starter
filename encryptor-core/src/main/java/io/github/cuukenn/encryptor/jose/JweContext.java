@@ -16,6 +16,7 @@ public final class JweContext {
     private final String enc;
     private final long ts;
     private final String nonce;
+    private boolean destroyed;
 
     public JweContext(byte[] plaintext, byte[] cek, String kid, String alg, String enc, long ts, String nonce) {
         this.plaintext = plaintext;
@@ -29,11 +30,22 @@ public final class JweContext {
 
     /** 业务明文（请求参数或请求体）。 */
     public byte[] plaintext() {
+        if (destroyed) {
+            throw new IllegalStateException("JweContext 已销毁（plaintext 已清零）");
+        }
         return plaintext;
     }
 
-    /** 内容加密密钥；响应方向用它以 {@code alg=dir} 加密。 */
+    /**
+     * 内容加密密钥；响应方向用它以 {@code alg=dir} 加密。
+     *
+     * @throws IllegalStateException {@link #destroy()} 之后调用。全零数组是合法 AES 密钥，
+     *                               静默返回会产出客户端必然解不开的报文且服务端无告警。
+     */
     public byte[] cek() {
+        if (destroyed) {
+            throw new IllegalStateException("JweContext 已销毁（cek 已清零），不能再用于响应加密");
+        }
         return cek;
     }
 
@@ -64,6 +76,7 @@ public final class JweContext {
      * <p>只能降低堆转储/内存复用的暴露窗口，不能保证 JVM/GC 中没有副本。
      */
     public void destroy() {
+        destroyed = true;
         if (plaintext != null) {
             Arrays.fill(plaintext, (byte) 0);
         }

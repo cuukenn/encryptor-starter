@@ -39,6 +39,11 @@ public class GatewayEncryptorConfig implements InitializingBean {
     @NestedConfigurationProperty
     private GatewayFilterConfig filterConfig = new GatewayFilterConfig();
     /**
+     * 密码学有界执行器容量（线程/队列）；默认线程数 = CPU 核数、队列 1000。
+     */
+    @NestedConfigurationProperty
+    private CryptoExecutorConfig cryptoExecutor = new CryptoExecutorConfig();
+    /**
      * 跳过加密的 uri 名单（正则整串匹配）。
      *
      * <p>旧名 {@code black-uris} 仍可绑定（已弃用）：那个名字与语义相反——命中即<b>跳过</b>，不是拦截。</p>
@@ -93,6 +98,14 @@ public class GatewayEncryptorConfig implements InitializingBean {
 
     public void setFilterConfig(GatewayFilterConfig filterConfig) {
         this.filterConfig = filterConfig;
+    }
+
+    public CryptoExecutorConfig getCryptoExecutor() {
+        return cryptoExecutor;
+    }
+
+    public void setCryptoExecutor(CryptoExecutorConfig cryptoExecutor) {
+        this.cryptoExecutor = cryptoExecutor;
     }
 
     public List<String> getSkipUris() {
@@ -188,6 +201,8 @@ public class GatewayEncryptorConfig implements InitializingBean {
         StrKit.precompile(PREFIX + ".skip-methods", skipMethods);
         StrKit.precompile(PREFIX + ".skip-req-content-type", skipReqContentType);
         StrKit.precompile(PREFIX + ".skip-res-content-type", skipResContentType);
+        warnUnmatchableCasing(skipReqContentType, "skip-req-content-type");
+        warnUnmatchableCasing(skipResContentType, "skip-res-content-type");
         Map<String, List<String>> crypto = getCryptoConfig();
         if (crypto != null) {
             StrKit.precompile(PREFIX + ".crypto-config", crypto.keySet());
@@ -222,5 +237,18 @@ public class GatewayEncryptorConfig implements InitializingBean {
 
     public void setCryptoConfig(Map<String, List<String>> cryptoConfig) {
         this.cryptoConfig = cryptoConfig;
+    }
+
+    /**
+     * content-type 匹配侧会先对实际请求/响应头做小写归一：配置条目含大写字符时永远不命中，
+     * 启动期告警让这种静默失效可见（正则不能安全地自动转小写，只能提示）。
+     */
+    private static void warnUnmatchableCasing(List<String> regexes, String name) {
+        for (String regex : regexes) {
+            if (regex != null && !regex.equals(regex.toLowerCase(java.util.Locale.ROOT))) {
+                LOG.warn("配置 {}.{} 含大写字符: \"{}\"——请求/响应 content-type 会先小写归一再匹配，该条目永远不会命中",
+                    PREFIX, name, regex);
+            }
+        }
     }
 }

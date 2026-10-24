@@ -7,6 +7,8 @@ import ch.qos.logback.core.read.ListAppender;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
@@ -142,5 +144,34 @@ class CompositeEncryptorListenerTest {
                 throw new IllegalStateException("boom");
             }
         };
+    }
+
+    @Test
+    void onEncryptSuccess按序扇出且异常被隔离() {
+        AtomicInteger count = new AtomicInteger();
+        EncryptorListener first = new EncryptorListener() {
+            @Override
+            public void onEncryptSuccess() {
+                count.incrementAndGet();
+                throw new IllegalStateException("boom");
+            }
+        };
+        EncryptorListener second = new EncryptorListener() {
+            @Override
+            public void onEncryptSuccess() {
+                count.incrementAndGet();
+            }
+        };
+        CompositeEncryptorListener.of(java.util.Arrays.asList(first, second)).onEncryptSuccess();
+        assertEquals(2, count.get(), "单个监听器抛错不得影响后续监听器");
+        // 单监听器抛 Error 也被隔离（对齐 JweCodec 的 RuntimeException|Error 口径）
+        EncryptorListener errorThrower = new EncryptorListener() {
+            @Override
+            public void onEncryptSuccess() {
+                throw new AssertionError("boom");
+            }
+        };
+        assertDoesNotThrow(() -> CompositeEncryptorListener.of(
+            java.util.Collections.singletonList(errorThrower)).onEncryptSuccess());
     }
 }

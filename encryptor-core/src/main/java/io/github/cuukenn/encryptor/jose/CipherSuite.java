@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.jose;
 
 import com.nimbusds.jose.JWEHeader;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -36,6 +37,29 @@ public interface CipherSuite {
     default byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey, JWEHeader header)
         throws Exception {
         return unwrapCek(keys, kid, alg, encryptedKey);
+    }
+
+    /**
+     * 带 protected header <b>及其 JSON 视图</b>的解封入口：{@code headerJson} 是
+     * {@code header.toJSONObject()} 的结果（{@link JweCodec} 请求路径本就要为 AAD 校验序列化一次，
+     * 复用可省掉套件内的第二次完整序列化）。
+     *
+     * <p>默认实现忽略 {@code headerJson}、委托给五参重载。</p>
+     */
+    default byte[] unwrapCek(ServerKeyStore keys, String kid, String alg, byte[] encryptedKey, JWEHeader header,
+                             Map<String, Object> headerJson) throws Exception {
+        return unwrapCek(keys, kid, alg, encryptedKey, header);
+    }
+
+    /**
+     * 本套件作为 {@code alg} 的 CEK 解封方时，能否与内容加密 {@code enc} 配对。
+     *
+     * <p>默认放行；有硬性不兼容的套件（如 ECDH-ES 的 CEK 由 ConcatKDF 按 {@code enc} 派生，
+     * 只能配自己声明的 AES-GCM 家族）覆写以收紧。{@link JweCodec} 在解封前据此拒绝，
+     * 避免交叉组合（如 {@code ECDH-ES + SM4-GCM}）通过白名单后在套件深处报出误导性错误。</p>
+     */
+    default boolean pairsWith(String alg, String enc) {
+        return true;
     }
 
     /**

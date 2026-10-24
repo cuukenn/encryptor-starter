@@ -54,4 +54,14 @@ class MicrometerEncryptorListenerTest {
     private double count(String name, String tag, String value) {
         return registry.get(name).tag(tag, value).counter().count();
     }
+
+    @Test
+    void 加密成功单独计数() {
+        MicrometerEncryptorListener listener = new MicrometerEncryptorListener(registry);
+        listener.onEncryptSuccess();
+        listener.onEncryptSuccess();
+        assertThat(registry.get("encryptor.encrypt").tag("result", "success").counter().count()).isEqualTo(2.0);
+        // 加密失败不占用同名 meter 的 failure 标签，走 encryptor.encrypt.failures 分类口径
+        assertThat(registry.find("encryptor.encrypt").tag("result", "failure").counter()).isNull();
+    }
 }

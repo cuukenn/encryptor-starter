@@ -42,6 +42,10 @@ public class JweCodec {
     public static final String DEFAULT_ALG = JWEAlgorithm.RSA_OAEP_256.getName();
     public static final String DEFAULT_ENC = EncryptionMethod.A256GCM.getName();
 
+    /** AES-GCM 内容加密家族（5 参 {@code encryptResponse} 按 CEK 长度推断 enc 的合法范围）。 */
+    private static final Set<String> AES_GCM_FAMILY = Collections.unmodifiableSet(
+        new LinkedHashSet<>(Arrays.asList("A128GCM", "A192GCM", "A256GCM")));
+
     /**
      * nonce 最大长度：nonce 会作为防重放存储的 key，公钥公开意味着任何人都能构造合法报文，
      * 不限制长度会造成内存放大（几十万条超长 key 即可打爆堆）。
@@ -173,60 +177,79 @@ public class JweCodec {
         if (kid == null || !keys.contains(kid)) {
             throw fail(EncryptorFailure.UNKNOWN_KID, "未知或缺失的 kid: " + kid);
         }
+        // RFC 7516 §4.1.13：出现 crit 就必须理解其中列出的全部头参数。本协议不实现任何
+        // crit 扩展，非空 crit 一律拒绝（fail-closed），而不是带着不认识的扩展头继续解。
+        Set<String> crit = header.getCriticalParams();
+        if (crit != null && !crit.isEmpty()) {
+            throw fail(EncryptorFailure.BAD_HEADER, "不支持的 crit 扩展头: " + crit);
+        }
 
+        Map<String, Object> headerJson;
         try {
-            ContextAad.verify(header.toJSONObject(), uri, method, Direction.REQUEST);
+            headerJson = header.toJSONObject();
+            ContextAad.verify(headerJson, uri, method, Direction.REQUEST);
         } catch (EncryptorException e) {
             throw new EncryptorException(EncryptorFailure.AAD_MISMATCH, e.getMessage(), e);
         }
-
-        Long ts = longParam(header, ContextAad.CLAIM_TS);
-        String nonce = stringParam(header, ContextAad.CLAIM_NONCE);
-        if (ts == null) {
-            throw fail(EncryptorFailure.BAD_HEADER, "绑上下文缺少 ts");
-        }
-        validateNonce(nonce);
-
-        byte[] aad = aadOf(token);
-        byte[] iv = jwe.getIV().decode();
-        CipherSuite unwrapSuite = suiteOfAlg(alg);
-        CipherSuite aeadSuite = suiteOfEnc(enc);
-        int expectedIvLength = aeadSuite.ivLength(enc);
-        if (iv.length != expectedIvLength) {
-            throw fail(EncryptorFailure.BAD_HEADER,
-                "IV 长度非法: " + iv.length + "，" + enc + " 要求 " + expectedIvLength + " 字节");
-        }
-        byte[] cipherText = jwe.getCipherText().decode();
-        byte[] authTag = jwe.getAuthTag().decode();
-
-        byte[] cek;
         try {
-            // encrypted_key 段对 dir/ECDH-ES 等直接协商类算法为空（nimbus 可能给 null 或空段），
-            // 统一成 0 长字节，由套件决定是否接受
-            byte[] encryptedKey = jwe.getEncryptedKey() == null ? new byte[0] : jwe.getEncryptedKey().decode();
-            cek = unwrapSuite.unwrapCek(keys, kid, alg, encryptedKey, header);
+            Long ts = longParam(header, ContextAad.CLAIM_TS);
+            String nonce = stringParam(header, ContextAad.CLAIM_NONCE);
+            if (ts == null) {
+                throw fail(EncryptorFailure.BAD_HEADER, "绑上下文缺少 ts");
+            }
+            validateNonce(nonce);
+
+            byte[] aad = aadOf(token);
+            byte[] iv = jwe.getIV().decode();
+            CipherSuite unwrapSuite = suiteOfAlg(alg);
+            CipherSuite aeadSuite = suiteOfEnc(enc);
+            if (!unwrapSuite.pairsWith(alg, enc)) {
+                // 交叉组合（如 ECDH-ES + SM4-GCM）在白名单层面各自合法，但套件间不兼容：
+                // 这里给出精确分类，而不是等解封/派生深处报"不支持的加密方法"
+                throw fail(EncryptorFailure.ENC_NOT_ALLOWED,
+                    "alg=" + alg + " 不支持与 enc=" + enc + " 配对");
+            }
+            int expectedIvLength = aeadSuite.ivLength(enc);
+            if (iv.length != expectedIvLength) {
+                throw fail(EncryptorFailure.BAD_HEADER,
+                    "IV 长度非法: " + iv.length + "，" + enc + " 要求 " + expectedIvLength + " 字节");
+            }
+            byte[] cipherText = jwe.getCipherText().decode();
+            byte[] authTag = jwe.getAuthTag().decode();
+
+            byte[] cek;
+            try {
+                // encrypted_key 段对 dir/ECDH-ES 等直接协商类算法为空（nimbus 可能给 null 或空段），
+                // 统一成 0 长字节，由套件决定是否接受
+                byte[] encryptedKey = jwe.getEncryptedKey() == null ? new byte[0] : jwe.getEncryptedKey().decode();
+                cek = unwrapSuite.unwrapCek(keys, kid, alg, encryptedKey, header, headerJson);
+            } catch (EncryptorException e) {
+                // 套件已经给出精确分类（如密钥类型与 alg 不匹配 ⇒ ALG_NOT_ALLOWED），不得退化成笼统的解密失败
+                throw e;
+            } catch (Exception e) {
+                throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "CEK 解封失败", e);
+            }
+            if (cek == null || cek.length != aeadSuite.keyLength(enc)) {
+                if (cek != null) {
+                    Arrays.fill(cek, (byte) 0);
+                }
+                throw fail(EncryptorFailure.DECRYPT_FAILED, "CEK 长度非法");
+            }
+
+            byte[] plaintext;
+            try {
+                plaintext = aeadSuite.aeadDecrypt(enc, cek, iv, cipherText, authTag, aad);
+            } catch (Exception e) {
+                // 认证/解密失败时 CEK 不再有任何用途，先清零再抛出
+                Arrays.fill(cek, (byte) 0);
+                throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "AEAD 校验或解密失败", e);
+            }
+            return new JweContext(plaintext, cek, kid, alg, enc, ts, nonce);
         } catch (EncryptorException e) {
-            // 套件已经给出精确分类（如密钥类型与 alg 不匹配 ⇒ ALG_NOT_ALLOWED），不得退化成笼统的解密失败
             throw e;
         } catch (Exception e) {
-            throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "CEK 解封失败", e);
+            throw new EncryptorException(EncryptorFailure.INTERNAL, "请求解密内部失败: " + e.getMessage(), e);
         }
-        if (cek == null || cek.length != aeadSuite.keyLength(enc)) {
-            if (cek != null) {
-                Arrays.fill(cek, (byte) 0);
-            }
-            throw fail(EncryptorFailure.DECRYPT_FAILED, "CEK 长度非法");
-        }
-
-        byte[] plaintext;
-        try {
-            plaintext = aeadSuite.aeadDecrypt(enc, cek, iv, cipherText, authTag, aad);
-        } catch (Exception e) {
-            // 认证/解密失败时 CEK 不再有任何用途，先清零再抛出
-            Arrays.fill(cek, (byte) 0);
-            throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED, "AEAD 校验或解密失败", e);
-        }
-        return new JweContext(plaintext, cek, kid, alg, enc, ts, nonce);
     }
 
     /**
@@ -237,6 +260,15 @@ public class JweCodec {
      */
     public String encryptResponse(byte[] body, byte[] cek, String uri, String method, long ts, String nonce) {
         try {
+            // 防"静默错加密"：按 CEK 长度推断 enc 只对 AES-GCM 家族成立。装配了非 AES 套件
+            // （如 SM4-GCM）时 16 字节 CEK 会被猜成 A128GCM，加密"成功"但客户端必然解不开。
+            for (String enc : encSuites.keySet()) {
+                if (!AES_GCM_FAMILY.contains(enc)) {
+                    throw fail(EncryptorFailure.ENCRYPT_FAILED,
+                        "已装配套件含非 AES-GCM 的 enc（" + enc + "），必须用带 enc 参数的 encryptResponse 重载"
+                            + "显式传入请求协商出的 enc");
+                }
+            }
             String enc = cek == null ? null : encOf(cek.length);
             return doEncryptResponse(body, cek, enc, uri, method, ts, nonce);
         } catch (EncryptorException e) {
@@ -290,10 +322,12 @@ public class JweCodec {
                 throw fail(EncryptorFailure.ENCRYPT_FAILED, "AEAD 输出长度非法");
             }
             // 手工拼 compact：protected header . encrypted_key（dir 为空） . iv . cipherText . authTag
-            return headerB64 + "." + "."
+            String compact = headerB64 + "." + "."
                 + Base64URL.encode(iv) + "."
                 + Base64URL.encode(Arrays.copyOf(packed, packed.length - tagLength)) + "."
                 + Base64URL.encode(Arrays.copyOfRange(packed, packed.length - tagLength, packed.length));
+            listener.onEncryptSuccess();
+            return compact;
         } catch (EncryptorException e) {
             throw e;
         } catch (Exception e) {
@@ -431,15 +465,5 @@ public class JweCodec {
             throw fail(EncryptorFailure.BAD_HEADER,
                 "nonce 超过最大长度 " + MAX_NONCE_LENGTH + " 字节: " + byteLength);
         }
-    }
-
-    /** 便捷方法：把 base64url 段解码（供后续任务复用同一套 AAD 规则时使用）。 */
-    static byte[] decode(Base64URL value) {
-        return value == null ? null : value.decode();
-    }
-
-    /** 绑上下文字段名（供后续任务构造/校验 protected header 时复用）。 */
-    static Map<String, Object> claims(String uri, String method, Direction direction, long ts, String nonce) {
-        return ContextAad.claims(uri, method, direction, ts, nonce);
     }
 }

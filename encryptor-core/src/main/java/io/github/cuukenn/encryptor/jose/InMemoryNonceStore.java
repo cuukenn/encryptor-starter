@@ -94,6 +94,11 @@ public class InMemoryNonceStore implements NonceChecker {
         return first;
     }
 
+    /** nonce 保留时长（毫秒）；ReplayGuard 构造期用它兜底校验 retention ≥ 2*ttl。 */
+    long retentionMillis() {
+        return retentionMillis;
+    }
+
     /** 已驱逐的记录数（可观测性：被灌满的迹象）。 */
     public long evictedCount() {
         long total = 0L;
@@ -157,6 +162,7 @@ public class InMemoryNonceStore implements NonceChecker {
             boolean first;
             // 序号分配与入队必须在同一把锁内：否则并发下序号小者可能后入队，
             // 容量驱逐会先踢掉更新的 nonce，与"插入顺序即最早过期顺序"的承诺不符。
+            // 驱逐也在同一临界区内完成：两次 synchronized 同一把锁会拉长串行窗口。
             synchronized (lock) {
                 Entry candidate = new Entry(now + retentionMillis, sequence.incrementAndGet());
                 // compute 把"判断 + 写入"合成一次原子操作：并发下同一个 nonce 只有一个线程能拿回自己写入的实例
@@ -164,10 +170,8 @@ public class InMemoryNonceStore implements NonceChecker {
                 first = stored == candidate;
                 if (first) {
                     order.addLast(new OrderRecord(nonce, candidate.sequence));
+                    evictLocked(now);
                 }
-            }
-            if (first) {
-                evictIfNeeded(now);
             }
             return first;
         }
@@ -180,24 +184,23 @@ public class InMemoryNonceStore implements NonceChecker {
             return caches.size();
         }
 
-        private void evictIfNeeded(long now) {
-            synchronized (lock) {
-                while (order.size() > capacity) {
-                    removeHead();
-                }
-                // 插入顺序 == 过期顺序：队首过期即整批过期，顺带回收
-                while (!order.isEmpty()) {
-                    OrderRecord head = order.peekFirst();
-                    Entry current = caches.get(head.nonce);
-                    if (current == null || current.sequence != head.sequence || current.isExpired(now)) {
-                        order.pollFirst();
-                        if (current != null && current.sequence == head.sequence) {
-                            // 条件删除：读取后若同 nonce 已被并发 compute 换成新记录，不能误删新记录
-                            caches.remove(head.nonce, current);
-                        }
-                    } else {
-                        break;
+        /** 仅在持有 {@code lock} 时调用。 */
+        private void evictLocked(long now) {
+            while (order.size() > capacity) {
+                removeHead();
+            }
+            // 插入顺序 == 过期顺序：队首过期即整批过期，顺带回收
+            while (!order.isEmpty()) {
+                OrderRecord head = order.peekFirst();
+                Entry current = caches.get(head.nonce);
+                if (current == null || current.sequence != head.sequence || current.isExpired(now)) {
+                    order.pollFirst();
+                    if (current != null && current.sequence == head.sequence) {
+                        // 条件删除：读取后若同 nonce 已被并发 compute 换成新记录，不能误删新记录
+                        caches.remove(head.nonce, current);
                     }
+                } else {
+                    break;
                 }
             }
         }

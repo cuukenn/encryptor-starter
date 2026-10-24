@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * reactive <b>共享</b>线（encryptor-spring-boot-starter-reactive 1.0.0）的行为对等
@@ -101,9 +102,10 @@ class Boot3ReactiveBehaviorParityTest {
                 } catch (EncryptorException expected) {
                     assertThat(expected.failure()).isEqualTo(EncryptorFailure.REPLAY);
                 }
-                // cipher 上下文清零语义也保持
+                // cipher 上下文清零语义保持；destroy 之后 cek() 必须拒绝访问
+                // （全零数组是合法 AES 密钥，静默返回会产出客户端解不开的报文且无告警）
                 ctx.destroy();
-                assertThat(ctx.cek()).containsOnly((byte) 0);
+                assertThatThrownBy(ctx::cek).isInstanceOf(IllegalStateException.class);
             });
     }
 

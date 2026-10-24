@@ -54,18 +54,21 @@ public class DefaultProtocol {
     private final ReplayGuard replayGuard;
     private final NonceChecker nonceChecker;
     private final EncryptorRuntime runtime;
+    private final EncryptorListener listener;
     private final Set<String> allowedAlgs;
     private final Set<String> allowedEncs;
     private final long ttlMillis;
 
     private DefaultProtocol(Builder builder, ServerKeyStore keys, JweCodec codec,
                             ReplayGuard replayGuard, NonceChecker nonceChecker,
-                            EncryptorRuntime runtime, Set<String> allowedAlgs, Set<String> allowedEncs) {
+                            EncryptorRuntime runtime, EncryptorListener listener,
+                            Set<String> allowedAlgs, Set<String> allowedEncs) {
         this.keys = keys;
         this.codec = codec;
         this.replayGuard = replayGuard;
         this.nonceChecker = nonceChecker;
         this.runtime = runtime;
+        this.listener = listener;
         this.allowedAlgs = allowedAlgs;
         this.allowedEncs = allowedEncs;
         this.ttlMillis = builder.ttlMillis;
@@ -77,6 +80,11 @@ public class DefaultProtocol {
 
     public JweCodec codec() {
         return codec;
+    }
+
+    /** 审计监听器（组合后的）；gateway 侧 codec 之外的失败分支用它补发失败回调。 */
+    public EncryptorListener listener() {
+        return listener;
     }
 
     public ReplayGuard replayGuard() {
@@ -217,13 +225,18 @@ public class DefaultProtocol {
         }
 
         public Builder runtime(EncryptorRuntime runtime) {
-            this.runtime = runtime;
+            // 与 listener() 同口径：null 归一为默认实例，避免 NPE 从远离配置错误源的
+            // ProtocolAssembler.protocol.runtime().setBypass(...) 处冒出来
+            this.runtime = runtime == null ? new EncryptorRuntime() : runtime;
             return this;
         }
 
         public DefaultProtocol build() {
             if (materials.isEmpty()) {
                 throw new EncryptorException("没有配置任何密钥（encryptor.config.keys）");
+            }
+            if (nonceChecker == null && nonceCapacity <= 0) {
+                throw new EncryptorException("nonce-capacity 必须 > 0，实际: " + nonceCapacity);
             }
             String active = activeKid == null || activeKid.isEmpty()
                 ? materials.get(0).kid() : activeKid;
@@ -314,7 +327,8 @@ public class DefaultProtocol {
                 ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
             ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);
             JweCodec codec = new JweCodec(store, suites, effectiveAlgs, effectiveEncs, listener, guard);
-            return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, effectiveAlgs, effectiveEncs);
+            return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, listener,
+                effectiveAlgs, effectiveEncs);
         }
 
         /**

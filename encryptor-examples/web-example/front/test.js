@@ -1,6 +1,6 @@
 'use strict';
 /**
- * 端到端断言脚本：JWKS / GET / POST(json) / POST(form) / ECDH-ES / 篡改六组，全过 exit 0，任一失败 exit 1。
+ * 端到端断言脚本：JWKS / GET / POST(json) / POST(form) / ECDH-ES / 篡改 / QUERY 共存与载体判定 八组，全过 exit 0，任一失败 exit 1。
  * 需先启动 web-example（8081）。跑法：node front/test.js
  *
  * @author changgg
@@ -119,6 +119,31 @@ async function main() {
             check('tamper: 篡改 iv 后必须 400', err?.response?.status === 400,
                 'status=' + err?.response?.status);
         }
+    }
+
+    // 8. QUERY 载体共存与判定（2026-10 契约：明文即完整 query；jwe 在 query 上一律按 QUERY）
+    {
+        // 8a. 原始 query 参数与 jwe 共存：明文为准，raw 参数被丢弃（与网关同口径）
+        const {jwe: compact, cek} = await jwe.encrypt(qs.stringify({name: 'CLEAN'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'GET'});
+        const res = await axios.get(BASE + '/test/hello', {params: {name: 'RAW', jwe: compact}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('query 共存: 原始 name=RAW 被明文 name=CLEAN 取代（明文为准）',
+            plain.includes('Hello, CLEAN') && !plain.includes('RAW'), plain);
+    }
+    {
+        // 8b. form content-type + jwe 同时在 query 与 form body：query 胜出（QUERY 载体），
+        //     参数视图来自 query 明文，form body 原样透传给下游
+        const q = await jwe.encrypt(qs.stringify({name: 'FROM_QUERY'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'POST'});
+        const f = await jwe.encrypt(qs.stringify({name: 'FROM_FORM'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'POST'});
+        const res = await axios.post(BASE + '/test/hello?jwe=' + encodeURIComponent(q.jwe),
+            qs.stringify({jwe: f.jwe}),
+            {headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
+        const plain = await jwe.decrypt(res?.data?.jwe, q.cek);
+        check('query+form 共存: query jwe 胜出且 form body 原样透传',
+            plain.includes('FROM_QUERY') && plain.includes('jwe') && !plain.includes('FROM_FORM'), plain);
     }
 
     process.exitCode = failed === 0 ? 0 : 1;

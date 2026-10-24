@@ -116,6 +116,25 @@ public class WebContext {
     }
 
     /**
+     * 异步感知的清理：请求已进入异步且异步处理器仍可能读取明文时，只解绑 ThreadLocal、
+     * 延迟清零（清零交给 GC；响应过滤器包装过的异步请求在移交所有权时已把两个引用摘走，
+     * 不受本例外影响）。正确性优先于"缩小暴露窗口"的 best-effort。
+     */
+    public static void clear(javax.servlet.ServletRequest request) {
+        boolean asyncStarted;
+        try {
+            asyncStarted = request != null && request.isAsyncStarted();
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            asyncStarted = false;
+        }
+        if (asyncStarted) {
+            CONTEXT.remove();
+            return;
+        }
+        clear();
+    }
+
+    /**
      * 报文非法时的 HTTP 状态码；上下文未初始化时退回 400。
      */
     public static int failureStatus() {

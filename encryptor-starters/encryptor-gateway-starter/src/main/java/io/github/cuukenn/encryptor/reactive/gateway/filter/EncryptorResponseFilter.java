@@ -79,8 +79,9 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 if (isNoBodyResponse()) {
                     return completeEmpty();
                 }
+                // 与请求侧同口径：小写归一后再匹配，避免"配置小写正则 × 响应头大写参数"漏匹配
                 String resCt = getHeaders().getContentType() == null
-                    ? "" : getHeaders().getContentType().toString();
+                    ? "" : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT);
                 if (StrKit.anyMatch(resCt, config.getSkipResContentType())) {
                     return super.writeWith(body);
                 }
@@ -113,6 +114,10 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 bytes, cek, enc, uri, method,
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
                             .subscribeOn(crypto.scheduler())
+                            .doFinally(signal -> {
+                                // 副本与"明文等价"：加密终态（成功/失败/取消）后立即清零，不等 GC
+                                java.util.Arrays.fill(cek, (byte) 0);
+                            })
                             .flatMap(jwe -> {
                                 byte[] jweBytes = jwe.getBytes(StandardCharsets.US_ASCII);
                                 byte[] payload = new byte[JWE_PREFIX.length + jweBytes.length + JWE_SUFFIX.length];
@@ -149,8 +154,9 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 if (isNoBodyResponse()) {
                     return completeEmpty();
                 }
+                // 与请求侧同口径：小写归一后再匹配，避免"配置小写正则 × 响应头大写参数"漏匹配
                 String resCt = getHeaders().getContentType() == null
-                    ? "" : getHeaders().getContentType().toString();
+                    ? "" : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT);
                 if (StrKit.anyMatch(resCt, config.getSkipResContentType())) {
                     return super.writeAndFlushWith(body);
                 }

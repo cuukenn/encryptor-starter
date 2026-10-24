@@ -14,6 +14,7 @@ import java.util.EnumMap;
  * <p>指标（前缀 {@code encryptor.}）：</p>
  * <ul>
  *   <li>{@code encryptor.decrypt}{@code result=success|failure} —— 请求解密总次数；</li>
+ *   <li>{@code encryptor.encrypt}{@code result=success|failure} —— 响应加密总次数；</li>
  *   <li>{@code encryptor.decrypt.failures}{@code failure=<枚举名>} —— 按失败分类计数；</li>
  *   <li>{@code encryptor.encrypt.failures}{@code failure=<枚举名>} —— 响应加密失败（同一分类口径）。</li>
  * </ul>
@@ -32,6 +33,7 @@ import java.util.EnumMap;
 public class MicrometerEncryptorListener implements EncryptorListener {
 
     private static final String DECRYPT = "encryptor.decrypt";
+    private static final String ENCRYPT = "encryptor.encrypt";
     private static final String DECRYPT_FAILURES = "encryptor.decrypt.failures";
     private static final String ENCRYPT_FAILURES = "encryptor.encrypt.failures";
     private static final String TAG_RESULT = "result";
@@ -41,6 +43,7 @@ public class MicrometerEncryptorListener implements EncryptorListener {
 
     private final Counter decryptSuccess;
     private final Counter decryptFailure;
+    private final Counter encryptSuccess;
     private final EnumMap<EncryptorFailure, Counter> decryptFailures = new EnumMap<>(EncryptorFailure.class);
     private final EnumMap<EncryptorFailure, Counter> encryptFailures = new EnumMap<>(EncryptorFailure.class);
 
@@ -52,6 +55,10 @@ public class MicrometerEncryptorListener implements EncryptorListener {
         this.decryptFailure = Counter.builder(DECRYPT)
             .tag(TAG_RESULT, FAILURE)
             .description("请求解密失败次数")
+            .register(registry);
+        this.encryptSuccess = Counter.builder(ENCRYPT)
+            .tag(TAG_RESULT, SUCCESS)
+            .description("响应加密成功次数")
             .register(registry);
         for (EncryptorFailure failure : EncryptorFailure.values()) {
             decryptFailures.put(failure, failureCounter(registry, DECRYPT_FAILURES, failure));
@@ -68,6 +75,11 @@ public class MicrometerEncryptorListener implements EncryptorListener {
     public void onDecryptFailure(EncryptorFailure failure, Throwable error) {
         decryptFailure.increment();
         counter(decryptFailures, failure).increment();
+    }
+
+    @Override
+    public void onEncryptSuccess() {
+        encryptSuccess.increment();
     }
 
     @Override

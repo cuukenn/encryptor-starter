@@ -29,7 +29,12 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnClass(MeterRegistry.class)
-@AutoConfigureAfter(name = "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration")
+// ⚠️ 排在网关自动装配之后：嵌套的 GatewayCryptoExecutorMetricsConfiguration 用
+// @ConditionalOnBean(CryptoExecutor) 匹配 bean **定义**，若本类先于网关配置类求值，
+// 条件恒不满足且无任何日志——D3 的 pending/rejected 指标会静默消失。
+@AutoConfigureAfter(name = {
+    "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration",
+    "io.github.cuukenn.encryptor.reactive.gateway.configuration.GatewayEncryptorConfiguration"})
 public class EncryptorMicrometerAutoConfiguration {
 
     /**

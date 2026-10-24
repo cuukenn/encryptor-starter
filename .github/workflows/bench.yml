@@ -1,0 +1,48 @@
+name: bench
+
+# 性能闸门：不阻塞 PR（共享 runner 噪声大），但每周定时 + 手动触发必须跑。
+# 结果作为工件上传；阈值脚本失败会让 workflow 红，提示有人看趋势。
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 0'   # 每周一 02:00 (UTC+8)
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jmh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+
+      - name: Build bench jar
+        run: mvn -B -Pmain-module -DskipTests install && mvn -B -Pall-modules -DskipTests package -pl encryptor-bench -am
+
+      - name: Run JMH
+        run: |
+          java -jar encryptor-bench/target/bench.jar \
+            -wi 2 -i 3 -f 1 -prof gc -rf json -rff encryptor-bench/target/bench.json \
+            > encryptor-bench/target/bench.log 2>&1
+
+      - name: Check thresholds
+        run: bash encryptor-bench/check-thresholds.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ github.run_id }}
+          path: |
+            encryptor-bench/target/bench.json
+            encryptor-bench/target/bench.log
+          if-no-files-found: warn

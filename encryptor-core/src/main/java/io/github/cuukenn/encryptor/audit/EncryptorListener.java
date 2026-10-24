@@ -28,6 +28,11 @@ public interface EncryptorListener {
         // no-op
     }
 
+    /** 响应封装成功（与 {@link #onDecryptSuccess} 配对可算响应加密成功率）。 */
+    default void onEncryptSuccess() {
+        // no-op
+    }
+
     /** 响应封装失败。 */
     default void onEncryptFailure(EncryptorFailure failure, Throwable cause) {
         // no-op

@@ -13,6 +13,7 @@ import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * 网关失败面的启动期校验：{@code failure-status} 最终由 {@code HttpStatus.valueOf(int)} 映射，
@@ -65,5 +66,55 @@ class GatewayEncryptorConfigurationTest {
         assertThatCode(() -> GatewayEncryptorConfiguration.validateFailureStatus(400)).doesNotThrowAnyException();
         assertThatCode(() -> GatewayEncryptorConfiguration.validateFailureStatus(429)).doesNotThrowAnyException();
         assertThatCode(() -> GatewayEncryptorConfiguration.validateFailureStatus(503)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void 默认order满足链序契约() {
+        assertThatCode(() -> GatewayEncryptorConfiguration.validateFilterOrder(new GatewayEncryptorConfig().getFilterConfig()))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void jwks跑到请求过滤器之后时启动失败() {
+        GatewayEncryptorConfig config = new GatewayEncryptorConfig();
+        config.getFilterConfig().setJwksFilterOrder(-10);
+        config.getFilterConfig().setEncryptorFilterOrder(-13);
+
+        assertThatThrownBy(() -> GatewayEncryptorConfiguration.validateFilterOrder(config.getFilterConfig()))
+            .isInstanceOf(EncryptorException.class)
+            .hasMessageContaining("jwks");
+    }
+
+    @Test
+    void 响应过滤器跑到NettyWrite之后时启动失败() {
+        // 明文直出：响应过滤器必须包在 NettyWriteResponseFilter 之内
+        GatewayEncryptorConfig config = new GatewayEncryptorConfig();
+        config.getFilterConfig().setEncryptorResFilterOrder(
+            org.springframework.cloud.gateway.filter.NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER + 1);
+
+        assertThatThrownBy(() -> GatewayEncryptorConfiguration.validateFilterOrder(config.getFilterConfig()))
+            .isInstanceOf(EncryptorException.class)
+            .hasMessageContaining("NettyWriteResponseFilter");
+    }
+
+    @Test
+    void cryptoExecutor容量可配置() {
+        io.github.cuukenn.encryptor.reactive.gateway.config.CryptoExecutorConfig exec =
+            new io.github.cuukenn.encryptor.reactive.gateway.config.CryptoExecutorConfig();
+        assertEquals(0, exec.getThreads(), "threads=0 表示 CPU 核数");
+        assertEquals(io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor.DEFAULT_QUEUE_CAPACITY,
+            exec.getQueueCapacity());
+
+        exec.setThreads(4);
+        exec.setQueueCapacity(50);
+        io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor executor =
+            new io.github.cuukenn.encryptor.reactive.gateway.runtime.CryptoExecutor(
+                exec.getThreads(), exec.getQueueCapacity());
+        try {
+            assertEquals(4, executor.maxThreads());
+            assertEquals(50, executor.queueCapacity());
+        } finally {
+            executor.dispose();
+        }
     }
 }

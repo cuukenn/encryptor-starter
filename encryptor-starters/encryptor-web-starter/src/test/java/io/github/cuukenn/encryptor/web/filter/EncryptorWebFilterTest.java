@@ -21,10 +21,12 @@ import org.springframework.util.StreamUtils;
 import javax.servlet.FilterChain;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.slf4j.LoggerFactory.getLogger;
 
 /**
@@ -185,6 +187,40 @@ class EncryptorWebFilterTest {
         assertThat(ctx.getCarrier()).isEqualTo(WebContext.Carrier.FORM);
         assertThat(ctx.getParameters()).containsKey("x");
         assertThat(ctx.getBodyPlaintext()).isEqualTo("x=1&y=2".getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void jwe在query上且content_type为form时按QUERY处理() throws Exception {
+        // getParameter 合并 query 与 form body：jwe 在 query 上必须按 QUERY（与网关同口径），
+        // 明文只进参数视图，不能顶掉真实的 form body
+        String sealed = support.seal("x=1", "/api/f", "POST");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/f");
+        request.setContentType("application/x-www-form-urlencoded");
+        request.setContent("real=body".getBytes(StandardCharsets.UTF_8));
+        request.setQueryString("jwe=" + sealed);
+        request.setParameter("jwe", sealed);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(chainExecuted).isTrue();
+        WebContext ctx = WebContext.current();
+        assertThat(ctx.getCarrier()).isEqualTo(WebContext.Carrier.QUERY);
+        assertThat(ctx.getParameters()).containsKey("x");
+        assertThat(ctx.getBodyPlaintext()).isNull();
+    }
+
+    @Test
+    void 参数视图不可被下游修改() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/f");
+        request.setContentType("application/x-www-form-urlencoded");
+        request.setContent("jwe=x".getBytes(StandardCharsets.UTF_8));
+        request.setParameter("jwe", support.seal("x=1&y=2", "/api/f", "POST"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        Map<String, String[]> params = WebContext.current().getParameters();
+        assertThat(params).containsKey("x");
+        // Servlet 规范：getParameterMap 不得被应用修改
+        assertThatThrownBy(() -> params.put("evil", new String[]{"1"}))
+            .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test

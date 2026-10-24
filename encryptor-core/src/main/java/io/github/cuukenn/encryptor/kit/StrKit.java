@@ -16,6 +16,12 @@ import java.util.regex.PatternSyntaxException;
  */
 public class StrKit {
 
+    /**
+     * 缓存上限：正则应来自配置（数量有界）。{@code matches} 是 public 方法，一旦被业务代码
+     * 传入动态 regex，无界缓存会变成内存放大点——超过上限后不再缓存，直接现场编译（变慢但不漏）。
+     */
+    private static final int MAX_CACHE_SIZE = 256;
+
     private static final ConcurrentHashMap<String, Pattern> PATTERN_CACHE = new ConcurrentHashMap<>();
 
     /**
@@ -24,6 +30,9 @@ public class StrKit {
      * @param regex 整串匹配的正则
      */
     static Pattern pattern(String regex) {
+        if (PATTERN_CACHE.size() >= MAX_CACHE_SIZE) {
+            return PATTERN_CACHE.containsKey(regex) ? PATTERN_CACHE.get(regex) : Pattern.compile(regex);
+        }
         return PATTERN_CACHE.computeIfAbsent(regex, Pattern::compile);
     }
 

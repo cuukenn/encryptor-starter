@@ -177,6 +177,8 @@ public class WebEncryptorConfig implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
+        warnUnmatchableCasing(getSkipReqContentType(), "skip-req-content-type");
+        warnUnmatchableCasing(getSkipResContentType(), "skip-res-content-type");
         validateFilterOrder();
         mergeAlias("black-uris", skipUris, blackUris);
         mergeAlias("black-methods", skipMethods, blackMethods);
@@ -241,6 +243,18 @@ public class WebEncryptorConfig implements InitializingBean {
             throw new EncryptorException("encryptor.config.web.filter-config 顺序非法: "
                 + "要求 jwks < facade < params < body < res，实际 jwks=" + jwks + ", facade=" + facade
                 + ", params=" + params + ", body=" + body + ", res=" + response);
+        }
+    }
+
+    /**
+     * content-type 匹配侧会先对实际请求/响应头做小写归一：配置条目含大写字符时永远不命中，
+     * 启动期告警让这种静默失效可见（正则不能安全地自动转小写，只能提示）。
+     */
+    private static void warnUnmatchableCasing(java.util.List<String> regexes, String name) {
+        for (String regex : regexes) {
+            if (regex != null && !regex.equals(regex.toLowerCase(java.util.Locale.ROOT))) {
+                LOG.warn("配置 encryptor.config.web.{} 含大写字符: \"{}\"——请求/响应 content-type 会先小写归一再匹配，该条目永远不会命中", name, regex);
+            }
         }
     }
 }

@@ -8,6 +8,7 @@ import java.security.KeyPairGenerator;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -35,5 +36,18 @@ class JwksDocumentTest {
         assertTrue(document.body().contains("\"activeKid\":\"k1\""));
         assertTrue(document.body().contains("\"k1\""));
         assertEquals("\"" + DigestKit.sha256Hex(document.body()) + "\"", document.etag());
+    }
+
+    @Test
+    void etagMatch支持多值弱比较与星号() {
+        String etag = "\"abc123\"";
+        assertTrue(JwksDocument.etagMatch("\"abc123\"", etag), "精确命中");
+        assertTrue(JwksDocument.etagMatch("W/\"abc123\"", etag), "弱比较器前缀必须被忽略");
+        assertTrue(JwksDocument.etagMatch("\"x1\", \"abc123\", \"x2\"", etag), "逗号多值列表");
+        assertTrue(JwksDocument.etagMatch("*", etag), "星号视为命中");
+        assertTrue(JwksDocument.etagMatch("W/\"x1\", W/\"abc123\"", etag), "多值 + 弱比较器混排");
+        assertFalse(JwksDocument.etagMatch("\"other\"", etag));
+        assertFalse(JwksDocument.etagMatch(null, etag));
+        assertFalse(JwksDocument.etagMatch("", etag));
     }
 }

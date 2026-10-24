@@ -25,12 +25,14 @@ import java.util.Map;
 public class EncryptorRequestParameterFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        // 请求结束时清掉 ThreadLocal（线程池复用防泄漏）；响应过滤器(-3)嵌套在本过滤器(-11)内，
-        // 链后加解密已全部完成，此时清理不影响响应改写
+        // 请求结束时清掉 ThreadLocal（线程池复用防泄漏）。链序契约由 WebEncryptorConfiguration
+        // 的启动期校验保证（本过滤器在响应过滤器之外、门面之内），链后加解密已完成，清理不影响响应改写。
+        // clear 用异步感知重载：响应未包装（旁路/透传）的异步请求，异步处理器可能还在读明文，
+        // 不能在 finally 里提前清零（加密路径的所有权移交不受影响）。
         try {
             doFilterWithParameters(request, response, filterChain);
         } finally {
-            WebContext.clear();
+            WebContext.clear(request);
         }
     }
 

@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.gateway.discovery;
 
+import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JwksDocument;
 import io.github.cuukenn.encryptor.jose.ServerKeyStore;
 import io.github.cuukenn.encryptor.reactive.config.DiscoveryConfig;
@@ -53,19 +54,28 @@ public class JwksEndpointFilter implements WebFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (!enable || !"GET".equals(exchange.getRequest().getMethodValue())
-            || !path.equals(exchange.getRequest().getPath().value())) {
+        String method = exchange.getRequest().getMethodValue();
+        boolean head = "HEAD".equals(method);
+        // HEAD 与 GET 同口径响应（只发头不发 body）：否则 HEAD 会落到"发现路径无路由"的 404。
+        // 路径用 canonicalPath 归一，与 servlet 侧同一匹配口径。
+        if (!enable || (!"GET".equals(method) && !head)
+            || !path.equals(ContextAad.canonicalPath(exchange.getRequest().getPath().value(), null))) {
             return chain.filter(exchange);
         }
         ServerHttpResponse response = exchange.getResponse();
         response.getHeaders().set(HttpHeaders.ETAG, etag);
         response.getHeaders().set(HttpHeaders.CACHE_CONTROL, cacheControl);
-        if (etag.equals(exchange.getRequest().getHeaders().getFirst(HttpHeaders.IF_NONE_MATCH))) {
+        // RFC 7232：If-None-Match 支持逗号多值与 W/ 弱比较（代理/CDN 场景命中率不降级）
+        if (JwksDocument.etagMatch(exchange.getRequest().getHeaders().getFirst(HttpHeaders.IF_NONE_MATCH), etag)) {
             response.setStatusCode(HttpStatus.NOT_MODIFIED);
             return response.setComplete();
         }
         response.setStatusCode(HttpStatus.OK);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        if (head) {
+            response.getHeaders().setContentLength(body.length);
+            return response.setComplete();
+        }
         DataBuffer buffer = response.bufferFactory().wrap(body);
         return response.writeWith(Mono.just(buffer));
     }

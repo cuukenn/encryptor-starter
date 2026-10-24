@@ -2,6 +2,7 @@ package io.github.cuukenn.encryptor.runtime;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,5 +55,52 @@ class EncryptorRuntimeTest {
     @Test
     void 未注册失效器时setBypass不报错() {
         assertDoesNotThrow(() -> new EncryptorRuntime().setBypass(true, true));
+    }
+
+    @Test
+    void 单个失效器抛异常不中断其余失效器() {
+        EncryptorRuntime runtime = new EncryptorRuntime();
+        AtomicInteger invalidated = new AtomicInteger();
+        runtime.addInvalidator(() -> { throw new IllegalStateException("boom"); });
+        runtime.addInvalidator(invalidated::incrementAndGet);
+
+        runtime.setBypass(true, true);
+
+        assertEquals(1, invalidated.get(), "异常只隔离自己，其余失效器必须照常执行");
+        assertTrue(runtime.bypassRequest(), "旁路标志仍必须生效");
+    }
+
+    @Test
+    void 并发换面期间快照永远无混合态() throws Exception {
+        // 写侧只发布 (true,true) / (false,false) 两种快照；volatile 整包换面保证读者拿到的
+        // 快照内部自洽——不存在 (request=新, response=旧) 的混合快照。
+        // （两次独立的字段读允许跨越一次换面，那是语义内的：每次读到的都是当时的完整状态。）
+        EncryptorRuntime runtime = new EncryptorRuntime();
+        AtomicInteger mixed = new AtomicInteger();
+        CountDownLatch stop = new CountDownLatch(1);
+        Thread writer = new Thread(() -> {
+            while (stop.getCount() > 0) {
+                runtime.setBypass(true, true);
+                runtime.setBypass(false, false);
+            }
+        });
+        Thread reader = new Thread(() -> {
+            while (stop.getCount() > 0) {
+                EncryptorRuntime.Snapshot snap = runtime.currentSnapshot();
+                if (snap.bypassRequest != snap.bypassResponse) {
+                    mixed.incrementAndGet();
+                }
+            }
+        });
+        writer.start();
+        reader.start();
+        Thread.sleep(200);
+        stop.countDown();
+        writer.join(2000);
+        reader.join(2000);
+        writer.interrupt();
+        assertEquals(0, mixed.get(), "任何已发布的快照内部都必须自洽");
+        assertFalse(runtime.bypassRequest());
+        assertFalse(runtime.bypassResponse());
     }
 }

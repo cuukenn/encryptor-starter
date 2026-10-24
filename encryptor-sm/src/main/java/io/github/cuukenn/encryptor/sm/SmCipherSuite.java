@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.sm;
 
+import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.CipherSuite;
 import io.github.cuukenn.encryptor.jose.JweCodec;
@@ -77,7 +78,14 @@ public class SmCipherSuite implements CipherSuite {
             throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
                 "kid=" + kid + " 的密钥类型是 " + type + "，alg=" + ALG + " 需要 SM2 密钥");
         }
-        ECPrivateKeyParameters privateKey = (ECPrivateKeyParameters)keys.nativePrivateKey(kid);
+        // native 句柄缺失/类型不符（例如第三方解析器没给 SM2 的 BC 句柄）时给精确分类，
+        // 而不是让 NPE/ClassCastException 退化成笼统的 DECRYPT_FAILED
+        Object nativeKey = keys.nativePrivateKey(kid);
+        if (!(nativeKey instanceof ECPrivateKeyParameters)) {
+            throw JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
+                "kid=" + kid + " 没有 SM2 的私钥句柄（nativePrivateKey 应为 BC ECPrivateKeyParameters）");
+        }
+        ECPrivateKeyParameters privateKey = (ECPrivateKeyParameters)nativeKey;
         SM2Engine engine = new SM2Engine(SM2Engine.Mode.C1C3C2);
         engine.init(false, privateKey);
         return engine.processBlock(encryptedKey, 0, encryptedKey.length);
@@ -112,7 +120,9 @@ public class SmCipherSuite implements CipherSuite {
         try {
             cipher.doFinal(out, len);
         } catch (InvalidCipherTextException e) {
-            throw JweCodec.fail(EncryptorFailure.DECRYPT_FAILED, "SM4-GCM 认证标签校验失败: " + e.getMessage());
+            // 带 cause：失败审计/排障需要 BC 原始堆栈（对齐 JCE 路径的异常链口径）
+            throw new EncryptorException(EncryptorFailure.DECRYPT_FAILED,
+                "SM4-GCM 认证标签校验失败: " + e.getMessage(), e);
         }
         return out;
     }

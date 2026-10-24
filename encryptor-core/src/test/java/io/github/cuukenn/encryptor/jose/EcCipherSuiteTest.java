@@ -29,6 +29,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -84,6 +85,37 @@ class EcCipherSuiteTest {
         assertEquals(24, ConcatKdf.derive(z, "A192GCM", 192).length);
         assertEquals(32, ConcatKdf.derive(z, "A256GCM", 256).length);
         assertNotNull(server);
+    }
+
+    @Test
+    void nimbus携带apu_apv也能互通() throws Exception {
+        // RFC 7518 §4.6.1：apu/apv 存在时必须进 OtherInfo。此前恒空，带 apu/apv 的合规客户端
+        // 会派生出不同 CEK 而静默失败；这里用 nimbus 独立实现（会按 RFC 把 apu/apv 参与 KDF）对拍
+        KeyPair server = p256();
+        JweCodec codec = new JweCodec(store("ec-1", server),
+            Collections.singletonList(new EcCipherSuite()),
+            Collections.singleton("ECDH-ES"), Collections.singleton("A256GCM"));
+
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse(EcCipherSuite.ALG), EncryptionMethod.A256GCM)
+            .keyID("ec-1")
+            .agreementPartyUInfo(Base64URL.encode("party-u"))
+            .agreementPartyVInfo(Base64URL.encode("party-v"))
+            .customParams(ContextAad.claims(URI, METHOD, Direction.REQUEST, TS, NONCE))
+            .build();
+        byte[] request = "apu/apv interop".getBytes(StandardCharsets.UTF_8);
+        JWEObject jwe = new JWEObject(header, new Payload(request));
+        jwe.encrypt(new ECDHEncrypter((ECPublicKey)server.getPublic()));
+
+        JweContext context = codec.decryptRequest(jwe.serialize(), URI, METHOD);
+        assertArrayEquals(request, context.plaintext());
+    }
+
+    @Test
+    void 与非自家enc家族的交叉组合一律拒绝配对() {
+        EcCipherSuite suite = new EcCipherSuite();
+        assertTrue(suite.pairsWith("ECDH-ES", "A256GCM"));
+        assertFalse(suite.pairsWith("ECDH-ES", "SM4-GCM"), "ECDH-ES 的 CEK 由 enc 派生，不能配 SM4-GCM");
+        assertFalse(suite.pairsWith("RSA-OAEP-256", "A256GCM"));
     }
 
     // ---------------------------------------------------------------- 代码校验

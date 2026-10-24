@@ -55,8 +55,14 @@ class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper
     @Override
     public PrintWriter getWriter() throws IOException {
         if (writer == null) {
-            String encoding = getCharacterEncoding();
-            Charset charset = encoding == null ? StandardCharsets.UTF_8 : Charset.forName(encoding);
+            Charset charset;
+            try {
+                String encoding = getCharacterEncoding();
+                charset = encoding == null ? StandardCharsets.UTF_8 : Charset.forName(encoding);
+            } catch (RuntimeException e) {
+                // 与容器默认口径一致：非法字符集名回退默认，而不是把 unchecked 异常爆给业务
+                charset = StandardCharsets.UTF_8;
+            }
             writer = new PrintWriter(new OutputStreamWriter(getOutputStream(), charset), true);
         }
         return writer;
@@ -144,10 +150,6 @@ class BoundedContentCachingResponseWrapper extends ContentCachingResponseWrapper
         }
     }
 
-    /**
-     * 写入加密后的响应体：上限约束的是业务明文，JWE 的 Base64 膨胀不应再被同一個上限截断。
-     * 直接走父类的缓存流，绕过 {@link BoundedServletOutputStream} 的计数。
-     */
     /**
      * 分三段写响应信封，避免把 base64 密文先拼成一份 UTF-16 {@code String} 再转字节：
      * 大响应下这一步会额外产生约 2× 密文大小的字符数组。

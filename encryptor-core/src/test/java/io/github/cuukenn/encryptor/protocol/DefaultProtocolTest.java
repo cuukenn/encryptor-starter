@@ -230,4 +230,18 @@ class DefaultProtocolTest {
         assertTrue(e.getMessage().contains("encryptor-sm"),
             "错误信息必须提示显式添加 encryptor-sm 依赖: " + e.getMessage());
     }
+
+    @Test
+    void runtime为null时归一为默认实例而不是延迟NPE() throws Exception {
+        DefaultProtocol protocol = DefaultProtocol.builder().key(rsaKey("k1")).runtime(null).build();
+        assertNotNull(protocol.runtime(), "null runtime 必须归一，NPE 不应延迟到 setBypass 处");
+        assertFalse(protocol.runtime().bypassRequest());
+    }
+
+    @Test
+    void nonceCapacity非正数时构造期失败() throws Exception {
+        EncryptorException e = assertThrows(EncryptorException.class,
+            () -> DefaultProtocol.builder().key(rsaKey("k1")).nonceCapacity(0).build());
+        assertTrue(e.getMessage().contains("nonce-capacity"), e.getMessage());
+    }
 }

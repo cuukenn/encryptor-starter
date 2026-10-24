@@ -41,4 +41,24 @@ public final class JwksDocument {
     public String etag() {
         return etag;
     }
+
+    /**
+     * {@code If-None-Match} 协商（RFC 7232）：逗号分隔多值 + 弱比较（忽略 {@code W/} 前缀）。
+     * {@code *} 也视为命中。经过代理/CDN 的条件请求命中率因此不降级。
+     */
+    public static boolean etagMatch(String ifNoneMatch, String etag) {
+        if (ifNoneMatch == null || ifNoneMatch.isEmpty() || etag == null) {
+            return false;
+        }
+        for (String candidate : ifNoneMatch.split(",")) {
+            String value = candidate.trim();
+            if (value.startsWith("W/") || value.startsWith("w/")) {
+                value = value.substring(2);
+            }
+            if (value.equals("*") || value.equals(etag)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

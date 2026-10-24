@@ -1,6 +1,6 @@
 'use strict';
 /**
- * 端到端断言脚本：GET / POST(json) / POST(form) / JWKS 四条，全过 exit 0，任一失败 exit 1。
+ * 端到端断言脚本：JWKS / GET / POST(json) / POST(form) / ECDH-ES / ECDH-A128 / 篡改 / QUERY 共存 八组，全过 exit 0，任一失败 exit 1。
  * 需先启动 gateway-example 网关（8080）。跑法：node front/test.js
  *
  * @author changgg
@@ -106,6 +106,16 @@ async function main() {
             check('tamper: 篡改 iv 后必须 400', err?.response?.status === 400,
                 'status=' + err?.response?.status);
         }
+    }
+
+    // 8. QUERY 载体共存（2026-10 契约：明文即完整 query，jwe 之外的原始 query 参数被丢弃）
+    {
+        const {jwe: compact, cek} = await jwe.encrypt(qs.stringify({name: 'CLEAN'}),
+            {...currentKey(keys), uri: '/test/hello', method: 'GET'});
+        const res = await axios.get(BASE + '/test/hello', {params: {name: 'RAW', jwe: compact}});
+        const plain = await jwe.decrypt(res?.data?.jwe, cek);
+        check('query 共存: 原始 name=RAW 被明文 name=CLEAN 取代（明文为准）',
+            plain.includes('Hello, CLEAN') && !plain.includes('RAW'), plain);
     }
 
     process.exitCode = failed === 0 ? 0 : 1;

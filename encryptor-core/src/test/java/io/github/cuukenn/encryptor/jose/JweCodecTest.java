@@ -320,6 +320,45 @@ class JweCodecTest {
                 URI, "POST", 1L, "n1")).failure());
     }
 
+    @Test
+    void crit扩展头一律拒绝() throws Exception {
+        // RFC 7516 §4.1.13：出现 crit 就必须理解其中全部参数。本协议不实现任何 crit 扩展，
+        // 非空 crit 一律 fail-closed，绝不带着不认识的扩展头继续解
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("TEST-ALG"), EncryptionMethod.parse("TEST-ENC"))
+            .keyID(KID)
+            .criticalParams(Collections.singleton("exp"))
+            .customParams(ContextAad.claims(URI, "POST", Direction.REQUEST, 1L, "n1"))
+            .build();
+        String compact = fakeJwe(header, "hi".getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(EncryptorFailure.BAD_HEADER, assertThrows(EncryptorException.class,
+            () -> fake.decryptRequest(compact, URI, "POST")).failure());
+    }
+
+    @Test
+    void 装配了非AES套件时5参encryptResponse必须拒绝() {
+        // SM4-GCM 的 16 字节 CEK 按"长度猜 enc"会被猜成 A128GCM：加密"成功"但客户端必然解不开
+        CipherSuite smLike = new FakeSuite() {
+            @Override
+            public java.util.Set<String> encryptionMethods() {
+                return Collections.singleton("SM4-GCM");
+            }
+        };
+        JweCodec mixed = new JweCodec(store, java.util.Arrays.asList(new JceCipherSuite(), smLike),
+            Collections.singleton("RSA-OAEP-256"), new java.util.LinkedHashSet<>(
+                java.util.Arrays.asList("A256GCM", "SM4-GCM")));
+
+        EncryptorException e = assertThrows(EncryptorException.class, () -> mixed.encryptResponse(
+            "x".getBytes(StandardCharsets.UTF_8), new byte[16], URI, "POST", 1L, "n1"));
+        assertEquals(EncryptorFailure.ENCRYPT_FAILED, e.failure());
+        assertTrue(e.getMessage().contains("enc"), e.getMessage());
+        // 显式 enc 的 6 参重载不受影响
+        assertDoesNotThrow(() -> mixed.encryptResponse("x".getBytes(StandardCharsets.UTF_8), new byte[32],
+            "A256GCM", URI, "POST", 1L, "n2"));
+    }
+
     /** 假套件：alg=TEST-ALG / enc=TEST-ENC（CEK 4 字节、xor 加密、tag = CEK 首字节）。用于证明分派来自套件而非硬编码。 */
     static class FakeSuite implements CipherSuite {
         @Override
@@ -388,6 +427,15 @@ class JweCodecTest {
             .keyID(KID)
             .customParams(ContextAad.claims(uri, method, Direction.REQUEST, ts, nonce))
             .build();
+        return fakeJwe(header, plaintext, ivLength);
+    }
+
+    /** 指定 protected header 的假报文（IV 12 字节、CEK 4 字节、tag = CEK 首字节）。 */
+    private static String fakeJwe(JWEHeader header, byte[] plaintext) throws Exception {
+        return fakeJwe(header, plaintext, 12);
+    }
+
+    private static String fakeJwe(JWEHeader header, byte[] plaintext, int ivLength) throws Exception {
         String protectedHeader = header.toBase64URL().toString();
         byte[] cek = "cek1".getBytes(StandardCharsets.UTF_8);
         byte[] iv = new byte[ivLength];

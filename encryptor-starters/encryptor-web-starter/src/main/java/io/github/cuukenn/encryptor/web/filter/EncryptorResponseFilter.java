@@ -75,6 +75,15 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
         } catch (Exception e) {
             // 业务异常不能交给容器错误页：那会把明文写到已包装响应之外。
             logger.error("encryptor response filter caught exception, uri: {}", request.getRequestURI(), e);
+            if (trackingRequest.isAsyncStarted()) {
+                // 异步已启动：初始线程不能再 reset/commit 响应（与监听器生命周期脱节，
+                // 客户端只会得到空 500）。CEK/明文的收尾交给 AsyncListener（onError/onComplete/
+                // onTimeout 必然触发其一）；异步在上游开启、还没挂监听器的这里补挂。
+                if (!trackingRequest.isTrackedAsync()) {
+                    deferAsync(trackingRequest, wrapper, ctx);
+                }
+                return;
+            }
             fail(wrapper, request.getRequestURI(), "unhandled exception: " + e);
             return;
         }
@@ -107,6 +116,9 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
         // 业务/容器已直接提交（例如流式写入、绕过 wrapper 的 sendError）：不能再改写，
         // 否则会向已提交响应追加 JWE，真实容器里直接 IllegalStateException。
         if (wrapper.isCommitted()) {
+            // 明文可能已经出网：至少要留审计痕迹，不能静默
+            logger.warn("response already committed before encryptor finish, plaintext may have leaked "
+                + "unencrypted (business bypassed the wrapper?), uri: {}", request.getRequestURI());
             return;
         }
         // HEAD 与规范禁止 body 的状态（1xx/204/205/304）不加密。
@@ -149,6 +161,10 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
     /**
      * 把响应生命周期交给异步回调：先把 CEK 从 ThreadLocal 上下文摘下，避免参数过滤器 finally
      * 在异步完成前 destroy；随后在 onComplete/onError/onTimeout 中收尾并销毁。
+     *
+     * <p><b>契约</b>：异步周期必须可终止（设置 {@code setTimeout} 或保证 {@code complete()}）。
+     * {@code setTimeout(0)} 且永不 complete 时，CEK 与响应明文缓存会滞留到 GC——这是
+     * Servlet 异步模型的固有限制，本过滤器不做 per-request 的 requestDestroyed 兜底。</p>
      */
     private void deferAsync(HttpServletRequest request, BoundedContentCachingResponseWrapper wrapper, WebContext ctx) {
         JweContext jweContext = ctx.getJweContext();

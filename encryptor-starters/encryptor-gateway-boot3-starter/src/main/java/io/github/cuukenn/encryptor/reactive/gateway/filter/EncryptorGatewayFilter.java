@@ -3,6 +3,8 @@ package io.github.cuukenn.encryptor.reactive.gateway.filter;
 import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
+import io.github.cuukenn.encryptor.jose.ContextAad;
+import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -26,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -94,10 +97,13 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         if (config.isSkipAble() && request.getHeaders().containsKey(GatewayConstant.SKIP_HEADER)) {
             return chain.filter(exchange);
         }
-        String uri = request.getURI().getPath();
+        // AAD 口径与 servlet 侧一致：走 ContextAad.canonicalPath 归一（空路径归 "/"、统一解码形态）。
+        // 网关没有 contextPath，传 null；不归一的话同一客户端报文在边界路径下会 AAD 不匹配。
+        String uri = ContextAad.canonicalPath(request.getURI().getPath(), null);
         String method = request.getMethod().name();
         // 2. uri/method 黑名单透传（与 servlet 侧同一语义：整串正则匹配）
-        if (StrKit.anyMatch(uri, config.getSkipUris()) || StrKit.anyMatch(method, config.getSkipMethods())) {
+        // method 按规范大写归一后再匹配：配置写 get/Get/GET 都能命中
+        if (StrKit.anyMatch(uri, config.getSkipUris()) || StrKit.anyMatch(method.toUpperCase(Locale.ROOT), config.getSkipMethods())) {
             return chain.filter(exchange);
         }
         // 3. 运行期旁路透传
@@ -119,17 +125,18 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             return readBody(exchange)
                 .flatMap(bytes -> proceed(exchange, chain, jweFromJson(bytes), GatewayContext.Carrier.JSON, uri, method, bytes))
                 .onErrorResume(EncryptorException.class, e -> fail(exchange, e))
-                .onErrorResume(DataBufferLimitException.class, e -> fail(exchange, 413));
+                .onErrorResume(DataBufferLimitException.class, e -> fail(exchange, 413, EncryptorFailure.TOO_LARGE, e));
         }
         if (contentType != null && MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
             return readBody(exchange)
                 .flatMap(bytes -> proceed(exchange, chain, jweFromForm(bytes), GatewayContext.Carrier.FORM, uri, method, bytes))
                 .onErrorResume(EncryptorException.class, e -> fail(exchange, e))
-                .onErrorResume(DataBufferLimitException.class, e -> fail(exchange, 413));
+                .onErrorResume(DataBufferLimitException.class, e -> fail(exchange, 413, EncryptorFailure.TOO_LARGE, e));
         }
         // 无载体：requireEncrypted ⇒ failure-status；否则透传
         if (reactiveConfig.isRequireEncrypted()) {
-            return fail(exchange, reactiveConfig.getFailureStatus());
+            return fail(exchange, reactiveConfig.getFailureStatus(), EncryptorFailure.MISSING,
+                JweCodec.fail(EncryptorFailure.MISSING, "命中加密范围但缺少 jwe 载体"));
         }
         return chain.filter(exchange);
     }
@@ -139,7 +146,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                                GatewayContext.Carrier carrier, String uri, String method, byte[] cachedBody) {
         if (compact == null || compact.isEmpty()) {
             if (reactiveConfig.isRequireEncrypted()) {
-                return fail(exchange, reactiveConfig.getFailureStatus());
+                return fail(exchange, reactiveConfig.getFailureStatus(), EncryptorFailure.MISSING,
+                    JweCodec.fail(EncryptorFailure.MISSING, "命中加密范围但缺少 jwe 载体"));
             }
             // JSON/form 分支已经读过 body；透传时必须回放，否则下游看到的是空流
             return chain.filter(cachedBody == null ? exchange : withCachedBody(exchange, cachedBody));
@@ -154,7 +162,9 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                     if (allowedKids != null && !allowedKids.isEmpty() && !allowedKids.contains(ctx.kid())) {
                         logger.warn("kid not allowed for uri: {}, kid: {}", uri, ctx.kid());
                         ctx.destroy();
-                        return fail(exchange, reactiveConfig.getFailureStatus());
+                        return fail(exchange, reactiveConfig.getFailureStatus(), EncryptorFailure.ALG_NOT_ALLOWED,
+                            JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
+                                "uri=" + uri + " 的 kid 白名单不含: " + ctx.kid()));
                     }
                 }
                 GatewayContext gatewayContext = new GatewayContext();
@@ -172,9 +182,9 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 return fail(exchange, reactiveConfig.getFailureStatus());
             })
             .onErrorResume(RejectedExecutionException.class, e -> {
-                // 共用密码学执行器队列已满：服务端过载，不能把 5xx 伪装成客户端错误
+                // 共用密码学执行器队列已满：服务端过载，不能把 5xx 伪装成客户端错误（503 可重试）
                 logger.error("crypto executor rejected task, uri: {}", uri, e);
-                return fail(exchange, HttpStatus.SERVICE_UNAVAILABLE.value());
+                return fail(exchange, HttpStatus.SERVICE_UNAVAILABLE.value(), EncryptorFailure.INTERNAL, e);
             });
     }
 
@@ -202,15 +212,40 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         if (carrier == GatewayContext.Carrier.QUERY) {
             String plaintext = new String(ctx.plaintext(), StandardCharsets.UTF_8);
-            MultiValueMap<String, String> queryParams = UriComponentsBuilder.newInstance()
-                .query(plaintext).build().getQueryParams();
-            // 契约：QUERY 载体的明文是"已编码"形态（与 servlet parseQuery 的 URLDecoder、示例客户端一致），
-            // 这里只做 URI 组装并提前校验；非法编码转成 failure-status，不能留到下游 getURI() 时炸成 500。
+            // 契约：QUERY 载体明文是 form 语义的 urlencoded 文本（与 servlet 侧 parseQuery 的
+            // URLDecoder 同一口径，空格编码为 +），且明文即完整 query——jwe 之外的原始 query 参数
+            // 以明文为准，不在明文里的参数会被丢弃。这里按 form 语义解出参数，再以 URI 形态
+            // （空格=%20、字面 + 编码为 %2B）重建 query，消除两侧对 '+' 的解码口径分叉。
+            MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();
+            StringBuilder encoded = new StringBuilder(plaintext.length());
+            for (String pair : plaintext.split("&")) {
+                if (pair.isEmpty()) {
+                    continue;
+                }
+                int eq = pair.indexOf('=');
+                String name;
+                String value;
+                try {
+                    name = java.net.URLDecoder.decode(eq < 0 ? pair : pair.substring(0, eq), "UTF-8");
+                    value = java.net.URLDecoder.decode(eq < 0 ? "" : pair.substring(eq + 1), "UTF-8");
+                } catch (Exception e) {
+                    // 与 servlet parseQuery 同口径：非法 urlencoded 文本按失败面拒绝
+                    throw audit(EncryptorFailure.INTERNAL,
+                        "query 明文不是合法的 urlencoded 文本: " + e.getMessage());
+                }
+                queryParams.add(name, value);
+                if (encoded.length() > 0) {
+                    encoded.append('&');
+                }
+                encoded.append(uriEncode(name)).append('=').append(uriEncode(value));
+            }
+            // 提前校验重建结果：非法编码转成 failure-status，不能留到下游 getURI() 时炸成 500
             URI targetUri;
             try {
-                targetUri = UriComponentsBuilder.fromUri(request.getURI()).replaceQuery(plaintext).build(true).toUri();
+                targetUri = UriComponentsBuilder.fromUri(request.getURI()).replaceQuery(encoded.toString()).build(true).toUri();
             } catch (IllegalArgumentException e) {
-                throw new EncryptorException(EncryptorFailure.INTERNAL, "query 明文不是合法的已编码 query", e);
+                throw audit(EncryptorFailure.INTERNAL,
+                    "query 明文重建后不是合法的已编码 query: " + e.getMessage());
             }
             return new ServerHttpRequestDecorator(request) {
                 @Override
@@ -224,7 +259,9 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 }
             };
         }
-        byte[] plaintext = ctx.plaintext();
+        // 克隆明文：doFinally 清理会原地清零原数组，下游（Retry/重路由）在清理后二次订阅
+        // getBody() 时会静默发出全零 body（响应侧 cek.clone() 同款规避）
+        byte[] plaintext = ctx.plaintext().clone();
         return new ServerHttpRequestDecorator(request) {
             @Override
             public Flux<DataBuffer> getBody() {
@@ -247,7 +284,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         long max = reactiveConfig.getMaxRequestSize();
         long contentLength = exchange.getRequest().getHeaders().getContentLength();
         if (max > 0 && contentLength > max) {
-            return Mono.error(new EncryptorException(EncryptorFailure.TOO_LARGE,
+            return Mono.error(audit(EncryptorFailure.TOO_LARGE,
                 "请求体超过 max-request-size: " + contentLength));
         }
         // 必须在读取过程中限长：chunked 请求没有 Content-Length，先 join 再判长度会把整个 body 拼进堆
@@ -262,11 +299,20 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             .defaultIfEmpty(EMPTY_BYTES)
             .flatMap(bytes -> {
                 if (max > 0 && bytes.length > max) {
-                    return Mono.error(new EncryptorException(EncryptorFailure.TOO_LARGE,
+                    return Mono.error(audit(EncryptorFailure.TOO_LARGE,
                         "请求体超过 max-request-size: " + bytes.length));
                 }
                 return Mono.just(bytes);
             });
+    }
+
+    /** URL 编码为 URI query 形态：URLEncoder 的 '+'（空格）改写为 %20，与 build(true) 的已编码口径一致。 */
+    private static String uriEncode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException("UTF-8 必然存在", e);
+        }
     }
 
     private String jweFromJson(byte[] bytes) {
@@ -277,7 +323,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             return JSONUtil.parseObj(new String(bytes, StandardCharsets.UTF_8)).getStr(GatewayConstant.JWE_PARAM);
         } catch (RuntimeException e) {
             // 非法 JSON 信封：与 servlet 侧一致按 failure-status 处理，不能让 JSONException 冒泡成 500
-            throw new EncryptorException(EncryptorFailure.BAD_HEADER, "request body is not a valid json envelope");
+            throw audit(EncryptorFailure.BAD_HEADER, "request body is not a valid json envelope");
         }
     }
 
@@ -299,12 +345,30 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         return null;
     }
 
+    /** codec 抛出的异常已经审计过；构造期经 {@link #audit} 的异常也已审计——这里只负责响应面。 */
     private Mono<Void> fail(ServerWebExchange exchange, EncryptorException e) {
         int status = e.failure() == EncryptorFailure.TOO_LARGE ? 413 : reactiveConfig.getFailureStatus();
-        return fail(exchange, status);
+        return respond(exchange, status);
     }
 
     private Mono<Void> fail(ServerWebExchange exchange, int status) {
+        return respond(exchange, status);
+    }
+
+    /** codec 之外的失败分支（缺载体/kid 白名单/执行器拒绝/超限）的唯一审计出口。 */
+    private Mono<Void> fail(ServerWebExchange exchange, int status, EncryptorFailure failure, Throwable cause) {
+        protocol.listener().onDecryptFailure(failure, cause);
+        return respond(exchange, status);
+    }
+
+    /** 构造 codec 之外的失败异常并立即审计（失败分支的异常在构造期即审计，避免经 fail(e) 双重计数）。 */
+    private EncryptorException audit(EncryptorFailure failure, String message) {
+        EncryptorException e = JweCodec.fail(failure, message);
+        protocol.listener().onDecryptFailure(failure, e);
+        return e;
+    }
+
+    private Mono<Void> respond(ServerWebExchange exchange, int status) {
         cleanup(exchange);
         ServerHttpResponse response = exchange.getResponse();
         String trace = UUID.randomUUID().toString();

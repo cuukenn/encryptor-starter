@@ -50,8 +50,12 @@ public class EncryptorRequestBodyFilter extends OncePerRequestFilter {
                         return true;
                     }
 
+                    // 明文是内存字节数组、同步可读；Servlet 3.1 非阻塞读依赖 onDataAvailable 回调，
+                    // 静默吞掉监听器会让下游非阻塞读永远挂起——显式拒绝比假装支持更安全
                     @Override
                     public void setReadListener(ReadListener listener) {
+                        throw new UnsupportedOperationException(
+                            "非阻塞读不支持加密请求体视图（明文已在内存中，请使用同步读取）");
                     }
                 };
             }

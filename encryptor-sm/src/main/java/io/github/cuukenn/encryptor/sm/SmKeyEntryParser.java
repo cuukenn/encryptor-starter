@@ -101,7 +101,14 @@ public class SmKeyEntryParser implements KeyEntryParser {
             if (!(publicKey instanceof ECPublicKeyParameters)) {
                 throw new EncryptorException("密钥 kid=" + kid + " 不是 EC 公钥");
             }
-            configured = ((ECPublicKeyParameters)publicKey).getQ();
+            ECPublicKeyParameters publicParams = (ECPublicKeyParameters)publicKey;
+            // 显式比对公钥曲线与私钥域参数：不依赖 BC ECPoint.equals 的坐标值语义
+            if (!publicParams.getParameters().getCurve().equals(domain.getCurve())
+                || !publicParams.getParameters().getG().equals(domain.getG())
+                || !publicParams.getParameters().getN().equals(domain.getN())) {
+                throw new EncryptorException("密钥 kid=" + kid + " 的公钥曲线与私钥域参数不一致");
+            }
+            configured = publicParams.getQ();
         }
         // 用"从私钥推导公钥并逐点比对"取代曲线上点校验：等价且更强
         ECPoint derived = domain.getG().multiply(privateParams.getD()).normalize();
@@ -144,11 +151,14 @@ public class SmKeyEntryParser implements KeyEntryParser {
         }
     }
 
-    /** 显式曲线参数与 sm2p256v1 是否等价（比对阶、生成元与域大小）。 */
+    /** 显式曲线参数与 sm2p256v1 是否等价（比对阶、生成元、a/b 与域大小，杜绝"同 n 同 G 的自造曲线"混入）。 */
     private static boolean isSm2Curve(X9ECParameters parsed) {
         X9ECParameters sm2 = SM2_DOMAIN;
         return parsed != null && sm2 != null && sm2.getN().equals(parsed.getN())
             && sm2.getG().equals(parsed.getG())
+            // FieldElement 跨曲线实例的 equals 不可靠，用模数值比对
+            && sm2.getCurve().getA().toBigInteger().equals(parsed.getCurve().getA().toBigInteger())
+            && sm2.getCurve().getB().toBigInteger().equals(parsed.getCurve().getB().toBigInteger())
             && parsed.getCurve().getFieldSize() == SM2_COORDINATE_BYTES * 8;
     }
 

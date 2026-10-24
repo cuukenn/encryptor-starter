@@ -7,6 +7,7 @@ import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
 import io.github.cuukenn.encryptor.runtime.EncryptorRuntime;
 import io.github.cuukenn.encryptor.web.config.WebEncryptorConfig;
+import io.github.cuukenn.encryptor.web.config.WebFilterConfig;
 import io.github.cuukenn.encryptor.web.discovery.JwksEndpointFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestBodyFilter;
 import io.github.cuukenn.encryptor.web.filter.EncryptorRequestParameterFilter;
@@ -78,7 +79,21 @@ public class WebEncryptorConfiguration {
     @Bean("defaultWebEncryptorFilter")
     public FilterRegistrationBean<? extends Filter> webEncryptorFilter(WebEncryptorConfig config, EncryptorConfig encryptorConfig, DefaultProtocol protocolStack, EncryptorRuntime runtime) {
         logger.info("register web encryptor");
+        validateFilterOrder(config.getFilterConfig());
         validateCryptoKids(config, protocolStack);
+        // 用户覆盖 EncryptorRuntime bean 时，配置的启动期 bypass 写在 protocol 内部实例上，
+        // 而过滤器读的是覆盖 bean——热开关/旁路配置会静默落空，必须在启动期拦住
+        if (runtime != protocolStack.runtime()) {
+            throw new EncryptorException("注册的 EncryptorRuntime bean 与 DefaultProtocol 内部实例不是同一对象："
+                + "启动期 bypass 配置与 setBypass 热开关将只作用于其中一个。"
+                + "请删除自定义 EncryptorRuntime bean（默认 bean 即 protocol.runtime()），"
+                + "或改用 protocol.runtime() 返回的实例");
+        }
+        WebFilterConfig orders = config.getFilterConfig();
+        logger.info("加密过滤器链序: jwks={}, 门面={}, 参数={}, 请求体={}, 响应={}（链序契约: jwks < 门面 < 参数 < 请求体 < 响应；"
+            + "下游过滤器要在明文视图内运行时，order 必须落在门面与响应之间）",
+            orders.getJwksFilterOrder(), orders.getEncryptorFilterOrder(), orders.getEncryptorReqParamsFilterOrder(),
+            orders.getEncryptorReqBodyFilterOrder(), orders.getEncryptorResFilterOrder());
         FilterRegistrationBean<Filter> registrationBean = new FilterRegistrationBean<>();
         Builder<Filter> binder = new Builder<>(registrationBean);
         binder.filterConfiguration(new EncryptorWebFilter(config, encryptorConfig, protocolStack, runtime),
@@ -138,6 +153,26 @@ public class WebEncryptorConfiguration {
                         + "] 引用了不存在的 kid: " + kid);
                 }
             }
+        }
+    }
+
+    /**
+     * 过滤器 order 是载荷契约：order 全部可配（下游应用插入自己的过滤器时必须调），但相对顺序
+     * 错了不会报错，而是<b>静默退化</b>——视图过滤器在门面之外看到的是密文原文，响应过滤器
+     * 在门面/参数过滤器之外拿不到 CEK 时 fail-open 放行明文。因此链序契约必须在启动期校验，
+     * 而不是只靠钉住默认值的单测。
+     */
+    static void validateFilterOrder(WebFilterConfig orders) {
+        boolean ok = orders.getJwksFilterOrder() < orders.getEncryptorFilterOrder()
+            && orders.getEncryptorFilterOrder() < orders.getEncryptorReqParamsFilterOrder()
+            && orders.getEncryptorReqParamsFilterOrder() < orders.getEncryptorReqBodyFilterOrder()
+            && orders.getEncryptorReqBodyFilterOrder() < orders.getEncryptorResFilterOrder();
+        if (!ok) {
+            throw new EncryptorException("过滤器 order 违反链序契约: jwks("
+                + orders.getJwksFilterOrder() + ") < 门面(" + orders.getEncryptorFilterOrder()
+                + ") < 参数(" + orders.getEncryptorReqParamsFilterOrder() + ") < 请求体("
+                + orders.getEncryptorReqBodyFilterOrder() + ") < 响应(" + orders.getEncryptorResFilterOrder()
+                + ")。调整顺序时必须整体保持该相对关系，否则加密链路会静默失效");
         }
     }
 }

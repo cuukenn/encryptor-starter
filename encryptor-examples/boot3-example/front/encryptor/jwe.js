@@ -27,11 +27,13 @@ const ENC_KEY_BYTES = {A128GCM: 16, A192GCM: 24, A256GCM: 32};
 const TAG_BYTES = 16;
 
 function b64urlEncode(bytes) {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i++) {
-        bin += String.fromCharCode(bytes[i]);
+    // 分块拼接：逐字符 += 在多 MB 密文下会产生 O(n) 个中间串
+    const CHUNK = 0x8000;
+    const parts = [];
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        parts.push(String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + CHUNK, bytes.length))));
     }
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return btoa(parts.join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function b64urlDecode(str) {
@@ -163,14 +165,20 @@ async function encrypt(plaintext, {kid, publicKeyJwk, uri, method, enc}) {
     return {jwe: compact, cek, alg: wrapped.alg, enc: encryption};
 }
 
+/** 响应新鲜度校验的默认窗口：超过视为整条旧响应重放。0 = 关闭校验。 */
+const MAX_RESPONSE_AGE_MS = 5 * 60 * 1000;
+
 /**
  * 解密服务端响应（alg=dir，复用请求 CEK）。
  *
  * @param jwe JWE compact
  * @param cek encrypt() 返回的 CEK
+ * @param opts {maxResponseAgeMs} 可选：响应头 ts 的新鲜度窗口（毫秒），默认 5 分钟，
+ *                             传 0 关闭——AAD 只保证"头-密文"绑定，不校验 ts 的话
+ *                             整条旧响应的合法重放对客户端不可检测
  * @returns {Promise<string>} 明文
  */
-async function decrypt(jwe, cek) {
+async function decrypt(jwe, cek, opts) {
     const [h, , ivS, ctS, tagS] = jwe.split('.');
     const header = JSON.parse(new TextDecoder().decode(b64urlDecode(h)));
     if (header.alg !== 'dir') {
@@ -183,6 +191,13 @@ async function decrypt(jwe, cek) {
     }
     if (cek.length !== encBytes) {
         throw new Error('cek length ' + cek.length + ' does not match enc ' + header.enc);
+    }
+    const maxAge = opts && opts.maxResponseAgeMs !== undefined ? opts.maxResponseAgeMs : MAX_RESPONSE_AGE_MS;
+    if (maxAge > 0) {
+        const age = Date.now() - header.ts;
+        if (typeof header.ts !== 'number' || age < -maxAge || age > maxAge) {
+            throw new Error('response freshness check failed: ts=' + header.ts + ', age=' + age + 'ms');
+        }
     }
     const aad = Uint8Array.from(h, ch => ch.charCodeAt(0));
     const ct = b64urlDecode(ctS);
@@ -213,16 +228,30 @@ async function fetchKeys(url, force) {
     // 惰性加载：浏览器环境没有 axios，用全局 fetch；Node 用 axios
     let data;
     if (typeof fetch === 'function') {
-        data = await (await fetch(url)).json();
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error('fetch JWKS failed: HTTP ' + res.status + ' from ' + url);
+        }
+        data = await res.json();
     } else {
         data = (await require('axios').get(url)).data;
     }
+    if (!data || !Array.isArray(data.keys)) {
+        throw new Error('invalid JWKS document from ' + url + ': missing keys array');
+    }
     const byKid = new Map();
-    for (const jwk of (data.keys || [])) {
+    for (const jwk of data.keys) {
         byKid.set(jwk.kid, jwk);
     }
     keyCache = {byKid, activeKid: data.activeKid};
     return keyCache;
 }
 
-module.exports = {encrypt, decrypt, fetchKeys};
+/** best-effort 清零敏感字节（CEK/共享秘密用完即调，缩短内存快照可恢复窗口）。 */
+function zeroize(bytes) {
+    if (bytes && bytes.fill) {
+        bytes.fill(0);
+    }
+}
+
+module.exports = {encrypt, decrypt, fetchKeys, zeroize};

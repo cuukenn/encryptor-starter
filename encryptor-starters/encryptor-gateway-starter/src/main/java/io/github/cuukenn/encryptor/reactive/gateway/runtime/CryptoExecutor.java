@@ -72,9 +72,14 @@ public class CryptoExecutor implements DisposableBean {
         return queueCapacity;
     }
 
-    /** 已提交未完成的任务数 = 正在执行 + 排队等待（过载的第一手信号）。 */
+    /**
+     * 已提交未完成的任务数 = 正在执行 + 排队等待（过载的第一手信号）。
+     * 先读 completed 再读 submitted：两次读之间"提交并完成"的任务只会让结果偏大（瞬时多算），
+     * 反过来读会出现瞬时负值——gauge 出负数会直接破坏监控告警。
+     */
     public long pendingTasks() {
-        return submitted.get() - completed.get();
+        long completed = this.completed.get();
+        return submitted.get() - completed;
     }
 
     /** 累计因队列满被拒的任务数（每一个都会变成一次 503）。 */

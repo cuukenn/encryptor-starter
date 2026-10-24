@@ -39,19 +39,26 @@ public class JwksEndpointFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        if (!enable || !"GET".equals(request.getMethod())
+        boolean head = "HEAD".equals(request.getMethod());
+        // HEAD 与 GET 同口径响应（只发头不发 body）；路径匹配走 canonicalPath，与网关侧同口径
+        if (!enable || (!"GET".equals(request.getMethod()) && !head)
             || !path.equals(ContextAad.canonicalPath(request.getRequestURI(), request.getContextPath()))) {
             filterChain.doFilter(request, response);
             return;
         }
         response.setHeader("ETag", etag);
         response.setHeader("Cache-Control", cacheControl);
-        if (etag.equals(request.getHeader("If-None-Match"))) {
+        // RFC 7232：If-None-Match 支持逗号多值与 W/ 弱比较（代理/CDN 场景命中率不降级）
+        if (JwksDocument.etagMatch(request.getHeader("If-None-Match"), etag)) {
             response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentType("application/json;charset=UTF-8");
+        if (head) {
+            response.setContentLength(body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+            return;
+        }
         response.getWriter().write(body);
     }
 }

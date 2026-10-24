@@ -106,4 +106,21 @@ class ReplayGuardTest {
         pool.shutdownNow();
         assertEquals(1, passed.get(), "同一个 nonce 并发只能有一个请求通过");
     }
+
+    @Test
+    void long溢出的极端时间戳必须EXPIRED() {
+        // Math.abs(now - ts) 口径下：ts = now + Long.MIN_VALUE 时差值溢出为 Long.MIN_VALUE，
+        // abs 仍为负，超窗判定被跳过——必须用双端比较堵死
+        long now = System.currentTimeMillis();
+        assertEquals(EncryptorFailure.EXPIRED, assertThrows(EncryptorException.class,
+            () -> guard().verify(now + Long.MIN_VALUE, "n1")).failure());
+    }
+
+    @Test
+    void retention不足2倍ttl的内存nonce存储在构造期拒绝() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new ReplayGuard(TTL, new InMemoryNonceStore(TTL * 2 - 1, 1000)),
+            "retention < 2*ttl 存在未来时间戳重放缺口，必须构造期失败");
+        assertDoesNotThrow(() -> new ReplayGuard(TTL, new InMemoryNonceStore(TTL * 2, 1000)));
+    }
 }
