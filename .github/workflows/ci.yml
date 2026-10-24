@@ -41,6 +41,55 @@ jobs:
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
           diff -u encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
+      # 双线版本同步守卫：root project.version == encryptor.javax.line.version，
+      # 且三个 boot3 pom 的 BOM import 必须经 property 引用（防 core 修复漏发 boot3 线）
+      - name: Dual-line version sync guard
+        if: matrix.java == '8'
+        run: bash scripts/check-dual-line-versions.sh
+
+      # servlet↔reactive 结构 parity 守卫（三面）：wire 常量值三处同值（两份 EncryptorConstant +
+      # GatewayConstant 的 JWE_PARAM/TRACE_HEADER）；skip 配置类的字段/助手清单两侧一致；
+      # 两侧 AutoConfiguration 的 @Bean 方法名集合一致——任一面漂移即红
+      - name: Servlet-reactive structural parity guards
+        if: matrix.java == '8'
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          def vals(path):
+              s = open(path).read()
+              return {k: v for k, v in re.findall(r'String\s+(\w+)\s*=\s*"([^"]+)"', s)}
+          e1 = vals('encryptor-starters/encryptor-starter/src/main/java/io/github/cuukenn/encryptor/constant/EncryptorConstant.java')
+          e2 = vals('encryptor-starters/encryptor-starter-reactive/src/main/java/io/github/cuukenn/encryptor/reactive/constant/EncryptorConstant.java')
+          g  = vals('encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/constant/GatewayConstant.java')
+          for k in ('JWE_PARAM', 'TRACE_HEADER'):
+              if k in e1 and k in e2 and e1[k] != e2[k]:
+                  sys.exit(f'FAIL: EncryptorConstant.{k} servlet={e1[k]!r} reactive={e2[k]!r}')
+              if k == 'JWE_PARAM' and k in g and k in e1 and g[k] != e1[k]:
+                  sys.exit(f'FAIL: GatewayConstant.JWE_PARAM={g[k]!r} != EncryptorConstant.JWE_PARAM={e1[k]!r}')
+          def inventory(path, patterns):
+              s = open(path).read()
+              return set(n for p in patterns for n in re.findall(p, s))
+          cfg_patterns = [r'private final List<String> (skip\w+|black\w+)']
+          web_cfg  = inventory('encryptor-starters/encryptor-web-starter/src/main/java/io/github/cuukenn/encryptor/web/config/WebEncryptorConfig.java', cfg_patterns)
+          gw_cfg   = inventory('encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/config/GatewayEncryptorConfig.java', cfg_patterns)
+          if web_cfg != gw_cfg:
+              sys.exit(f'FAIL: skip 字段清单分叉 web={sorted(web_cfg)} gateway={sorted(gw_cfg)}')
+          for helper in ('mergeAlias', 'warnUnmatchableCasing', 'warnParameterSuffix'):
+              for path in ('encryptor-starters/encryptor-web-starter/src/main/java/io/github/cuukenn/encryptor/web/config/WebEncryptorConfig.java',
+                           'encryptor-starters/encryptor-gateway-starter/src/main/java/io/github/cuukenn/encryptor/reactive/gateway/config/GatewayEncryptorConfig.java'):
+                  if helper not in open(path).read():
+                      sys.exit(f'FAIL: {path} 缺 {helper}（另一侧有——skip 口径助手单侧删除会静默漂移）')
+          def beans(path):
+              s = open(path).read()
+              return set(re.findall(r'public\s+\w[\w<>,\s]*?\s(\w+)\([^)]*\)\s*\{', s))
+          a1 = beans('encryptor-starters/encryptor-starter/src/main/java/io/github/cuukenn/encryptor/configuration/EncryptorAutoConfiguration.java')
+          a2 = beans('encryptor-starters/encryptor-starter-reactive/src/main/java/io/github/cuukenn/encryptor/reactive/configuration/EncryptorReactiveAutoConfiguration.java')
+          core_beans = a1 & a2
+          if 'defaultProtocol' not in core_beans or 'encryptorRuntime' not in core_beans:
+              sys.exit(f'FAIL: 两侧 AutoConfiguration 的公共 bean 面缺失 defaultProtocol/encryptorRuntime（servlet={sorted(a1)} reactive={sorted(a2)}）')
+          print('OK: structural parity (constants / skip-config inventory / autoconfig beans)')
+          PY
+
       # servlet↔reactive 双写面守卫：两份 EncryptorConstant（JWE_PARAM/TRACE_HEADER）除 package 行外
       # 必须逐字节一致——常量不同值会让两侧 wire-format/trace 头分叉且 CI 全绿
       - name: EncryptorConstant parity (servlet vs reactive)

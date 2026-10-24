@@ -12,6 +12,10 @@
     <url>https://github.com/cuukenn/encryptor-starter</url>
     <properties>
         <rversion>${version}</rversion>
+        <!-- javax 线版本（= 本 pom 的 project.version）。boot3 模块自管 3.0.0，其 BOM import /
+             core 依赖必须引用本 property 而不是字面量——发版时 bump project.version 必须同步 bump
+             这里，CI 有守卫断言两者相等（防 core 修复漏发 boot3 线的安全事件） -->
+        <encryptor.javax.line.version>1.0.0</encryptor.javax.line.version>
         <!-- *************************maven基础配置*************************************-->
         <!--maven编译的JDK版本和编码字符集-->
         <java.version>8</java.version>

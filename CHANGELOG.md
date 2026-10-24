@@ -1,5 +1,10 @@
 # Changelog
 
+> **双线发布约定**：`encryptor-core`/javax 线制品为 `1.x`，boot3 复制线为 `3.x` 自管版本——
+> 两线**成对发布**（core 1.0.1 ⇔ boot3 3.0.1 同一变更列车），条目按 `1.x / 3.x` 成对标注。
+> boot3 模块经 root pom 的 `encryptor.javax.line.version` property 引用 javax 线制品，
+> CI（check-dual-line-versions.sh）断言与 `project.version` 同步 bump。
+
 ## Unreleased
 
 ### Changed（不兼容）

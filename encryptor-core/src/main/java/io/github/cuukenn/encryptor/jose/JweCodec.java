@@ -10,6 +10,8 @@ import com.nimbusds.jose.JWEObject;
 import com.nimbusds.jose.util.Base64URL;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.exception.EncryptorFailure;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -38,8 +40,18 @@ import java.util.Set;
  */
 public class JweCodec {
 
+    private static final Logger logger = LoggerFactory.getLogger(JweCodec.class);
+
     /** 协议默认（也是白名单为空时的唯一允许值）。 */
     public static final String DEFAULT_ALG = JWEAlgorithm.RSA_OAEP_256.getName();
+
+    /**
+     * 协议类型锚点（protected header 的 {@code typ}）：<b>v1 恒为 {@code encryptor+jwe}</b>，
+     * 未来版本走 {@code encryptor+jwe;v=2} 文法。当前为<b>软锚点</b>——服务端解析并记录，
+     * 未知 typ 不拒绝（JOSE 里 typ 是可选信息头，强校验会拒掉不发 typ 的旧客户端）。
+     * 协议演进通道因此固定为：additive claim + 服务端软接受，不走 crit（crit 一律 fail-closed）。
+     */
+    public static final String PROTOCOL_TYPE = "encryptor+jwe";
     public static final String DEFAULT_ENC = EncryptionMethod.A256GCM.getName();
 
     /** AES-GCM 内容加密家族（5 参 {@code encryptResponse} 按 CEK 长度推断 enc 的合法范围）。 */
@@ -182,6 +194,12 @@ public class JweCodec {
         Set<String> crit = header.getCriticalParams();
         if (crit != null && !crit.isEmpty()) {
             throw fail(EncryptorFailure.BAD_HEADER, "不支持的 crit 扩展头: " + sanitize(String.valueOf(crit)));
+        }
+        // 协议版本软锚点：解析并记录 typ（v1=encryptor+jwe；未来 encryptor+jwe;v=N）。
+        // 未知 typ 只记 INFO 不拒绝——为版本协商留观测面，同时不破坏不发 typ 的旧客户端。
+        String typ = header.getType() == null ? null : header.getType().toString();
+        if (typ != null && !typ.isEmpty() && !typ.startsWith(PROTOCOL_TYPE)) {
+            logger.info("非本协议的 typ（软接受）: typ={}, kid={}", sanitize(typ), sanitize(kid));
         }
 
         Map<String, Object> headerJson;

@@ -189,6 +189,12 @@
 - **客户端**：两份 front 参考实现均已支持（WebCrypto `ECDH` + 手写 Concat KDF），`enc` 以服务端 `allowed-encs` 为准（不再写死 A256GCM）。
 - **互通性证据**：core 单测用 nimbus `ECDHEncrypter`（独立实现）当 oracle 双向验证；真实 E2E（2026-10-18 时点）：web-example 11/11、gateway-example 10/10（test.js 后扩至八组，见仓库 front/test.js 头注释）。
 
+### 3.11 协议版本化与演进通道 —— 2026-10-24 增补
+
+- **版本锚点**：protected header 的 `typ` 字段。v1 恒为 `encryptor+jwe`；未来版本走 `encryptor+jwe;v=2` 文法。服务端**软解析**：读取并记录（未知 typ 记 INFO 不拒绝）——不发 typ 的旧客户端始终兼容。
+- **唯一演进通道**：协议变更只能走「additive claim + 服务端软接受」——新增 protected header claim 对旧端是透明字节（AAD=header 原始字节，随认证），改语义/删 claim/强制新 claim 一律禁止（需全体客户端同批升级）。
+- **crit 不作为演进通道**：非空 `crit` 一律 fail-closed 拒绝（`JweCodec`）——用 crit 声明扩展头的客户端在所有当前服务端上直接 400，扩展头能力不被承诺。
+
 ## 4. 模块与 API 变更
 
 ### 4.1 保留的骨架（不动）

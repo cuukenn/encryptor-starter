@@ -336,6 +336,23 @@ class JweCodecTest {
     }
 
     @Test
+    void typ软锚点解析且不拒绝任何客户端() throws Exception {
+        // v1 锚点 = encryptor+jwe；未来 encryptor+jwe;v=2 与无关 typ（如 JWT）都软接受；
+        // 不发 typ 的旧客户端同样接受——强校验会拒掉它们，这是版本协商的观测面而非闸门
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        // 1) v1 typ
+        assertDoesNotThrow(() -> fake.decryptRequest(fakeJweWithTyp("encryptor+jwe", URI, "POST"), URI, "POST"));
+        // 2) 未来版本文法
+        assertDoesNotThrow(() -> fake.decryptRequest(fakeJweWithTyp("encryptor+jwe;v=2", URI, "POST"), URI, "POST"));
+        // 3) 无关 typ（软接受）
+        assertDoesNotThrow(() -> fake.decryptRequest(fakeJweWithTyp("JWT", URI, "POST"), URI, "POST"));
+        // 4) 不发 typ 的旧客户端
+        assertDoesNotThrow(() -> fake.decryptRequest(
+            fakeJwe("hi".getBytes(StandardCharsets.UTF_8), URI, "POST", 1L, "n1"), URI, "POST"));
+    }
+
+    @Test
     void crit扩展头一律拒绝() throws Exception {
         // RFC 7516 §4.1.13：出现 crit 就必须理解其中全部参数。本协议不实现任何 crit 扩展，
         // 非空 crit 一律 fail-closed，绝不带着不认识的扩展头继续解
@@ -430,6 +447,16 @@ class JweCodecTest {
         public int ivLength(String enc) {
             return 16;
         }
+    }
+
+    /** 指定 typ 的假报文（协议版本软锚点用例）。 */
+    private static String fakeJweWithTyp(String typ, String uri, String method) throws Exception {
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("TEST-ALG"), EncryptionMethod.parse("TEST-ENC"))
+            .keyID(KID)
+            .type(new com.nimbusds.jose.JOSEObjectType(typ))
+            .customParams(ContextAad.claims(uri, method, Direction.REQUEST, 1L, "n1"))
+            .build();
+        return fakeJwe(header, "hi".getBytes(StandardCharsets.UTF_8));
     }
 
     /** 指定 kid 的假报文（kid 任意字符串——含控制字符，用于脱敏断言）。 */

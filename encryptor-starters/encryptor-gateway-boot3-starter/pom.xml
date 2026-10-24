@@ -25,14 +25,14 @@
     <!--
         显式 dependencyManagement 兜底：根 pom 的 BOM import 用 ${project.version} 插值，
         本模块自管版本 3.0.0 后会误解析为 encryptor-dependencies:3.0.0（不存在），
-        这里固定回 BOM 实际版本 1.0.0（reactive 共享对位解析为 1.0.0；Spring 版本仍锚定 boot3 profile 属性）。
+        这里固定引用 root 的 encryptor.javax.line.version（与 javax 线同步 bump）（reactive 共享对位解析为 1.0.0；Spring 版本仍锚定 boot3 profile 属性）。
     -->
     <dependencyManagement>
         <dependencies>
             <dependency>
                 <groupId>io.github.cuukenn</groupId>
                 <artifactId>encryptor-dependencies</artifactId>
-                <version>1.0.0</version>
+                <version>${encryptor.javax.line.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
