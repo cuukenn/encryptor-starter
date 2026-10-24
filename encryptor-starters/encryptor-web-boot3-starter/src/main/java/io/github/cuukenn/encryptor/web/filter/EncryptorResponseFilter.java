@@ -2,6 +2,8 @@ package io.github.cuukenn.encryptor.web.filter;
 
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
+import io.github.cuukenn.encryptor.exception.EncryptorFailure;
+import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -426,6 +428,10 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
     private void fail(BoundedContentCachingResponseWrapper wrapper, String uri, String reason) throws IOException {
         String trace = UUID.randomUUID().toString();
         logger.error("encryptor response failure, trace: {}, uri: {}, reason: {}", trace, uri, reason);
+        // 响应侧 codec 外失败出口补审计（codec 内失败由 JweCodec 审计）：超限→TOO_LARGE，其余 INTERNAL
+        protocolStack.listener().onEncryptFailure(
+            reason.contains("max-response-size") ? EncryptorFailure.TOO_LARGE : EncryptorFailure.INTERNAL,
+            JweCodec.fail(EncryptorFailure.INTERNAL, "uri=" + uri + ", reason=" + reason));
         // 响应已提交时不能再 reset/改状态，否则会从失败处理里再抛 IllegalStateException
         if (wrapper.isCommitted()) {
             return;

@@ -203,6 +203,8 @@ public class GatewayEncryptorConfig implements InitializingBean {
         StrKit.precompile(PREFIX + ".skip-res-content-type", skipResContentType);
         warnUnmatchableCasing(skipReqContentType, "skip-req-content-type");
         warnUnmatchableCasing(skipResContentType, "skip-res-content-type");
+        warnParameterSuffix(skipReqContentType, "skip-req-content-type");
+        warnParameterSuffix(skipResContentType, "skip-res-content-type");
         Map<String, List<String>> crypto = getCryptoConfig();
         if (crypto != null) {
             StrKit.precompile(PREFIX + ".crypto-config", crypto.keySet());
@@ -247,6 +249,18 @@ public class GatewayEncryptorConfig implements InitializingBean {
         for (String regex : regexes) {
             if (regex != null && !regex.equals(regex.toLowerCase(java.util.Locale.ROOT))) {
                 LOG.warn("配置 {}.{} 含大写字符: \"{}\"——请求/响应 content-type 会先小写归一再匹配，该条目永远不会命中",
+                    PREFIX, name, regex);
+            }
+        }
+    }
+    /**
+     * content-type 匹配侧会先剥掉 {@code ;charset=} 等参数（media-type 段）再整串匹配：
+     * 配置条目含 {@code ;} 时永远不命中（2026-10-24 起的匹配口径），启动期告警提示改写。
+     */
+    private static void warnParameterSuffix(List<String> regexes, String name) {
+        for (String regex : regexes) {
+            if (regex != null && regex.indexOf(';') >= 0) {
+                LOG.warn("配置 {}.{} 含参数段 ';': \"{}\"——请求/响应 content-type 会先剥掉 ; 参数再匹配，该条目永远不会命中（请只写 media-type 部分）",
                     PREFIX, name, regex);
             }
         }

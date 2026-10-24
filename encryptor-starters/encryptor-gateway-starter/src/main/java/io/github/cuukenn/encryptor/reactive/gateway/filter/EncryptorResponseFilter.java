@@ -1,6 +1,8 @@
 package io.github.cuukenn.encryptor.reactive.gateway.filter;
 
+import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
+import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -205,6 +207,11 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
 
             /** 失败面统一出口：body 清空、去 Content-Encoding、带 trace 头与状态码（不发明文）。 */
             private Mono<Void> fail(HttpStatus status) {
+                // 响应侧 codec 外失败出口补审计（codec 内失败由 JweCodec 审计）；统一 INTERNAL 分类，
+                // 消息携带状态码（503=执行器拒绝、500=超限/加密失败）便于指标侧区分
+                protocol.listener().onEncryptFailure(EncryptorFailure.INTERNAL,
+                    JweCodec.fail(EncryptorFailure.INTERNAL,
+                        "uri=" + exchange.getRequest().getURI().getPath() + ", status=" + status.value()));
                 getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
                 getHeaders().set(HttpHeaders.CONTENT_LENGTH, "0");
                 getHeaders().set(EncryptorConstant.TRACE_HEADER, UUID.randomUUID().toString());

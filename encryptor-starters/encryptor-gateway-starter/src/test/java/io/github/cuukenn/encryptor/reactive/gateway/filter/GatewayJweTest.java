@@ -709,12 +709,28 @@ class GatewayJweTest {
     /** 响应方向同理：流式/chunked 响应必须在读取过程中按 max-response-size 截断。 */
     @Test
     void 请求侧执行器拒绝时回503且补审计回调() throws Exception {
-        // 请求解密走 crypto scheduler：队列满/disposed 时必须 503（不能伪装成客户端 4xx）
+        // 请求解密走 crypto scheduler：队列满/disposed 时必须 503（不能伪装成客户端 4xx）；
+        // 失败分支的 onDecryptFailure 审计必须被补发（用 recording listener 钉住）
+        java.util.List<EncryptorFailure> failures = new java.util.ArrayList<>();
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair pair = generator.generateKeyPair();
+        DefaultProtocol audited = DefaultProtocol.builder()
+            .key(new DefaultProtocol.KeyMaterial(KID, KeyType.RSA,
+                Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()),
+                Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())))
+            .listener(new EncryptorListener() {
+                @Override
+                public void onDecryptFailure(EncryptorFailure failure, Throwable cause) {
+                    failures.add(failure);
+                }
+            }).build();
         CryptoExecutor disposed = CryptoExecutor.create();
         disposed.dispose();
-        EncryptorGatewayFilter filter = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, protocol, disposed);
+        EncryptorGatewayFilter filter = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, audited, disposed);
         MockServerWebExchange exchange = MockServerWebExchange.from(
-            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("x=1", "/api/a", "GET")));
+            MockServerHttpRequest.get("/api/a").queryParam("jwe",
+                sealWith("x=1", "/api/a", "GET", pair.getPublic())));
         AtomicBoolean called = new AtomicBoolean();
         filter.filter(exchange, e -> {
             called.set(true);
@@ -722,6 +738,7 @@ class GatewayJweTest {
         }).block(TIMEOUT);
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(called).isFalse();
+        assertThat(failures).containsExactly(EncryptorFailure.INTERNAL);
     }
 
     @Test
@@ -732,7 +749,6 @@ class GatewayJweTest {
             MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON)
                 .body("{\"jwe\":\"" + seal("{\"k\":\"v\"}", "/api/a", "POST") + "\"}"));
         AtomicReference<GatewayContext> captured = new AtomicReference<>();
-        java.util.concurrent.CountDownLatch cancelled = new java.util.concurrent.CountDownLatch(1);
         reactor.core.Disposable disposable = gateway().filter(exchange, e -> {
             captured.set(e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR));
             return Mono.never();
@@ -753,7 +769,6 @@ class GatewayJweTest {
         }
         assertThat((Object) exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR)).isNull();
         assertThat(cek).containsOnly((byte) 0);
-        assertThat(cancelled.getCount()).isEqualTo(1);
     }
 
     @Test

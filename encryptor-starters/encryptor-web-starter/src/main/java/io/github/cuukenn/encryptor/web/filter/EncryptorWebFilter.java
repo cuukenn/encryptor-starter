@@ -131,7 +131,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         long maxRequestSize = WebContext.maxRequestSize();
         // 必须在 getParameter 之前判 Content-Length：表单载体一调用 getParameter，容器就会解析整个 body
         if (maxRequestSize > 0 && request.getContentLengthLong() > maxRequestSize) {
-            fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+            fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, EncryptorFailure.TOO_LARGE);
             return;
         }
         // chunked 表单没有 Content-Length，容器 getParameter 会无界解析整个 body；配置了上限时直接拒绝，
@@ -139,7 +139,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         if (maxRequestSize > 0 && ct.startsWith("application/x-www-form-urlencoded")
             && request.getContentLengthLong() < 0) {
             logger.warn("chunked 表单请求无法做有界校验，拒绝, uri: {}", uri);
-            fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+            fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, EncryptorFailure.TOO_LARGE);
             return;
         }
         compact = request.getParameter(EncryptorConstant.JWE_PARAM);
@@ -153,7 +153,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             carrier = Carrier.JSON;
             byte[] raw = maxRequestSize > 0 ? readBounded(request.getInputStream(), maxRequestSize, request.getContentLengthLong()) : StreamUtils.copyToByteArray(request.getInputStream());
             if (raw == null) {
-                fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+                fail(request, response, HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, EncryptorFailure.TOO_LARGE);
                 return;
             }
             cachedJsonBody = raw;
@@ -207,7 +207,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             try {
                 ctx.setParameters(parseQuery(new String(jweCtx.plaintext(), StandardCharsets.UTF_8)));
             } catch (RuntimeException e) {
-                logger.warn("decrypted parameters are not urlencoded text, uri: {}, {}", uri, e.getMessage());
+                logger.warn("decrypted parameters are not urlencoded text, uri: {}", uri, e);
                 fail(request, response, WebContext.failureStatus(), EncryptorFailure.INTERNAL);
                 return;
             }
@@ -218,10 +218,6 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * 失败面统一出口：清上下文（提前 return 时最外层参数过滤器的 finally 不会执行，
-     * 必须在这里清，否则 ThreadLocal/bodyPlaintext 会滞留到该线程的下一个请求）+ traceId 响应头 + 状态码。
-     */
     /** codec 外失败分支的统一出口：补发审计回调（codec 路径由 JweCodec 审计，不走此重载）。 */
     private void fail(HttpServletRequest request, HttpServletResponse response, int status, EncryptorFailure failure) {
         protocolStack.listener().onDecryptFailure(failure,
@@ -229,6 +225,10 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         fail(request, response, status);
     }
 
+    /**
+     * 失败面统一出口：清上下文（提前 return 时最外层参数过滤器的 finally 不会执行，
+     * 必须在这里清，否则 ThreadLocal/bodyPlaintext 会滞留到该线程的下一个请求）+ traceId 响应头 + 状态码。
+     */
     private static void fail(HttpServletRequest request, HttpServletResponse response, int status) {
         String trace = UUID.randomUUID().toString();
         // 响应头与日志必须同值：客户端拿 trace 来排障时能在日志里 grep 到

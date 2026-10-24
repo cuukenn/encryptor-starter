@@ -37,6 +37,15 @@ rsa_rt = score("E2eBenchmark.roundTrip")
 ecdh_rt = score("EcdhEsBenchmark.ecdhRoundTrip")
 print("INFO: ecdh-es roundTrip %.2fx rsa (informational only)" % (ecdh_rt / rsa_rt))
 
+# 4) ReplayGuard 存储吞吐（informational）：E2e 基准无法携带 ReplayGuard（复用同一 compact），
+#    该每请求必经路径的量级在此观察；并发比率异常（<2x）值得关注但同样不设闸门
+try:
+    rg1 = score("ReplayGuardBenchmark.verifySingleThread")
+    rg4 = score("ReplayGuardBenchmark.verifyFourThreads")
+    print("INFO: replay guard verify 1thr=%.0f/s 4thr=%.0f/s (%.2fx, informational only)" % (rg1, rg4, rg4 / rg1))
+except SystemExit:
+    print("INFO: ReplayGuardBenchmark scores absent (older bench.json), skipped")
+
 def norm_bytes(name):
     for b in data:
         if b["benchmark"] == PKG + name:
