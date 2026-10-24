@@ -3,7 +3,7 @@
 ## 构建命令
 
 ```bash
-mvn -B -Pmain-module clean install     # dependencies/core/starters（最低限度）
+mvn -B -Pmain-module clean install     # 不含 examples/bench
 mvn -B -Pall-modules clean install     # 全量（含 examples + JMH bench）
 mvn -B -Pboot3 clean install           # boot3 线（reactor 不含 core，需先 install 过 javax 线制品）
 mvn -pl encryptor-core test            # 单模块（改 core 后先 install -DskipTests，下游用本地仓库 jar）

@@ -32,4 +32,3 @@ JwksEndpointFilter(WebFilter, 最外) → EncryptorGatewayFilter(请求: 决策+
 
 - [ ] 只改了本侧？查 `topics/sync-map.md`（servlet 对位、boot3 复制对——本模块 3 文件是 API 适配豁免人审面）。
 - [ ] 动了 reactive 共享线（无 boot3 副本）= 同时进 boot3 线，测试面在 boot3-example。
-- [ ] 取消/拒绝/超时路径改动 → 跑 `GatewayJweTest` 的取消与 503 用例族。

@@ -32,5 +32,4 @@ jwks(最外) → 门面 EncryptorWebFilter（载体判定/一次解密/装 WebCo
 ## web 自检
 
 - [ ] 只改了本侧？查 `topics/sync-map.md` 成对表（reactive 对位、boot3 复制对、ResponseFilterHardeningTest↔GatewayJweTest 用例族、FilterOrderValidationTest↔GatewayEncryptorConfigurationTest）。
-- [ ] 动了过滤器 order 默认值 → `FilterChainOrderTest` 与链序校验会红，属预期锁定。
-- [ ] 异步/响应面改动跑 `EncryptorResponseFilterTest` 全族。
+- [ ] 动了过滤器 order 默认值 → `FilterChainOrderTest` 与链序校验会红，属预期锁定（不要去"修"测试）。

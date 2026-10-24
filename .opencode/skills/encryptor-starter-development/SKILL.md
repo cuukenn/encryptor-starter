@@ -30,12 +30,3 @@ description: Use when touching ANY code, config, pom, docs, or tests in this rep
 | 只改一侧（servlet 或 reactive） | `topics/sync-map.md` 的「成对文件对照表」 |
 | 改 POM / 发版 / bump 版本 | `topics/build-and-release.md` 的「双线发布」「Maven 兼容」节 |
 | 性能回归 | `topics/build-and-release.md` 的「JMH」节 |
-
-## 最低验证（任何改动后）
-
-```bash
-mvn -B -Pmain-module clean install     # 最低限度；动了 core 先 mvn -pl encryptor-core install -DskipTests
-mvn -B -Pall-modules clean install     # 动了 examples/前端
-```
-
-完整构建环境与守卫清单在 `topics/build-and-release.md`。
