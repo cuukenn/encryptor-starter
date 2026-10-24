@@ -321,6 +321,21 @@ class JweCodecTest {
     }
 
     @Test
+    void 头字段进异常消息前脱敏控制字符() {
+        // 客户端可控字段含 CR/LF 时不能原样进日志（日志伪造面）；kid 校验先于 AAD/解密
+        JweCodec fake = new JweCodec(store, Collections.singletonList(new FakeSuite()),
+            Collections.singleton("TEST-ALG"), Collections.singleton("TEST-ENC"));
+        String dirtyKid = "k1\nINFO forged";
+        EncryptorException e = assertThrows(EncryptorException.class,
+            () -> fake.decryptRequest(fakeJweWithKid(dirtyKid, URI, "POST"), URI, "POST"));
+        assertEquals(EncryptorFailure.UNKNOWN_KID, e.failure());
+        assertFalse(e.getMessage().contains("\n"), "消息不得含换行: " + e.getMessage());
+        assertTrue(e.getMessage().contains("·"), "控制字符应替换为可见占位: " + e.getMessage());
+        assertTrue(JweCodec.sanitize("a\rb").indexOf('\r') < 0, "CR 必须被替换");
+        assertEquals("null", JweCodec.sanitize(null));
+    }
+
+    @Test
     void crit扩展头一律拒绝() throws Exception {
         // RFC 7516 §4.1.13：出现 crit 就必须理解其中全部参数。本协议不实现任何 crit 扩展，
         // 非空 crit 一律 fail-closed，绝不带着不认识的扩展头继续解
@@ -415,6 +430,15 @@ class JweCodecTest {
         public int ivLength(String enc) {
             return 16;
         }
+    }
+
+    /** 指定 kid 的假报文（kid 任意字符串——含控制字符，用于脱敏断言）。 */
+    private static String fakeJweWithKid(String kid, String uri, String method) throws Exception {
+        JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("TEST-ALG"), EncryptionMethod.parse("TEST-ENC"))
+            .keyID(kid)
+            .customParams(ContextAad.claims(uri, method, Direction.REQUEST, 1L, "n1"))
+            .build();
+        return fakeJwe(header, "hi".getBytes(StandardCharsets.UTF_8));
     }
 
     private static String fakeJwe(byte[] plaintext, String uri, String method, long ts, String nonce) throws Exception {

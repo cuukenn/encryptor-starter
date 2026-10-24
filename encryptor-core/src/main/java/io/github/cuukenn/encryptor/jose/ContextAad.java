@@ -30,7 +30,7 @@ public final class ContextAad {
     }
 
     /**
-     * 规范化路径：去掉 contextPath、去掉 query、百分号解码、UTF-8。
+     * 规范化路径：去掉 contextPath、去掉 query、百分号解码、折叠 {@code .}/{@code ..} 段。
      *
      * <p>两端必须得到同一个字符串：servlet 传 {@code request.getRequestURI()} 与 contextPath（原始、未解码），
      * 网关传 {@code exchange.getRequest().getURI().getPath()}（已解码）与空 contextPath。
@@ -59,7 +59,47 @@ public final class ContextAad {
         } catch (Exception ignored) {
             // 已经是解码后的形态
         }
-        return path;
+        return foldDotSegments(path);
+    }
+
+    /**
+     * 折叠路径里的 {@code .} / {@code ..} 段（RFC 3986 §5.2.4 的简化：绝对路径、超出根的 {@code ..} 丢弃）。
+     *
+     * <p><b>为什么必须折叠</b>：下游容器/路由会自行归一化路径——不折叠的话，uri 级 kid 白名单
+     * 可被 {@code /x/../pay} 形态绕过（过滤器看到的是穿越形态、白名单不命中=不限 kid，下游却落到
+     * 受保护资源）。解码后再折叠，{@code %2E%2E} 的编码形态一并覆盖；尾斜杠语义保留
+     * （{@code /a/} → {@code /a/}，{@code /a/.} → {@code /a/}），合法客户端不受影响
+     * （浏览器/HTTP 客户端发出请求前就已归一化路径）。
+     */
+    static String foldDotSegments(String path) {
+        if (!path.startsWith("/") || !path.contains("/.")) {
+            return path;
+        }
+        java.util.ArrayDeque<String> segments = new java.util.ArrayDeque<>();
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || segment.equals(".")) {
+                continue;
+            }
+            if (segment.equals("..")) {
+                if (!segments.isEmpty()) {
+                    segments.pollLast();
+                }
+                continue;
+            }
+            segments.addLast(segment);
+        }
+        StringBuilder folded = new StringBuilder(path.length());
+        for (String segment : segments) {
+            folded.append('/').append(segment);
+        }
+        if (folded.length() == 0) {
+            return "/";
+        }
+        boolean trailingSlash = path.endsWith("/") || path.endsWith("/.") || path.endsWith("/..");
+        if (trailingSlash && folded.charAt(folded.length() - 1) != '/') {
+            folded.append('/');
+        }
+        return folded.toString();
     }
 
     /** 归一化 HTTP 方法（大写）。 */

@@ -36,7 +36,7 @@ starter 对照（groupId `io.github.cuukenn`；两线 starter **不可混用**�
 命名注意：`encryptor-spring-boot3-starter`（starter 名）是 `-boot3` 系唯一命名词序例（没有 `-boot3-` 中缀，词序为 Boot 3 代际醒目；其余均为 `*-boot3-starter`）。
 
 - **网关为何复制**：Spring 6.2 移除了 `ServerHttpRequest#getMethodValue()`（4 处调用点）且 `ServerHttpResponse#getStatusCode()` 返回类型变为 `HttpStatusCode`（3 处）——1.x 网关 jar 在 Boot 3.5 下任何请求都会链首 `NoSuchMethodError`；`encryptor-gateway-boot3-starter:3.0.0` 做了最小签名适配（语义零变更，diff 守卫按文件登记）。
-- **reactive/micrometer 为何共享**：main 源码零被删 API，且在真实 Boot 3.5 应用/运行期验证装配与协议行为对等（三载体往返、防重放、计数器、JWKS）。micrometer 的跟进项：`@AutoConfigureAfter` 只声明了 `MetricsAutoConfiguration`，与 `SimpleMetricsExportAutoConfiguration` 之间无排序约束，当前全量 imports 排序下正确，季度复盘 Boot patch 时复核。
+- **reactive/micrometer 为何共享**：main 源码零被删 API，且在真实 Boot 3.5 应用/运行期验证装配与协议行为对等（三载体往返、防重放、计数器、JWKS）。micrometer 的 `@AutoConfigureAfter` 已同时声明 `MetricsAutoConfiguration` 与网关的 `GatewayEncryptorConfiguration`（后者保证 `@ConditionalOnBean(CryptoExecutor)` 在双自动装配场景下能匹配到 bean 定义，D3 指标不会静默消失）；与 `SimpleMetricsExportAutoConfiguration` 之间无排序约束，季度复盘 Boot patch 时复核。
 - **网关下游约束两线相同**：网关解密后转发的是明文，下游必须是**不带 encryptor** 的普通应用。boot3 示例自带一个 JDK HttpServer 回显下游（随机端口），也可换同形态的 8082 普通 web 应用。
 
 ## 特性
@@ -131,6 +131,10 @@ encryptor:
       enable: true
       path: /.well-known/encryptor-keys
       cache-max-age-seconds: 300
+    # 网关专属(encryptor.config.reactive.gateway):
+    #   crypto-executor:         # 密码学有界执行器(队列满 503)
+    #     threads: 0             # 0 = CPU 核数(默认), 正数 = 指定线程数
+    #     queue-capacity: 1000
     web:                       # 仅 servlet 侧; gateway 前缀 encryptor.config.reactive.gateway
       skip-uris: []             # 跳过名单: 命中即不加密(正则整串匹配)
       skip-methods: []
@@ -176,7 +180,7 @@ encryptor:
 - **内置 nonce 存储的并发**：容量 ≥ 1024 时按 nonce 哈希分 16 片（进程内随机盐，避免定向打爆单个分片）降低全局锁竞争；总容量按分片精确分配，全局记录数仍不超过 `nonce-capacity`。分片内按插入顺序驱逐，因此大容量下“全局最早项”退化为“分片内最早项”；容量 < 1024 时保持单分片全局 FIFO。
 - **响应边界（servlet / 网关）**：两侧都会跳过 `HEAD`、`1xx`、`204/205/304`（不加密、不写 body）。servlet 额外规则：`3xx` 仅在 body 为空时跳过，带说明性 body 的 3xx 仍会加密；`sendError` 的状态码保留，消息按 UTF-8 写入并作为加密 body 返回，响应已提交时按 Servlet 契约抛 `IllegalStateException`；`sendRedirect` 会清空已写入的 body，只保留状态与 `Location`，已提交时同样抛 `IllegalStateException`；业务抛异常时响应过滤器回 **500 空 body**（带 trace 头），不会落到容器的明文错误页；servlet 异步响应（`DeferredResult`/`Callable`）由响应过滤器包装 `AsyncContext`，在业务调用 `complete()` 前先加密写回，`onComplete` 仅作兜底，`onError`/`onTimeout` 回 500 空 body；异步 `dispatch()` 不会保留解密后的 `WebContext` 视图，转发目标看到的是原始请求上下文；业务自定义线程池仍不会自动传递 `WebContext`，需要自行传参。网关的 `3xx` 同样只在 body 为空时跳过，带 body 的 `3xx` 仍会加密。除上述无 body 状态外，其余状态（含 **200/201 空 body**）统一返回 `{"jwe":"<空明文 JWE>"}`，客户端无需为空响应单独特判。
 - **敏感数据清理（best-effort）**：servlet 在请求链结束后（`WebContext.clear()`）清零 CEK 与请求明文；网关在链路终止（`doFinally`/失败分支）时清理 `GatewayContext` 并清零 CEK/明文。该清理只覆盖本进程持有的数组，JVM/GC 复制、日志、下游缓冲不在范围内；需要更强保证时请自行限制日志与堆转储。
-- **启动期校验**：`skip-uris`、`skip-methods`、`skip-*-content-type`、`crypto-config` 里的正则在启动时统一编译，非法正则**直接启动失败**，错误信息包含配置项名与原始正则，不会等到第一个请求才 500。
+- **启动期校验**：`skip-uris`、`skip-methods`、`skip-*-content-type`、`crypto-config` 里的正则在启动时统一编译，非法正则**直接启动失败**，错误信息包含配置项名与原始正则，不会等到第一个请求才 500。过滤器 `order` 的**链序契约**同样在启动期校验（servlet：jwks < 门面 < 参数 < 请求体 < 响应；网关：jwks < 请求、响应 < `NettyWriteResponseFilter`）——顺序配错从"静默明文"变成启动失败，两侧装配期打印生效链序。
 - **请求上限的实际边界**：`max-request-size` 在 servlet 侧对 **JSON 载体**是真正的字节上限（starter 自己读 body 再判定，超限 413）；`FORM` 载体在读取参数前先按 `Content-Length` 判定（超限 413），chunked FORM 无法预知长度，字节上限仍由容器决定（Tomcat `maxPostSize`）；`QUERY` 载体走请求头，受容器 `maxHttpHeaderSize` 约束。注意 servlet 在解析载体前会先按 `Content-Length` 做 413 早检，因此 **QUERY 载体携带超大 body 也会 413**（即使该 body 不会被读取）。空 JSON body 视为无载体：`require-encrypted=false` 时透传，默认 `true` 时仍 400。网关侧 JSON/FORM 由 `readBody` 有界读取（超限 413），`QUERY` 同样受 Netty 请求头上限约束。要真正卡住整请求体积，必须同时配置容器/Netty 的上限，只调 `max-request-size` 不够。
 - **危险开关**：`require-encrypted=false`、`bypass.request/response` 开启、`max-response-size<=0`、网关 `skip-able=true` 都会在启动期打 warn——它们都直接削弱报文安全，看到 warn 要确认是有意为之。
 - **客户端**：JS 参考实现（`encryptor-examples/*/front/encryptor/jwe.js`）覆盖 RSA-OAEP-256 与 ECDH-ES（P-256，WebCrypto 原生 `ECDH` + 手写 Concat KDF），`enc` 支持 A128/A192/A256GCM，具体用哪个以服务端 `allowed-encs` 为准。浏览器 WebCrypto **没有** SM 算法，所以 JS 侧不含国密路径。
@@ -199,15 +203,15 @@ mvn -B -pl encryptor-examples/gateway-example/web     org.springframework.boot:s
 mvn -B -pl encryptor-examples/gateway-example/gateway org.springframework.boot:spring-boot-maven-plugin:2.7.18:run
 
 # 客户端（Node ≥16；本仓库实测 Node 16，用 npm 而不是 pnpm）
-cd encryptor-examples/web-example/front && npm install && node test.js     # 11 条断言
-cd encryptor-examples/gateway-example/gateway/front && npm install && node test.js   # 10 条断言
+cd encryptor-examples/web-example/front && npm install && node test.js     # 八组断言
+cd encryptor-examples/gateway-example/gateway/front && npm install && node test.js   # 八组断言
 ```
 
-`test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、ECDH-ES 往返（`alg=ECDH-ES` 且 `encrypted_key` 段为空）、uri 级 kid 绑定、未配置的 `enc` 被拒、篡改 IV 必须 400；全过 `exit 0`。
+`test.js` 覆盖：JWKS 可取公钥且不含 `d`、GET/POST(JSON)/POST(form) 三载体往返、ECDH-ES 往返（`alg=ECDH-ES` 且 `encrypted_key` 段为空）、uri 级 kid 绑定、未配置的 `enc` 被拒、篡改 IV 必须 400、QUERY 载体共存（明文为准、jwe 外原始参数被丢弃；web 版另含 form jwe + query jwe 共存时 query 胜出）；全过 `exit 0`。
 
 ## 可观测性（可选模块）
 
-默认零指标依赖：core 只暴露 `EncryptorListener` SPI（三个 no-op 回调），不引入任何指标库。要指标就加这个可选模块——**core 与两个 starter 的依赖面不变**：
+默认零指标依赖：core 只暴露 `EncryptorListener` SPI（四个 no-op 回调：解密成功/失败、加密成功/失败），不引入任何指标库。要指标就加这个可选模块——**core 与两个 starter 的依赖面不变**：
 
 ```xml
 <dependency>
@@ -223,6 +227,7 @@ cd encryptor-examples/gateway-example/gateway/front && npm install && node test.
 | --- | --- | --- | --- |
 | `encryptor.decrypt` | Counter | `result=success`/`failure` | 请求解密总次数（成功/失败） |
 | `encryptor.decrypt.failures` | Counter | `failure=<分类>` | 按失败分类计数，取 `EncryptorFailure` 枚举名（`MISSING`/`BAD_HEADER`/`UNKNOWN_KID`/`ALG_NOT_ALLOWED`/`ENC_NOT_ALLOWED`/`AAD_MISMATCH`/`DECRYPT_FAILED`/`EXPIRED`/`REPLAY`/`TOO_LARGE`/`INTERNAL`） |
+| `encryptor.encrypt` | Counter | `result=success` | 响应加密成功次数（与解密成功配对可算成功率） |
 | `encryptor.encrypt.failures` | Counter | `failure=<分类>` | 响应加密失败的分类计数 |
 | `encryptor.gateway.crypto.pending` | Gauge | - | 已提交未完成的密码学任务数（在跑 + 排队），**过载第一信号** |
 | `encryptor.gateway.crypto.rejected` | FunctionCounter | - | 因队列满被拒的累计数（每一次对应一次 503） |

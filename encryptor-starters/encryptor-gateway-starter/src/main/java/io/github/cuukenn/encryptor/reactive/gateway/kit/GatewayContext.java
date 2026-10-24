@@ -20,6 +20,8 @@ public class GatewayContext {
     private Carrier carrier = Carrier.NONE;
     private JweContext jweContext;
     private byte[] plaintextBody;
+    /** 请求装饰器持有的明文克隆（防 Retry 二次订阅竞态）：链终止时一并清零。 */
+    private byte[] plaintextCopy;
     private boolean encrypted;
 
     public Carrier getCarrier() {
@@ -46,6 +48,14 @@ public class GatewayContext {
         this.plaintextBody = plaintextBody;
     }
 
+    public byte[] getPlaintextCopy() {
+        return plaintextCopy;
+    }
+
+    public void setPlaintextCopy(byte[] plaintextCopy) {
+        this.plaintextCopy = plaintextCopy;
+    }
+
     public boolean isEncrypted() {
         return encrypted;
     }
@@ -64,7 +74,11 @@ public class GatewayContext {
         if (plaintextBody != null) {
             Arrays.fill(plaintextBody, (byte) 0);
         }
+        if (plaintextCopy != null) {
+            Arrays.fill(plaintextCopy, (byte) 0);
+        }
         jweContext = null;
         plaintextBody = null;
+        plaintextCopy = null;
     }
 }

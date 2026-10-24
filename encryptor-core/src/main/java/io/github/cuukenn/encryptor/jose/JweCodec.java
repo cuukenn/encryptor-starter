@@ -167,21 +167,21 @@ public class JweCodec {
         String alg = header.getAlgorithm().getName();
         String enc = header.getEncryptionMethod().getName();
         if (!allowedAlgs.contains(alg)) {
-            throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "alg 不在白名单: " + alg);
+            throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "alg 不在白名单: " + sanitize(alg));
         }
         if (!allowedEncs.contains(enc)) {
-            throw fail(EncryptorFailure.ENC_NOT_ALLOWED, "enc 不在白名单: " + enc);
+            throw fail(EncryptorFailure.ENC_NOT_ALLOWED, "enc 不在白名单: " + sanitize(enc));
         }
 
         String kid = header.getKeyID();
         if (kid == null || !keys.contains(kid)) {
-            throw fail(EncryptorFailure.UNKNOWN_KID, "未知或缺失的 kid: " + kid);
+            throw fail(EncryptorFailure.UNKNOWN_KID, "未知或缺失的 kid: " + sanitize(kid));
         }
         // RFC 7516 §4.1.13：出现 crit 就必须理解其中列出的全部头参数。本协议不实现任何
         // crit 扩展，非空 crit 一律拒绝（fail-closed），而不是带着不认识的扩展头继续解。
         Set<String> crit = header.getCriticalParams();
         if (crit != null && !crit.isEmpty()) {
-            throw fail(EncryptorFailure.BAD_HEADER, "不支持的 crit 扩展头: " + crit);
+            throw fail(EncryptorFailure.BAD_HEADER, "不支持的 crit 扩展头: " + sanitize(String.valueOf(crit)));
         }
 
         Map<String, Object> headerJson;
@@ -207,12 +207,12 @@ public class JweCodec {
                 // 交叉组合（如 ECDH-ES + SM4-GCM）在白名单层面各自合法，但套件间不兼容：
                 // 这里给出精确分类，而不是等解封/派生深处报"不支持的加密方法"
                 throw fail(EncryptorFailure.ENC_NOT_ALLOWED,
-                    "alg=" + alg + " 不支持与 enc=" + enc + " 配对");
+                    "alg=" + sanitize(alg) + " 不支持与 enc=" + sanitize(enc) + " 配对");
             }
             int expectedIvLength = aeadSuite.ivLength(enc);
             if (iv.length != expectedIvLength) {
                 throw fail(EncryptorFailure.BAD_HEADER,
-                    "IV 长度非法: " + iv.length + "，" + enc + " 要求 " + expectedIvLength + " 字节");
+                    "IV 长度非法: " + iv.length + "，" + sanitize(enc) + " 要求 " + expectedIvLength + " 字节");
             }
             byte[] cipherText = jwe.getCipherText().decode();
             byte[] authTag = jwe.getAuthTag().decode();
@@ -335,6 +335,18 @@ public class JweCodec {
         }
     }
 
+    /**
+     * 客户端可控头字段（alg/enc/kid/crit）进日志/异常消息前的脱敏：控制字符（含 CR/LF，
+     * 日志伪造面）替换为可见占位。长度也截断，防止超长字段刷屏。
+     */
+    static String sanitize(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String trimmed = value.length() > 128 ? value.substring(0, 128) + "…" : value;
+        return trimmed.replaceAll("[\\p{Cntrl}]", "·");
+    }
+
     /** 构造带分类的失败异常（供本包与后续任务复用）。 */
     public static EncryptorException fail(EncryptorFailure failure, String message) {
         return new EncryptorException(failure, message);
@@ -353,7 +365,7 @@ public class JweCodec {
     private CipherSuite suiteOfAlg(String alg) {
         CipherSuite suite = algSuites.get(alg);
         if (suite == null) {
-            throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "没有套件支持该 alg: " + alg);
+            throw fail(EncryptorFailure.ALG_NOT_ALLOWED, "没有套件支持该 alg: " + sanitize(alg));
         }
         return suite;
     }

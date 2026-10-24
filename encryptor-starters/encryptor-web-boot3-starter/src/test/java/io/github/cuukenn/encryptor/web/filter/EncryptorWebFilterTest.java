@@ -402,6 +402,19 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void dot段路径不能绕过uri级kid白名单() throws Exception {
+        // 下游容器会把 /x/../api/a 归一化到 /api/a：白名单必须按折叠后的路径匹配，
+        // 否则穿越形态不命中白名单 = 任意 kid 放行，请求却落到受保护资源
+        webConfig.getCryptoConfig().put("/api/.*", Arrays.asList("other-kid"));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/x/../api/a");
+        request.setParameter("jwe", support.seal("a=1", "/x/../api/a", "GET"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        run(request, response);
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(chainExecuted).isFalse();
+    }
+
+    @Test
     void 篡改密文回400() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/a");
         request.setParameter("jwe", JweTestSupport.tamper(support.seal("a=1", "/api/a", "GET")));

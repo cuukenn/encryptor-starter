@@ -174,7 +174,7 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 gatewayContext.setEncrypted(true);
                 exchange.getAttributes().put(GatewayConstant.GATEWAY_CONTEXT_ATTR, gatewayContext);
                 // 响应过滤器在链内完成回加密；链终止（成功/失败/取消）后再清零 CEK/明文
-                return chain.filter(exchange.mutate().request(decorate(exchange, ctx, carrier)).build())
+                return chain.filter(exchange.mutate().request(decorate(exchange, ctx, carrier, gatewayContext)).build())
                     .doFinally(signal -> cleanup(exchange));
             })
             .onErrorResume(EncryptorException.class, e -> {
@@ -208,7 +208,8 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
     }
 
     /** 把明文装回请求：QUERY 改 query 参数；JSON/FORM 换 body（明文即业务 body）。 */
-    private ServerHttpRequest decorate(ServerWebExchange exchange, JweContext ctx, GatewayContext.Carrier carrier) {
+    private ServerHttpRequest decorate(ServerWebExchange exchange, JweContext ctx, GatewayContext.Carrier carrier,
+                                        GatewayContext gatewayContext) {
         ServerHttpRequest request = exchange.getRequest();
         if (carrier == GatewayContext.Carrier.QUERY) {
             String plaintext = new String(ctx.plaintext(), StandardCharsets.UTF_8);
@@ -260,8 +261,10 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
             };
         }
         // 克隆明文：doFinally 清理会原地清零原数组，下游（Retry/重路由）在清理后二次订阅
-        // getBody() 时会静默发出全零 body（响应侧 cek.clone() 同款规避）
+        // getBody() 时会静默发出全零 body（响应侧 cek.clone() 同款规避）；
+        // 克隆登记进 GatewayContext，链终止的 destroy 一并清零（不留只等 GC 的副本）
         byte[] plaintext = ctx.plaintext().clone();
+        gatewayContext.setPlaintextCopy(plaintext);
         return new ServerHttpRequestDecorator(request) {
             @Override
             public Flux<DataBuffer> getBody() {

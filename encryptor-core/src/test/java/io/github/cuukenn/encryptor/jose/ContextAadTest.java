@@ -69,4 +69,25 @@ class ContextAadTest {
         assertThrows(EncryptorException.class, () -> ContextAad.verify(claims, "/pay/x", "POST", Direction.RESPONSE));
         assertThrows(EncryptorException.class, () -> ContextAad.verify(claims, "/pay/x", "GET", Direction.REQUEST));
     }
+
+    @Test
+    void canonicalPath折叠dot段防白名单绕过() {
+        // 下游容器/路由会归一化：不折叠的话 /x/../pay 在过滤器看到穿越形态（白名单不命中）
+        // 而下游落到 /pay 受保护资源
+        assertEquals("/pay", ContextAad.canonicalPath("/x/../pay", null));
+        assertEquals("/a/b", ContextAad.canonicalPath("/a/./b", null));
+        assertEquals("/a/b", ContextAad.canonicalPath("/a/b/../b", null));
+        // 百分号编码形态一并覆盖（解码后折叠）
+        assertEquals("/pay", ContextAad.canonicalPath("/x/%2e%2e/pay", null));
+        // 超出根的 .. 丢弃；全部折叠空 → "/"
+        assertEquals("/", ContextAad.canonicalPath("/..", null));
+        assertEquals("/", ContextAad.canonicalPath("/../../..", null));
+        assertEquals("/pay", ContextAad.canonicalPath("/../../pay", null));
+        // 尾斜杠语义保留（合法客户端的 /a/ 不能折叠成 /a，否则 AAD 会误杀）
+        assertEquals("/a/", ContextAad.canonicalPath("/a/", null));
+        assertEquals("/a/", ContextAad.canonicalPath("/a/.", null));
+        assertEquals("/pay/", ContextAad.canonicalPath("/x/../pay/", null));
+        // 无 dot 段原样返回（含 contextPath 剥离叠加折叠）
+        assertEquals("/pay/x", ContextAad.canonicalPath("/app/x/../pay/x", "/app"));
+    }
 }

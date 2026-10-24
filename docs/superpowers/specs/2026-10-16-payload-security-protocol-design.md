@@ -181,13 +181,13 @@
 
 - **算法**：`alg=ECDH-ES`（RFC 7518 §4.6 直接密钥协商）+ `enc=A128/A192/A256GCM`。`encrypted_key` 段**为空**（与 `alg=dir` 一样），CEK 由双方协商派生。
 - **`epk`**：客户端每次请求生成**临时** P-256 密钥对，把公钥以 JWK（`kty=EC, crv=P-256, x, y`）放进 protected header 的 `epk`；`epk` 属于 protected header，天然参与 AAD 校验。`epk` 携带私钥参数 `d` 一律拒绝。
-- **KDF**：`CEK = ConcatKDF-SHA256(Z, enc, keydatalen)`，`K = SHA-256(counter=1 || Z || OtherInfo)`，`OtherInfo = AlgorithmID(=enc) || PartyUInfo(空) || PartyVInfo(空) || SuppPubInfo(keydatalen 位)`，每项 4 字节大端长度前缀（NIST SP 800-56A §5.8.1）。不使用 `apu`/`apv`。
+- **KDF**：`CEK = ConcatKDF-SHA256(Z, enc, keydatalen)`，`K = SHA-256(counter=1 || Z || OtherInfo)`，`OtherInfo = AlgorithmID(=enc) || PartyUInfo(apu) || PartyVInfo(apv) || SuppPubInfo(keydatalen 位)`，每项 4 字节大端长度前缀（NIST SP 800-56A §5.8.1）。`apu`/`apv` 存在时必须进 OtherInfo（RFC 7518 §4.6.1；2026-10-24 起，此前恒空——与发送 apu/apv 的合规客户端会派生出不同 CEK），缺省为空；共享秘密 Z 统一左补零到 32 字节再派生。
 - **曲线只允许 P-256**（`secp256r1`）：WebCrypto、Java 8 SunEC、nimbus 都原生支持，**不引入新依赖、不注册全局 Provider**；`epk.crv` 非 P-256 直接拒绝（防曲线降级）。
 - **服务端密钥**：`keys[].type: EC`，私钥 PKCS#8、公钥 SPKI（Base64）。启动期 fail-fast：曲线必须是 P-256，且公私钥必须成对（用一次"自协商"验证：`ECDH(临时私钥, 配置公钥) == ECDH(配置私钥, 临时公钥)`）。JWKS 输出 `kty=EC, crv=P-256, x, y, alg=ECDH-ES, use=enc`。
 - **白名单联动**：存在 EC 密钥时 `allowed-algs` 默认加 `ECDH-ES`；`enc` 走 AES-GCM 家族（与 RSA 共用 `JceCipherSuite` 的 AEAD 实现）。
 - **SPI**：`CipherSuite` 新增带 protected header 的解封重载 `unwrapCek(keys, kid, alg, encryptedKey, header)`（默认实现委托旧四参重载，RSA/SM2 不受影响）；`JweCodec` 统一调用带 header 的入口，`encrypted_key` 为 `null`/空段时统一按 0 长度字节交给套件裁定。
 - **客户端**：两份 front 参考实现均已支持（WebCrypto `ECDH` + 手写 Concat KDF），`enc` 以服务端 `allowed-encs` 为准（不再写死 A256GCM）。
-- **互通性证据**：core 单测用 nimbus `ECDHEncrypter`（独立实现）当 oracle 双向验证；真实 E2E：web-example 11/11、gateway-example 10/10。
+- **互通性证据**：core 单测用 nimbus `ECDHEncrypter`（独立实现）当 oracle 双向验证；真实 E2E（2026-10-18 时点）：web-example 11/11、gateway-example 10/10（test.js 后扩至八组，见仓库 front/test.js 头注释）。
 
 ## 4. 模块与 API 变更
 
@@ -202,7 +202,7 @@
 - `core/jose/ContextAad`：AAD 规范化（`uri|method|direction|ts|nonce`，分隔符 + 长度前缀，避免边界平移）。
 - `core/keys/ServerKeyStore`：`kid → 密钥对（已解析 `PrivateKey`/`PublicKey`）`；提供 `kid` 清单、指纹、`Cipher` 的 `ThreadLocal` 工厂，**不共享单实例**。
 - `core/CheckerStrategy` 扩展：新增带"协商元数据"的默认重载（`kid`/`alg`/`enc`/`ts`/`nonce`），老签名保持 `default` 委派 ⇒ 算法白名单与重放校验都可作为 checker 实现（今天看不到 params，做不了白名单）。
-- `core/audit/EncryptorListener`（no-op 默认）：`onDecryptSuccess/onDecryptFailure/onEncryptFailure`，携带上下文与耗时 ⇒ 指标/审计 0 行 starter 改动即可接入。
+- `core/audit/EncryptorListener`（no-op 默认）：`onDecryptSuccess/onDecryptFailure/onEncryptSuccess/onEncryptFailure`（2026-10-24 起含加密成功回调），携带上下文与耗时 ⇒ 指标/审计 0 行 starter 改动即可接入。
 - 默认注册 `InMemoryNonceChecker`（`@ConditionalOnMissingBean` + 属性开关，默认开；关闭时 `logger.warn`）。
 
 **删除**（连同其测试；这些是自研密码学的载体）

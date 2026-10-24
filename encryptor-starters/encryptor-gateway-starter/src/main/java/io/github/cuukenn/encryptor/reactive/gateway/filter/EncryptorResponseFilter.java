@@ -102,9 +102,11 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                         if (maxBytes > 0 && bytes.length > maxBytes) {
                             logger.error("响应体超过 max-response-size: {}, 不发明文, uri: {}",
                                 bytes.length, exchange.getRequest().getURI().getPath());
+                            java.util.Arrays.fill(bytes, (byte) 0);
                             return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                         }
                         if (cek == null) {
+                            java.util.Arrays.fill(bytes, (byte) 0);
                             return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                         }
                         String uri = exchange.getRequest().getURI().getPath();
@@ -130,6 +132,8 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 // 否则客户端按 gzip 解压 JWE JSON 得到乱码
                                 getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
                                 getHeaders().setContentLength(payload.length);
+                                // 响应明文的唯一后续消费者（payload/JWE）已构造完，副本即刻清零
+                                java.util.Arrays.fill(bytes, (byte) 0);
                                 return super.writeWith(Mono.just(getDelegate().bufferFactory().wrap(payload)));
                             })
                             .onErrorResume(RejectedExecutionException.class, e -> {
@@ -200,6 +204,13 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 return setComplete();
             }
         };
-        return chain.filter(exchange.mutate().response(decorated).build());
+        // CEK 副本在全链终态（含 skip 透传/无 body/超限 fail/取消）一律清零；
+        // 加密路径里 doFinally 的提前清零与这里重复 fill，幂等无害
+        return chain.filter(exchange.mutate().response(decorated).build())
+            .doFinally(signal -> {
+                if (cek != null) {
+                    java.util.Arrays.fill(cek, (byte) 0);
+                }
+            });
     }
 }
