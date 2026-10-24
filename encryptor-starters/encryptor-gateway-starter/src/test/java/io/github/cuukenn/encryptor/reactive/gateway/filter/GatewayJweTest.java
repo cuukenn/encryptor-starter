@@ -234,6 +234,18 @@ class GatewayJweTest {
             sensitiveCek.set(context.getJweContext().cek());
             return Mono.empty();
         }).block(TIMEOUT);
+        // doFinally(cleanup) 在完成信号传给订阅者之后才执行（Reactor 语义）：block() 返回时
+        // 清理可能尚未跑完（快机器总赢、慢 runner 会输），轮询等待清理落地后再断言
+        long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+        while (exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR) != null
+            && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         assertThat((Object) exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR)).isNull();
         assertThat(sensitivePlaintext.get()).containsOnly((byte) 0);
         assertThat(sensitiveCek.get()).containsOnly((byte) 0);
