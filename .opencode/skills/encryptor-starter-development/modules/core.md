@@ -46,4 +46,4 @@ JWE 编解码、密钥库、防重放、协议栈与三个"单点"抽象（Carri
 - [ ] 没引入 Spring / BC / metrics 依赖；`META-INF/services` 注册新增 SPI。
 - [ ] 改了协议（claims/alg/enc/载体）→ `topics/sync-map.md` 全文的同步清单。
 - [ ] 新增白名单默认值要联动密钥类型（`DefaultProtocol` 的推导链）。
-- [ ] 改 core 先 `install -DskipTests`：下游编译解析 `~/.m2` 的 jar，不装会编到旧制品（且改 core 前是否 install 过旧版不易察觉）。
+- [ ] core 变更未 `install` 时，`-pl` 单模块与 `-Pboot3` 的下游编到的是 `~/.m2` 里的旧制品（reactor 全量构建不受影响）。

@@ -25,7 +25,7 @@
 11. **过滤器 order 全可配但相对链序启动期校验**（顺序错 = 启动失败而非静默明文）；网关下游必须是不带 encryptor 的普通应用。
 12. **审计不双计**：codec 内失败由 `JweCodec` 回调、codec 外失败由过滤器补发；`EncryptorListener` 保持全 default 方法（API 演进范本）。
 13. **双线成对发布**：只 bump root 的 `project.version` + `encryptor.javax.line.version`（boot3 pom 禁止字面量版本）；`scripts/check-dual-line-versions.sh` 守卫。**改 POM 必须兼容 Maven 3.9+**（pluginManagement 重复声明 = 硬错误）；`-Pmain-module,boot3` 不可组合。
-14. **改 core 后先 `mvn -pl encryptor-core install -DskipTests`**——下游（reactive/gateway/boot3）编译解析的是 `~/.m2` 的 jar，不装会编到旧制品。
+14. **`-Pboot3` 的 reactor 不含 core/reactive**（从 `~/.m2` 解析 javax 线制品）；`-pl` 单模块编下游同理——core 变更未 install 时下游编到的是旧制品。
 15. **架构导航按模块拆在 skill 内**（`modules/core|web|gateway|sm.md` + `topics/sync-map|build-and-release.md`，入口为该 skill 的 `SKILL.md` 路由表）：协议/双写面变更必读 `topics/sync-map.md`；改 POM/发版必读 `topics/build-and-release.md`；其余按模块加载对应文件。
 16. **不写会变化的数字**（测试计数/基准数字/版本清单）进 AGENTS.md 与 skill——事实以 pom / 脚本 / CI 为准；历史明细只在 git log 与 CHANGELOG。
 

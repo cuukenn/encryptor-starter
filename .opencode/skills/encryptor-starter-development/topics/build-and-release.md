@@ -5,17 +5,17 @@
 ```bash
 mvn -B -Pmain-module clean install     # 不含 examples/bench
 mvn -B -Pall-modules clean install     # 全量（含 examples + JMH bench）
-mvn -B -Pboot3 clean install           # boot3 线（reactor 不含 core，需先 install 过 javax 线制品）
+mvn -B -Pboot3 clean install           # boot3 线（reactor 不含 core/reactive）
 mvn -pl encryptor-core test            # 单模块（改 core 后先 install -DskipTests，下游用本地仓库 jar）
 java -jar encryptor-bench/target/bench.jar -wi 2 -i 3 -f 1 -prof gc -rf json -rff encryptor-bench/target/bench.json && encryptor-bench/check-thresholds.sh
 ```
 
-## 构建环境限定
+## 构建限定（项目结构事实）
 
-- 本机 Maven 在 `/usr/local/maven/`（不在 PATH）；brew 的 Maven 可交叉验证。**改 POM 必须兼容 Maven 3.9+**：`pluginManagement` 同一插件重复声明是硬错误（3.8 仅告警覆盖）——改后双版本各跑一次。
+- **POM 必须兼容 Maven 3.9+**（CI runner 版本）：`pluginManagement` 同一插件重复声明在 3.9+ 是硬错误（3.8 仅告警覆盖）。
 - 根 pom 无 checkstyle/spotless；surefire 版本被 root pom 固定（与 JUnit Platform 组合的假绿坑见 pom 注释），boot3 复制对 pom 各自 pin——不要解析到 root 的版本。
-- `**/HttpTest.java` 被 surefire 排除；`examples/*/front/test.js` 需先起服务。surefire 默认 `trimStackTrace=true`，定位失败加 `-DtrimStackTrace=false`。
-- ⚠️ `-Pmain-module,boot3` 组合激活会把 boot3 版本属性混进整个 reactor——两条命令分先后跑。
+- `**/HttpTest.java` 被 surefire 排除（需先起服务）；`-Pmain-module` 不含 examples/bench。
+- ⚠️ `-Pmain-module,boot3` 组合激活会把 boot3 版本属性混进整个 reactor——两条命令分先后跑；`-Pboot3` 的 reactor 不含 core/reactive（从 `~/.m2` 解析 javax 线制品）。
 
 ## JMH / bench 限定
 
