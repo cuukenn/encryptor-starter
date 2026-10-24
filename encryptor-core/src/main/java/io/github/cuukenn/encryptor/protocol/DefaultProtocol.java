@@ -325,6 +325,11 @@ public class DefaultProtocol {
             }
             NonceChecker effectiveNonceChecker = nonceChecker != null
                 ? nonceChecker : new InMemoryNonceStore(retention, nonceCapacity);
+            if (nonceChecker == null) {
+                // 多实例误配此前只有文档层拦截：内存 nonce 存储跨实例不共享，存在重放窗口
+                log.warn("防重放 nonce 存储为单机内存实现：多实例部署时各实例独立计数，时间窗内跨实例重放不可检——"
+                    + "多实例请实现 NonceChecker 换共享存储（如 Redis，见 README「多实例部署」）");
+            }
             ReplayGuard guard = new ReplayGuard(ttlMillis, effectiveNonceChecker);
             JweCodec codec = new JweCodec(store, suites, effectiveAlgs, effectiveEncs, listener, guard);
             return new DefaultProtocol(this, store, codec, guard, effectiveNonceChecker, runtime, listener,

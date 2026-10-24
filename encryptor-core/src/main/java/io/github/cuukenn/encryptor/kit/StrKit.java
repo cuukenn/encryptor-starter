@@ -66,6 +66,19 @@ public class StrKit {
     }
 
     /**
+     * 取 content-type 的 media-type 段（剥掉 {@code ;} 参数，如 {@code text/event-stream;charset=UTF-8}
+     * → {@code text/event-stream}）：skip 名单按整串正则匹配，不剥参数的话带参数的真实头
+     * （SSE 常见形态）永远匹配不上默认条目。
+     */
+    public static String mediaType(String contentType) {
+        if (contentType == null || contentType.isEmpty()) {
+            return contentType;
+        }
+        int semicolon = contentType.indexOf(';');
+        return semicolon < 0 ? contentType : contentType.substring(0, semicolon).trim();
+    }
+
+    /**
      * 整串匹配（等价 {@code Pattern.matches}，与旧 {@code ReUtil.isMatch} 语义一致）。
      *
      * @param regex 整串匹配的正则

@@ -190,6 +190,28 @@ class EncryptorWebFilterTest {
     }
 
     @Test
+    void ECDH载体在过滤器层解密成功() throws Exception {
+        // 过滤器层此前只有 RSA/SM2 覆盖，ECDH 只有 core 单测与手动 e2e
+        JweTestSupport.Ec ec = new JweTestSupport.Ec();
+        EncryptorWebFilter ecFilter =
+            new EncryptorWebFilter(webConfig, protocolConfig, ec.protocol, ec.protocol.runtime());
+        String plaintext = "{\"ec\":true}";
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ec");
+        request.setContentType("application/json");
+        request.setContent(("{\"jwe\":\"" + ec.seal(plaintext, "/api/ec", "POST") + "\"}")
+            .getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        ecFilter.doFilter(request, response, chain);
+        assertThat(chainExecuted).isTrue();
+        WebContext ctx = WebContext.current();
+        assertThat(ctx.isReqEncryptor()).isTrue();
+        assertThat(ctx.getCarrier()).isEqualTo(WebContext.Carrier.JSON);
+        assertThat(ctx.getJweContext().alg()).isEqualTo("ECDH-ES");
+        assertThat(ctx.getJweContext().kid()).isEqualTo(JweTestSupport.Ec.KID);
+        assertThat(new String(ctx.getBodyPlaintext(), StandardCharsets.UTF_8)).isEqualTo(plaintext);
+    }
+
+    @Test
     void jwe在query上且content_type为form时按QUERY处理() throws Exception {
         // getParameter 合并 query 与 form body：jwe 在 query 上必须按 QUERY（与网关同口径），
         // 明文只进参数视图，不能顶掉真实的 form body

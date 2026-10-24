@@ -41,6 +41,12 @@ jobs:
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js
           diff -u encryptor-examples/web-example/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
           diff -u encryptor-examples/gateway-example/gateway/front/encryptor/jwe.js encryptor-examples/boot3-example/front/encryptor/jwe.js
+      # servlet↔reactive 双写面守卫：两份 EncryptorConstant（JWE_PARAM/TRACE_HEADER）除 package 行外
+      # 必须逐字节一致——常量不同值会让两侧 wire-format/trace 头分叉且 CI 全绿
+      - name: EncryptorConstant parity (servlet vs reactive)
+        if: matrix.java == '8'
+        run: |
+          diff <(tail -n +2 encryptor-starters/encryptor-starter/src/main/java/io/github/cuukenn/encryptor/constant/EncryptorConstant.java)                <(tail -n +2 encryptor-starters/encryptor-starter-reactive/src/main/java/io/github/cuukenn/encryptor/reactive/constant/EncryptorConstant.java)
       # 守卫脚本自身的自测（37 例）：脚本被改坏时 CI 必须红，否则复制对保护会静默失效
       - name: Guard script self-test
         if: matrix.java == '8'

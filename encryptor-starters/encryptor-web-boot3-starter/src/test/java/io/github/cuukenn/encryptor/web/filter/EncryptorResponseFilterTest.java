@@ -402,6 +402,22 @@ class EncryptorResponseFilterTest {
     }
 
     @Test
+    void 加密请求拿到SSE响应时按明文透传() throws Exception {
+        // QUERY 载体 × text/event-stream 响应（默认 skip 名单）：响应必须是原始 SSE 明文，
+        // 不能被 JWE 信封包装——这是"加密请求拿到明文响应"语义上最危险的组合，此前只有启动告警断言
+        MockHttpServletRequest request = encryptedRequest("POST", "/api/sse");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        runRealChain(request, response, (req, resp) -> {
+            resp.setContentType("text/event-stream;charset=UTF-8");
+            resp.getWriter().write("data: hello\n\n");
+        });
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_OK);
+        assertThat(response.getContentType()).startsWith("text/event-stream");
+        assertThat(response.getContentAsString()).isEqualTo("data: hello\n\n");
+        assertThat(response.getContentAsString()).doesNotContain("\"jwe\"");
+    }
+
+    @Test
     void 异步交接后请求明文保留到完成后才清零() throws Exception {
         MockHttpServletRequest request = encryptedFormRequest("POST", "/api/async-body");
         request.setAsyncSupported(true);

@@ -52,6 +52,59 @@ public final class JweTestSupport {
     }
 
     /**
+     * EC(P-256) 变体：以 ECDH-ES（nimbus ECDHEncrypter 独立实现当 oracle）构造请求 JWE——
+     * 过滤器层的 ECDH 覆盖此前只有 core 单测与手动 e2e。
+     */
+    public static final class Ec {
+        public static final String KID = "ec-k1";
+        public final DefaultProtocol protocol;
+
+        public Ec() {
+            try {
+                java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("EC");
+                generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+                KeyPair pair = generator.generateKeyPair();
+                this.protocol = DefaultProtocol.builder()
+                    .key(new DefaultProtocol.KeyMaterial(KID, KeyType.EC,
+                        Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded()),
+                        Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())))
+                    .build();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        public String seal(String plaintext, String uri, String method) {
+            try {
+                java.security.interfaces.ECPublicKey pub = (java.security.interfaces.ECPublicKey)
+                    protocol.keys().publicKeys().stream()
+                        .filter(k -> KID.equals(k.kid())).findFirst()
+                        .map(k -> java.util.Base64.getDecoder().decode(k.spkiBase64()))
+                        .map(spki -> {
+                            try {
+                                return java.security.KeyFactory.getInstance("EC")
+                                    .generatePublic(new java.security.spec.X509EncodedKeySpec(spki));
+                            } catch (Exception e) {
+                                throw new IllegalStateException(e);
+                            }
+                        }).orElseThrow(IllegalStateException::new);
+                long ts = System.currentTimeMillis();
+                String nonce = UUID.randomUUID().toString();
+                Map<String, Object> claims = ContextAad.claims(uri, method, Direction.REQUEST, ts, nonce);
+                JWEHeader header = new JWEHeader.Builder(JWEAlgorithm.parse("ECDH-ES"), EncryptionMethod.A256GCM)
+                    .keyID(KID)
+                    .customParams(claims)
+                    .build();
+                JWEObject jwe = new JWEObject(header, new Payload(plaintext));
+                jwe.encrypt(new com.nimbusds.jose.crypto.ECDHEncrypter(pub));
+                return jwe.serialize();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
+    /**
      * 客户端视角：用服务端公钥加密明文为请求 JWE（claims 与 ContextAad 一致）。
      */
     public String seal(String plaintext, String uri, String method) {

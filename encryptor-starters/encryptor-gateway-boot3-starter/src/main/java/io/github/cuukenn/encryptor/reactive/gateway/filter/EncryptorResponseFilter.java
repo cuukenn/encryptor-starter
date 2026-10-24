@@ -81,9 +81,12 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 if (isNoBodyResponse()) {
                     return completeEmpty();
                 }
-                // 与请求侧同口径：小写归一后再匹配，避免"配置小写正则 × 响应头大写参数"漏匹配
-                String resCt = getHeaders().getContentType() == null
-                    ? "" : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT);
+                // 与请求侧同口径：media-type 段（剥 ;charset= 等参数）小写归一后匹配
+                String resCt = StrKit.mediaType(getHeaders().getContentType() == null
+                    ? null : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT));
+                if (resCt == null) {
+                    resCt = "";
+                }
                 if (StrKit.anyMatch(resCt, config.getSkipResContentType())) {
                     return super.writeWith(body);
                 }
@@ -161,9 +164,12 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                 if (isNoBodyResponse()) {
                     return completeEmpty();
                 }
-                // 与请求侧同口径：小写归一后再匹配，避免"配置小写正则 × 响应头大写参数"漏匹配
-                String resCt = getHeaders().getContentType() == null
-                    ? "" : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT);
+                // 与请求侧同口径：media-type 段（剥 ;charset= 等参数）小写归一后匹配
+                String resCt = StrKit.mediaType(getHeaders().getContentType() == null
+                    ? null : getHeaders().getContentType().toString().toLowerCase(java.util.Locale.ROOT));
+                if (resCt == null) {
+                    resCt = "";
+                }
                 if (StrKit.anyMatch(resCt, config.getSkipResContentType())) {
                     return super.writeAndFlushWith(body);
                 }

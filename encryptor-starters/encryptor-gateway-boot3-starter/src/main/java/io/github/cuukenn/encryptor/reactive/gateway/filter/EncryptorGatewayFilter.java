@@ -112,7 +112,12 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
         }
         // 4. 请求方向 content-type 黑名单透传（不请求解密 ⇒ 也不响应加密）
         MediaType contentType = request.getHeaders().getContentType();
-        String contentTypeValue = contentType == null ? "" : contentType.toString().toLowerCase(Locale.ROOT);
+        // media-type 段（剥 ;charset= 等参数）小写后匹配：带参数的真实头也要能命中名单
+        String contentTypeValue = StrKit.mediaType(
+            contentType == null ? null : contentType.toString().toLowerCase(Locale.ROOT));
+        if (contentTypeValue == null) {
+            contentTypeValue = "";
+        }
         if (StrKit.anyMatch(contentTypeValue, config.getSkipReqContentType())) {
             return chain.filter(exchange);
         }

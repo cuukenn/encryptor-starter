@@ -137,7 +137,8 @@ public class EncryptorResponseFilter extends OncePerRequestFilter {
             wrapper.resetBuffer();
             return;
         }
-        String contentType = wrapper.getContentType();
+        // media-type 段（剥 ;charset= 等参数）匹配：SSE 等常带参数的真实头也要能命中名单
+        String contentType = StrKit.mediaType(wrapper.getContentType());
         if (config != null && contentType != null
             && StrKit.anyMatch(contentType.toLowerCase(Locale.ROOT), config.getSkipResContentType())) {
             wrapper.copyBodyToResponse();

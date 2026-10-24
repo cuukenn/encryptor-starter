@@ -708,6 +708,55 @@ class GatewayJweTest {
 
     /** 响应方向同理：流式/chunked 响应必须在读取过程中按 max-response-size 截断。 */
     @Test
+    void 请求侧执行器拒绝时回503且补审计回调() throws Exception {
+        // 请求解密走 crypto scheduler：队列满/disposed 时必须 503（不能伪装成客户端 4xx）
+        CryptoExecutor disposed = CryptoExecutor.create();
+        disposed.dispose();
+        EncryptorGatewayFilter filter = new EncryptorGatewayFilter(gatewayConfig, reactiveConfig, protocol, disposed);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.get("/api/a").queryParam("jwe", seal("x=1", "/api/a", "GET")));
+        AtomicBoolean called = new AtomicBoolean();
+        filter.filter(exchange, e -> {
+            called.set(true);
+            return Mono.empty();
+        }).block(TIMEOUT);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(called).isFalse();
+    }
+
+    @Test
+    void 订阅取消时清理上下文并清零敏感数据() throws Exception {
+        // 下游 Mono.never() + dispose 模拟客户端断连/超时取消：doFinally(CANCEL) 必须移除
+        // GatewayContext 并清零 CEK/明文（此前只有正常完成信号被验证过）
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+            MockServerHttpRequest.post("/api/a").contentType(MediaType.APPLICATION_JSON)
+                .body("{\"jwe\":\"" + seal("{\"k\":\"v\"}", "/api/a", "POST") + "\"}"));
+        AtomicReference<GatewayContext> captured = new AtomicReference<>();
+        java.util.concurrent.CountDownLatch cancelled = new java.util.concurrent.CountDownLatch(1);
+        reactor.core.Disposable disposable = gateway().filter(exchange, e -> {
+            captured.set(e.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR));
+            return Mono.never();
+        }).subscribe();
+        // 等解密完成、上下文已登记后再取消
+        long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+        while (captured.get() == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(captured.get()).isNotNull();
+        byte[] cek = captured.get().getJweContext().cek();
+        disposable.dispose();
+        // doFinally 在取消信号上执行清理（异步，稍等）
+        deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+        while (exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR) != null
+            && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat((Object) exchange.getAttribute(GatewayConstant.GATEWAY_CONTEXT_ATTR)).isNull();
+        assertThat(cek).containsOnly((byte) 0);
+        assertThat(cancelled.getCount()).isEqualTo(1);
+    }
+
+    @Test
     void 响应加密被拒绝时回503() throws Exception {
         String compact = seal("a=1", "/api/a", "GET");
         JweContext jweContext = protocol.openRequest(compact, "/api/a", "GET");

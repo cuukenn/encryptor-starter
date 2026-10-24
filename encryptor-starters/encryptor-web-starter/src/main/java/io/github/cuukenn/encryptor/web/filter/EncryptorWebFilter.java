@@ -5,6 +5,7 @@ import cn.hutool.json.JSONUtil;
 import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
+import io.github.cuukenn.encryptor.exception.EncryptorFailure;
 import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
@@ -115,7 +116,11 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             return;
         }
         String contentType = request.getHeader(HttpHeaders.CONTENT_TYPE);
-        String ct = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        // media-type 段（剥 ;charset= 等参数）小写后匹配：带参数的真实头也要能命中名单
+        String ct = StrKit.mediaType(contentType == null ? null : contentType.toLowerCase(Locale.ROOT));
+        if (ct == null) {
+            ct = "";
+        }
         if (StrKit.anyMatch(ct, config.getSkipReqContentType())) {
             filterChain.doFilter(request, response);
             return;
@@ -160,7 +165,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
                     envelope = JSONUtil.parseObj(new String(raw, StandardCharsets.UTF_8));
                 } catch (RuntimeException e) {
                     logger.warn("request body is not a valid json envelope, uri: {}", uri, e);
-                    fail(request, response, WebContext.failureStatus());
+                    fail(request, response, WebContext.failureStatus(), EncryptorFailure.BAD_HEADER);
                     return;
                 }
                 compact = envelope.getStr(EncryptorConstant.JWE_PARAM);
@@ -170,7 +175,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         }
         if (compact == null || compact.isEmpty()) {
             if (WebContext.requireEncrypted()) {
-                fail(request, response, WebContext.failureStatus());
+                fail(request, response, WebContext.failureStatus(), EncryptorFailure.MISSING);
                 return;
             }
             // JSON 分支已经读过原始 body；透传时必须回放，否则下游看到的是空流
@@ -192,7 +197,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         if (accepted != null && !accepted.isEmpty() && !accepted.contains(jweCtx.kid())) {
             logger.warn("kid not accepted for uri: {}, kid: {}", uri, JweCodec.sanitize(jweCtx.kid()));
             jweCtx.destroy();
-            fail(request, response, WebContext.failureStatus());
+            fail(request, response, WebContext.failureStatus(), EncryptorFailure.ALG_NOT_ALLOWED);
             return;
         }
         ctx.setJweContext(jweCtx);
@@ -202,8 +207,8 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
             try {
                 ctx.setParameters(parseQuery(new String(jweCtx.plaintext(), StandardCharsets.UTF_8)));
             } catch (RuntimeException e) {
-                logger.warn("decrypted parameters are not urlencoded text, uri: {}", uri, e);
-                fail(request, response, WebContext.failureStatus());
+                logger.warn("decrypted parameters are not urlencoded text, uri: {}, {}", uri, e.getMessage());
+                fail(request, response, WebContext.failureStatus(), EncryptorFailure.INTERNAL);
                 return;
             }
         }
@@ -217,6 +222,13 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
      * 失败面统一出口：清上下文（提前 return 时最外层参数过滤器的 finally 不会执行，
      * 必须在这里清，否则 ThreadLocal/bodyPlaintext 会滞留到该线程的下一个请求）+ traceId 响应头 + 状态码。
      */
+    /** codec 外失败分支的统一出口：补发审计回调（codec 路径由 JweCodec 审计，不走此重载）。 */
+    private void fail(HttpServletRequest request, HttpServletResponse response, int status, EncryptorFailure failure) {
+        protocolStack.listener().onDecryptFailure(failure,
+            JweCodec.fail(failure, "uri=" + request.getRequestURI()));
+        fail(request, response, status);
+    }
+
     private static void fail(HttpServletRequest request, HttpServletResponse response, int status) {
         String trace = UUID.randomUUID().toString();
         // 响应头与日志必须同值：客户端拿 trace 来排障时能在日志里 grep 到
