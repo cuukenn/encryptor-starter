@@ -336,15 +336,22 @@ public class JweCodec {
     }
 
     /**
-     * 客户端可控头字段（alg/enc/kid/crit）进日志/异常消息前的脱敏：控制字符（含 CR/LF，
-     * 日志伪造面）替换为可见占位。长度也截断，防止超长字段刷屏。
+     * 客户端可控头字段（alg/enc/kid/crit）进日志/异常消息前的脱敏：控制字符（含 CR/LF）与
+     * Unicode 行/段分隔符（U+2028/U+2029，部分日志采集端按换行解析）替换为可见占位；
+     * 按 codePoint 截断到 128（不劈开代理对），防止超长字段刷屏。两侧过滤器层同样复用。
      */
-    static String sanitize(String value) {
+    public static String sanitize(String value) {
         if (value == null) {
             return "null";
         }
-        String trimmed = value.length() > 128 ? value.substring(0, 128) + "…" : value;
-        return trimmed.replaceAll("[\\p{Cntrl}]", "·");
+        StringBuilder trimmed = new StringBuilder(Math.min(value.length(), 140));
+        int codePoints = 0;
+        for (int i = 0; i < value.length() && codePoints < 128; codePoints++) {
+            int cp = value.codePointAt(i);
+            trimmed.appendCodePoint(cp);
+            i += Character.charCount(cp);
+        }
+        return trimmed.toString().replaceAll("[\\p{Cntrl}\\u2028\\u2029]", "·");
     }
 
     /** 构造带分类的失败异常（供本包与后续任务复用）。 */

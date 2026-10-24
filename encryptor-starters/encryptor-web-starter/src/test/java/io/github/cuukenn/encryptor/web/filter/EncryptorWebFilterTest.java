@@ -405,9 +405,34 @@ class EncryptorWebFilterTest {
     void dot段路径不能绕过uri级kid白名单() throws Exception {
         // 下游容器会把 /x/../api/a 归一化到 /api/a：白名单必须按折叠后的路径匹配，
         // 否则穿越形态不命中白名单 = 任意 kid 放行，请求却落到受保护资源
+        Logger logger = (Logger) getLogger(EncryptorWebFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            webConfig.getCryptoConfig().put("/api/.*", Arrays.asList("other-kid"));
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/x/../api/a");
+            request.setParameter("jwe", support.seal("a=1", "/x/../api/a", "GET"));
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            run(request, response);
+            assertThat(response.getStatus()).isEqualTo(400);
+            assertThat(chainExecuted).isFalse();
+            // 钉住拒绝来源是 kid 白名单（而不是 AAD/解密失败）：日后 AAD 输入口径变化时
+            // 本用例不会因为别的 400 原因假绿
+            assertThat(appender.list).anyMatch(e -> e.getLevel() == Level.WARN
+                && e.getFormattedMessage().contains("kid not accepted")
+                && e.getFormattedMessage().contains("/api/a"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void 双斜杠路径不能绕过uri级kid白名单() throws Exception {
+        // Tomcat 归一化会把 //api/a 折叠成 /api/a：与 ../ 同一威胁模型
         webConfig.getCryptoConfig().put("/api/.*", Arrays.asList("other-kid"));
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/x/../api/a");
-        request.setParameter("jwe", support.seal("a=1", "/x/../api/a", "GET"));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "//api/a");
+        request.setParameter("jwe", support.seal("a=1", "//api/a", "GET"));
         MockHttpServletResponse response = new MockHttpServletResponse();
         run(request, response);
         assertThat(response.getStatus()).isEqualTo(400);

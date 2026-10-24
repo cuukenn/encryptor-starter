@@ -6,6 +6,7 @@ import io.github.cuukenn.encryptor.config.EncryptorConfig;
 import io.github.cuukenn.encryptor.constant.EncryptorConstant;
 import io.github.cuukenn.encryptor.exception.EncryptorException;
 import io.github.cuukenn.encryptor.jose.ContextAad;
+import io.github.cuukenn.encryptor.jose.JweCodec;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -189,7 +190,7 @@ public class EncryptorWebFilter extends OncePerRequestFilter {
         // uri 级 kid 白名单（Ruling 8b-R4）：该 uri 只接受配置列出的 kid，空列表 = 不限
         List<String> accepted = acceptedKid(matchUri);
         if (accepted != null && !accepted.isEmpty() && !accepted.contains(jweCtx.kid())) {
-            logger.warn("kid not accepted for uri: {}, kid: {}", uri, jweCtx.kid());
+            logger.warn("kid not accepted for uri: {}, kid: {}", uri, JweCodec.sanitize(jweCtx.kid()));
             jweCtx.destroy();
             fail(request, response, WebContext.failureStatus());
             return;

@@ -160,11 +160,11 @@ public class EncryptorGatewayFilter implements GlobalFilter, Ordered {
                 if (matched != null) {
                     List<String> allowedKids = config.getCryptoConfig().get(matched);
                     if (allowedKids != null && !allowedKids.isEmpty() && !allowedKids.contains(ctx.kid())) {
-                        logger.warn("kid not allowed for uri: {}, kid: {}", uri, ctx.kid());
+                        logger.warn("kid not allowed for uri: {}, kid: {}", uri, JweCodec.sanitize(ctx.kid()));
                         ctx.destroy();
                         return fail(exchange, reactiveConfig.getFailureStatus(), EncryptorFailure.ALG_NOT_ALLOWED,
                             JweCodec.fail(EncryptorFailure.ALG_NOT_ALLOWED,
-                                "uri=" + uri + " 的 kid 白名单不含: " + ctx.kid()));
+                                "uri=" + uri + " 的 kid 白名单不含: " + JweCodec.sanitize(ctx.kid())));
                     }
                 }
                 GatewayContext gatewayContext = new GatewayContext();

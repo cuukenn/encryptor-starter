@@ -87,7 +87,15 @@ class ContextAadTest {
         assertEquals("/a/", ContextAad.canonicalPath("/a/", null));
         assertEquals("/a/", ContextAad.canonicalPath("/a/.", null));
         assertEquals("/pay/", ContextAad.canonicalPath("/x/../pay/", null));
-        // 无 dot 段原样返回（含 contextPath 剥离叠加折叠）
+        // 空段（//）同样折叠：Tomcat 归一化 //pay → /pay，与 .. 同一绕过面
+        assertEquals("/pay", ContextAad.canonicalPath("//pay", null));
+        assertEquals("/api/a", ContextAad.canonicalPath("//api//a", null));
+        assertEquals("/a/b/", ContextAad.canonicalPath("/a//b/", null));
+        // 段内的点不是 dot 段（.b/..x/a.b 都是普通段）
+        assertEquals("/a/.b/c", ContextAad.canonicalPath("/a/.b/c", null));
+        assertEquals("/a/..x", ContextAad.canonicalPath("/a/..x", null));
+        assertEquals("/a.b/c", ContextAad.canonicalPath("/a.b/c", null));
+        // 无 dot/空段原样返回（含 contextPath 剥离叠加折叠）
         assertEquals("/pay/x", ContextAad.canonicalPath("/app/x/../pay/x", "/app"));
     }
 }

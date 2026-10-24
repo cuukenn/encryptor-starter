@@ -50,7 +50,9 @@ public final class ContextAad {
         if (path.isEmpty()) {
             path = "/";
         }
-        // 百分号解码（用 URI 以保留 '+' 原样；失败说明已解码或含非法字符，退回原串）
+        // 折叠 → 解码 → 再折叠：先折叠是因为 java.net.URI 会把开头的 "//" 当 authority 解析
+        // （丢段）；解码可能产出新的 dot/空段（%2E%2E、%2F），由第二轮折叠兜住
+        path = foldDotSegments(path);
         try {
             String decoded = URI.create(path).getPath();
             if (decoded != null && !decoded.isEmpty()) {
@@ -63,16 +65,19 @@ public final class ContextAad {
     }
 
     /**
-     * 折叠路径里的 {@code .} / {@code ..} 段（RFC 3986 §5.2.4 的简化：绝对路径、超出根的 {@code ..} 丢弃）。
+     * 折叠路径里的 {@code .} / {@code ..} / 空段（RFC 3986 §5.2.4 的简化：绝对路径、超出根的 {@code ..} 丢弃）。
      *
      * <p><b>为什么必须折叠</b>：下游容器/路由会自行归一化路径——不折叠的话，uri 级 kid 白名单
-     * 可被 {@code /x/../pay} 形态绕过（过滤器看到的是穿越形态、白名单不命中=不限 kid，下游却落到
-     * 受保护资源）。解码后再折叠，{@code %2E%2E} 的编码形态一并覆盖；尾斜杠语义保留
-     * （{@code /a/} → {@code /a/}，{@code /a/.} → {@code /a/}），合法客户端不受影响
-     * （浏览器/HTTP 客户端发出请求前就已归一化路径）。
+     * 可被 {@code /x/../pay}、{@code //pay} 形态绕过（过滤器看到的是穿越/冗余形态、白名单不命中
+     * =不限 kid，下游却归一化落到受保护资源）。解码后再折叠，{@code %2E%2E} 的编码形态一并覆盖；
+     * 尾斜杠语义保留（{@code /a/} → {@code /a/}，{@code /a/.} → {@code /a/}）。</p>
+     *
+     * <p><b>已知取舍</b>：不预归一化路径的客户端（claim 绑原始形态）在这类非常规路径上会被
+     * AAD 拒绝（fail-closed）；常规路径 raw == folded，不受影响。</p>
      */
     static String foldDotSegments(String path) {
-        if (!path.startsWith("/") || !path.contains("/.")) {
+        // 空段（//）与 dot 段同威胁：Tomcat 归一化会把 //pay 折叠成 /pay
+        if (!path.startsWith("/") || (!path.contains("/.") && !path.contains("//"))) {
             return path;
         }
         java.util.ArrayDeque<String> segments = new java.util.ArrayDeque<>();

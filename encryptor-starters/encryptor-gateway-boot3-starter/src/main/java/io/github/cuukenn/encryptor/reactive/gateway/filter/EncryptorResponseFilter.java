@@ -1,5 +1,6 @@
 package io.github.cuukenn.encryptor.reactive.gateway.filter;
 
+import io.github.cuukenn.encryptor.jose.ContextAad;
 import io.github.cuukenn.encryptor.jose.JweContext;
 import io.github.cuukenn.encryptor.kit.StrKit;
 import io.github.cuukenn.encryptor.protocol.DefaultProtocol;
@@ -110,7 +111,9 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                             java.util.Arrays.fill(bytes, (byte) 0);
                             return fail(HttpStatus.INTERNAL_SERVER_ERROR);
                         }
-                        String uri = exchange.getRequest().getURI().getPath();
+                        // 响应 AAD 的 uri 与请求侧同口径（canonicalPath 归一）：claim 与请求验证
+                        // 用同一个规范化形态，客户端按封包路径验响应才不会分叉
+                        String uri = ContextAad.canonicalPath(exchange.getRequest().getURI().getPath(), null);
                         String method = exchange.getRequest().getMethod().name();
                         // 显式带上请求协商出的 enc（C2）：SM4-GCM 的 CEK 是 16B，按长度猜会封成 A128GCM
                         return Mono.fromCallable(() -> protocol.codec().encryptResponse(
@@ -118,8 +121,9 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 System.currentTimeMillis(), UUID.randomUUID().toString()))
                             .subscribeOn(crypto.scheduler())
                             .doFinally(signal -> {
-                                // 副本与"明文等价"：加密终态（成功/失败/取消）后立即清零，不等 GC
+                                // 加密终态（成功/失败/取消）立即清零两份"明文等价"副本，不等 GC
                                 java.util.Arrays.fill(cek, (byte) 0);
+                                java.util.Arrays.fill(bytes, (byte) 0);
                             })
                             .flatMap(jwe -> {
                                 byte[] jweBytes = jwe.getBytes(StandardCharsets.US_ASCII);
@@ -133,8 +137,6 @@ public class EncryptorResponseFilter implements GlobalFilter, Ordered {
                                 // 否则客户端按 gzip 解压 JWE JSON 得到乱码
                                 getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
                                 getHeaders().setContentLength(payload.length);
-                                // 响应明文的唯一后续消费者（payload/JWE）已构造完，副本即刻清零
-                                java.util.Arrays.fill(bytes, (byte) 0);
                                 return super.writeWith(Mono.just(getDelegate().bufferFactory().wrap(payload)));
                             })
                             .onErrorResume(RejectedExecutionException.class, e -> {
